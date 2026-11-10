@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	_ "embed"
@@ -24,9 +25,11 @@ import (
 var loginHTML []byte
 
 const (
-	sessionCookie   = "zp_session"
-	sessionAbsolute = 12 * time.Hour
-	breakGlassMax   = 60 * time.Minute // längste Sitzung des Notfallzugangs
+	sessionCookie     = "zp_session"       // lokal/http
+	sessionCookieHost = "__Host-zp_session" // https: Secure, Path=/, kein Domain (Prefix-Regeln)
+	sessionAbsolute   = 12 * time.Hour
+	breakGlassMax     = 60 * time.Minute // längste Sitzung des Notfallzugangs
+	sessionHMACPrefix = "v1:"
 )
 
 func (a *App) routesLocalAuth(mux *http.ServeMux) {
@@ -55,17 +58,52 @@ func (a *App) secureCookie(r *http.Request) bool {
 }
 
 func (a *App) setSessionCookie(w http.ResponseWriter, r *http.Request, token string, ttl time.Duration) {
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode,
-		Secure: a.secureCookie(r), MaxAge: int(ttl.Seconds())})
+	secure := a.secureCookie(r)
+	name := sessionCookie
+	if secure {
+		name = sessionCookieHost
+	}
+	http.SetCookie(w, &http.Cookie{Name: name, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode,
+		Secure: secure, MaxAge: int(ttl.Seconds())})
+	// Anderen Cookie-Namen löschen (keine Doppel-Sitzung)
+	other := sessionCookieHost
+	if name == sessionCookieHost {
+		other = sessionCookie
+	}
+	http.SetCookie(w, &http.Cookie{Name: other, Value: "", Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: secure, MaxAge: -1})
 }
 
 func clearSessionCookie(w http.ResponseWriter, r *http.Request, secure bool) {
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: secure, MaxAge: -1})
+	for _, name := range []string{sessionCookieHost, sessionCookie} {
+		http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: secure, MaxAge: -1})
+	}
 }
 
+// sessionID: SHA-256 ohne Server-Schlüssel (OIDC-Flow-Cookies, Abwärtskompatibilität Sitzungen).
 func sessionID(token string) string {
 	h := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(h[:])
+}
+
+// sessionHash: HMAC mit ZP_SECRET_KEY – DB-Dump allein reicht nicht zur Sitzungsübernahme.
+func (a *App) sessionHash(token string) string {
+	key := a.Key
+	if len(key) == 0 {
+		key = make([]byte, 32)
+	}
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write([]byte("session|v1|"))
+	_, _ = mac.Write([]byte(token))
+	return sessionHMACPrefix + hex.EncodeToString(mac.Sum(nil))
+}
+
+func (a *App) sessionTokenFromRequest(r *http.Request) string {
+	for _, name := range []string{sessionCookieHost, sessionCookie} {
+		if c, err := r.Cookie(name); err == nil && c.Value != "" && len(c.Value) <= 100 {
+			return c.Value
+		}
+	}
+	return ""
 }
 
 // newSession legt eine Sitzung an. In der Datenbank steht nur der Hash des Tokens.
@@ -79,19 +117,13 @@ func (a *App) newSession(ctx context.Context, uid int64, ip, ua string, ttl time
 		ua = ua[:200]
 	}
 	_, err := a.DB.Exec(ctx, `INSERT INTO sessions(id,user_id,expires_at,ip,user_agent) VALUES($1,$2,$3,$4,$5)`,
-		sessionID(token), uid, time.Now().Add(ttl), ip, ua)
+		a.sessionHash(token), uid, time.Now().Add(ttl), ip, ua)
 	return token, err
 }
 
-// sessionUser liefert den angemeldeten Benutzer zum Cookie. Abgelaufene, gesperrte und (beim Notfallzugang) nicht scharfe Konten gelten nicht.
-func (a *App) sessionUser(r *http.Request) (User, bool) {
-	c, err := r.Cookie(sessionCookie)
-	if err != nil || c.Value == "" || len(c.Value) > 100 {
-		return User{}, false
-	}
-	id := sessionID(c.Value)
+func (a *App) lookupSessionUser(ctx context.Context, id string) (User, bool) {
 	var u User
-	err = a.DB.QueryRow(r.Context(), `SELECT u.id, u.email, u.name, u.role, u.kind, u.productive, u.must_change_password, u.is_hr,
+	err := a.DB.QueryRow(ctx, `SELECT u.id, u.email, u.name, u.role, u.kind, u.productive, u.must_change_password, u.is_hr,
 		EXISTS(SELECT 1 FROM team_members m WHERE m.user_id=u.id AND m.is_lead)
 		FROM sessions s JOIN users u ON u.id=s.user_id
 		WHERE s.id=$1 AND s.expires_at > now() AND s.last_seen > now() - interval '2 hours' AND NOT u.disabled
@@ -100,7 +132,30 @@ func (a *App) sessionUser(r *http.Request) (User, bool) {
 	if err != nil {
 		return User{}, false
 	}
-	_, _ = a.DB.Exec(r.Context(), `UPDATE sessions SET last_seen=now() WHERE id=$1 AND last_seen < now() - interval '1 minute'`, id)
+	return u, true
+}
+
+// sessionUser liefert den angemeldeten Benutzer zum Cookie. Abgelaufene, gesperrte und (beim Notfallzugang) nicht scharfe Konten gelten nicht.
+func (a *App) sessionUser(r *http.Request) (User, bool) {
+	raw := a.sessionTokenFromRequest(r)
+	if raw == "" {
+		return User{}, false
+	}
+	ctx := r.Context()
+	ids := []string{a.sessionHash(raw), sessionID(raw)} // HMAC zuerst, dann Legacy
+	var u User
+	var id string
+	var ok bool
+	for _, cand := range ids {
+		if u, ok = a.lookupSessionUser(ctx, cand); ok {
+			id = cand
+			break
+		}
+	}
+	if !ok {
+		return User{}, false
+	}
+	_, _ = a.DB.Exec(ctx, `UPDATE sessions SET last_seen=now() WHERE id=$1 AND last_seen < now() - interval '1 minute'`, id)
 	return u, true
 }
 
@@ -222,11 +277,11 @@ func (a *App) authLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) authLogout(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
+	if raw := a.sessionTokenFromRequest(r); raw != "" {
 		if u, ok := a.sessionUser(r); ok && u.Role == "breakglass" {
 			a.audit(r.Context(), u.ID, "breakglass.logout", "")
 		}
-		_, _ = a.DB.Exec(r.Context(), `DELETE FROM sessions WHERE id=$1`, sessionID(c.Value))
+		_, _ = a.DB.Exec(r.Context(), `DELETE FROM sessions WHERE id=$1 OR id=$2`, a.sessionHash(raw), sessionID(raw))
 	}
 	clearSessionCookie(w, r, a.secureCookie(r))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -276,15 +331,15 @@ func (a *App) authPassword(w http.ResponseWriter, r *http.Request, u User) {
 		a.fail(w, err)
 		return
 	}
-	cur := ""
-	if c, err := r.Cookie(sessionCookie); err == nil {
-		cur = sessionID(c.Value)
+	curHMAC, curLegacy := "", ""
+	if raw := a.sessionTokenFromRequest(r); raw != "" {
+		curHMAC, curLegacy = a.sessionHash(raw), sessionID(raw)
 	}
 	err = a.inTx(ctx, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `UPDATE users SET password_hash=$2, must_change_password=false WHERE id=$1`, u.ID, nh); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1 AND id <> $2`, u.ID, cur)
+		_, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1 AND id <> $2 AND id <> $3`, u.ID, curHMAC, curLegacy)
 		return err
 	})
 	if err != nil {

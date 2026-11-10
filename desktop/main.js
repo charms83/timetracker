@@ -34,6 +34,7 @@ const DEFAULTS = {
   mode: "local",          // "local" | "team"
   serverUrl: "",          // nur https://… (http nur localhost mit allowHttpTeam)
   allowHttpTeam: false,   // Dev: http://localhost bzw. 127.0.0.1 erlauben
+  serverCertPin: "",      // optional: SHA-256 des Server-Zertifikats (hex), Pinning gegen MITM
 };
 /** Optionaler Geräte-Token (Add-on); Normalfall Team = Session-Cookie. Persistenz safeStorage. */
 let deviceTokenMem = "";
@@ -104,6 +105,15 @@ function baseUrls() {
   return { api: LOCAL_API, web: LOCAL_WEB };
 }
 function isTeamMode() { return cfg.mode === "team" && teamUrlOk(cfg.serverUrl); }
+function certPinNorm(s) {
+  return String(s || "").toLowerCase().replace(/[^a-f0-9]/g, "");
+}
+function certMatchesPin(certificate) {
+  const pin = certPinNorm(cfg.serverCertPin);
+  if (!pin) return true;
+  const fp = certPinNorm(certificate && (certificate.fingerprint256 || certificate.fingerprint));
+  return fp.length >= 64 && fp.includes(pin);
+}
 const LOG_FILE = path.join(HOME, ".zeitprotokoll", "desktop.log");
 function log(...a) {
   const line = `${new Date().toISOString()} ${a.map(x => typeof x === "string" ? x : JSON.stringify(x)).join(" ")}\n`;
@@ -160,8 +170,12 @@ async function hasTeamSession() {
   if (!isTeamMode()) return false;
   try {
     const origin = new URL(cfg.serverUrl).origin;
-    const cookies = await session.defaultSession.cookies.get({ url: origin, name: "zp_session" });
-    return cookies.some(c => !!c.value);
+    const names = ["__Host-zp_session", "zp_session"];
+    for (const name of names) {
+      const cookies = await session.defaultSession.cookies.get({ url: origin, name });
+      if (cookies.some(c => !!c.value)) return true;
+    }
+    return false;
   } catch (_) { return false; }
 }
 
@@ -313,7 +327,11 @@ function createMain(view, forceWindow) {
     width: 1200, height: 820, minWidth: 900, minHeight: 600,
     titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 18 },
     backgroundColor: "#ffffff", title: "Zeitprotokoll",
-    webPreferences: { contextIsolation: true, nodeIntegration: false, preload: path.join(__dirname, "preload-main.js") },
+    webPreferences: {
+      contextIsolation: true, nodeIntegration: false, sandbox: true,
+      webSecurity: true, allowRunningInsecureContent: false,
+      preload: path.join(__dirname, "preload-main.js"),
+    },
   });
   main.loadURL(target);
   main.webContents.on("did-finish-load", () => {
@@ -325,7 +343,19 @@ function createMain(view, forceWindow) {
       main { -webkit-app-region: no-drag; }
     `);
   });
-  main.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: "deny" }; });
+  // Team: kein HTTP-Downgrade (OIDC-IdP auf https bleibt erlaubt)
+  main.webContents.on("will-navigate", (e, url) => {
+    if (!isTeamMode()) return;
+    try {
+      const u = new URL(url);
+      if (u.protocol === "http:" && !(cfg.allowHttpTeam && (u.hostname === "localhost" || u.hostname === "127.0.0.1"))) {
+        e.preventDefault(); log("blocked insecure navigate", url);
+      }
+    } catch (_) { e.preventDefault(); }
+  });
+  main.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url); return { action: "deny" };
+  });
   main.on("closed", () => { main = null; });
   // „Schlau“: Tracker schwebt über anderen Programmen (Browser …), aber nicht über dem eigenen Hauptfenster.
   // Hauptfenster vorne → Tracker darf dahinter; anderes Programm vorne → Tracker wieder obenauf. Nichts wird geschlossen.
@@ -602,9 +632,14 @@ ipcMain.handle("cfg:get", async () => {
   if (deviceTokenMem) c.deviceTokenHint = deviceTokenMem.slice(0, 8) + "…";
   return c;
 });
-ipcMain.handle("cfg:setTeam", (_e, { mode, serverUrl, deviceToken, allowHttpTeam }) => {
+ipcMain.handle("cfg:setTeam", (_e, { mode, serverUrl, deviceToken, allowHttpTeam, serverCertPin }) => {
   if (mode === "local" || mode === "team") cfg.mode = mode;
   if (typeof allowHttpTeam === "boolean") cfg.allowHttpTeam = allowHttpTeam;
+  if (typeof serverCertPin === "string") {
+    const p = certPinNorm(serverCertPin);
+    if (p && p.length !== 64) return { ok: false, error: "serverCertPin: SHA-256 als 64 Hex-Zeichen" };
+    cfg.serverCertPin = p;
+  }
   if (typeof serverUrl === "string") {
     const u = serverUrl.trim().replace(/\/+$/, "");
     if (u && cfg.mode === "team" && !teamUrlOk(u)) {
@@ -621,9 +656,54 @@ ipcMain.handle("cfg:setTeam", (_e, { mode, serverUrl, deviceToken, allowHttpTeam
     return { ok: false, error: "Ungültige serverUrl – Modus zurück auf local" };
   }
   saveCfg();
-  log("cfg team", cfg.mode, cfg.serverUrl ? "url=set" : "url=empty", deviceTokenMem ? "token=optional" : "auth=session");
+  log("cfg team", cfg.mode, cfg.serverUrl ? "url=set" : "url=empty", deviceTokenMem ? "token=optional" : "auth=session", cfg.serverCertPin ? "pin=set" : "pin=off");
   return { ok: true, mode: cfg.mode, hasDeviceToken: !!deviceTokenMem };
 });
+
+/** TLS / Host-Härtung für Team-Verbindung (MITM-Schutz). */
+function installTeamTransportSecurity() {
+  // Ungültige Zertifikate nie akzeptieren (auch nicht nach Klick „weiter“)
+  app.on("certificate-error", (event, _wc, url, error, certificate, callback) => {
+    event.preventDefault();
+    log("tls rejected", error, url, certificate && certificate.subjectName);
+    callback(false);
+  });
+  const ses = session.defaultSession;
+  if (typeof ses.setCertificateVerifyProc === "function") {
+    ses.setCertificateVerifyProc((request, callback) => {
+      // Chromium-Fehler → ablehnen (kein Klick-durch)
+      if (typeof request.errorCode === "number" && request.errorCode !== 0) { callback(-2); return; }
+      // Optional: Pin nur für den konfigurierten Team-Server (IdP bleibt System-CA)
+      if (isTeamMode() && cfg.serverCertPin) {
+        try {
+          if (request.hostname === new URL(cfg.serverUrl).hostname && !certMatchesPin(request.certificate)) {
+            log("tls pin mismatch", request.hostname);
+            callback(-2);
+            return;
+          }
+        } catch (_) { callback(-2); return; }
+      }
+      callback(0);
+    });
+  }
+  ses.setPermissionRequestHandler((_wc, _permission, callback) => {
+    callback(false); // keine Kamera/Mikro/Geolocation
+  });
+  // Team: Klartext-HTTP blockieren (außer localhost-Dev); OIDC-IdP auf https bleibt erlaubt
+  ses.webRequest.onBeforeRequest({ urls: ["*://*/*"] }, (details, cb) => {
+    if (!isTeamMode()) { cb({}); return; }
+    const u = details.url || "";
+    if (u.startsWith("devtools://") || u.startsWith("file://") || u.startsWith("data:")) { cb({}); return; }
+    try {
+      const parsed = new URL(u);
+      if (parsed.protocol === "http:") {
+        const ok = cfg.allowHttpTeam && (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1");
+        if (!ok) { log("blocked insecure request", u); cb({ cancel: true }); return; }
+      }
+    } catch (_) { cb({ cancel: true }); return; }
+    cb({});
+  });
+}
 
 // ── Start ────────────────────────────────────────────────────────
 app.on("second-instance", () => showMini());
@@ -632,10 +712,11 @@ app.on("before-quit", () => { quitting = true; });
 app.on("window-all-closed", e => e.preventDefault());
 
 app.whenReady().then(async () => {
+  installTeamTransportSecurity();
   // Optionaler Geräte-Token (Legacy/Add-on): aus alter Config migrieren; Team-Normalfall = Login-Session
   migrateDeviceTokenFromCfg();
   loadDeviceTokenFromDisk();
-  // Lokal: App-Schlüssel (X-ZP-Token). Team: Sitzungs-Cookie zp_session (Server) – kein Header nötig.
+  // Lokal: App-Schlüssel (X-ZP-Token). Team: Sitzungs-Cookie (Server) – kein Header nötig.
   const tokenFile = path.join(CFG_DIR, "app-token");
   let appTok = null; const readTok = () => { try { appTok = fs.readFileSync(tokenFile, "utf8").trim(); } catch (_) { appTok = null; } return appTok; };
   // Nur lokaler Node braucht X-ZP-Token; Team-Server nutzt HttpOnly-Cookie nach Login

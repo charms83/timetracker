@@ -32,6 +32,47 @@ func TestSecurityHeaders(t *testing.T) {
 	}
 }
 
+func TestHSTSWhenPublicHTTPS(t *testing.T) {
+	a := &App{PublicURL: "https://zeit.example.com"}
+	h := a.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
+	req := httptest.NewRequest("GET", "https://zeit.example.com/api/me", nil)
+	req.Host = "zeit.example.com"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	hsts := rec.Header().Get("Strict-Transport-Security")
+	if !strings.Contains(hsts, "max-age=") {
+		t.Fatalf("HSTS erwartet, war %q", hsts)
+	}
+}
+
+func TestSessionCookieHostPrefix(t *testing.T) {
+	a := &App{PublicURL: "https://zeit.example.com", Key: []byte("0123456789abcdef0123456789abcdef")}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "https://zeit.example.com/", nil)
+	req.Host = "zeit.example.com"
+	a.setSessionCookie(rec, req, "tokentokentokentokentoken12", time.Hour)
+	foundHost, foundPlain := false, false
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == sessionCookieHost && c.Value != "" && c.Secure && c.HttpOnly && c.Path == "/" {
+			foundHost = true
+		}
+		if c.Name == sessionCookie && c.MaxAge < 0 {
+			foundPlain = true // alter Name wird gelöscht
+		}
+	}
+	if !foundHost {
+		t.Fatal("__Host-zp_session Secure/HttpOnly erwartet")
+	}
+	if !foundPlain {
+		t.Fatal("zp_session sollte beim Setzen unter https gelöscht werden")
+	}
+	h1 := a.sessionHash("abc")
+	h2 := a.sessionHash("abc")
+	if h1 != h2 || !strings.HasPrefix(h1, "v1:") || h1 == sessionID("abc") {
+		t.Fatalf("sessionHash %s", h1)
+	}
+}
+
 func TestHostCheckWithPublicURL(t *testing.T) {
 	a := &App{PublicURL: "https://zeit.example.com"}
 	h := a.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))

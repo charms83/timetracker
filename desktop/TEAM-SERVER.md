@@ -10,42 +10,43 @@ In `~/.zeitprotokoll/desktop.json` (oder per IPC `cfg:setTeam`):
 {
   "mode": "team",
   "serverUrl": "https://zeit.firma.example",
-  "allowHttpTeam": false
+  "allowHttpTeam": false,
+  "serverCertPin": ""
 }
 ```
 
 1. `mode` auf `team`, `serverUrl` auf die öffentliche **https**-Adresse setzen.
-2. Client starten → **Zeitprotokoll öffnen** (öffnet die Server-Oberfläche im App-Fenster).
-3. **Einmal anmelden** (LDAP/OIDC/lokal) – der Server legt eine Sitzung an (`zp_session`-Cookie, HttpOnly).
-4. Fertig: Daten abrufen und buchen wie im Browser. Anwesenheit/Meetings gehen als `POST /api/client/hints` mit derselben Sitzung.
+2. Optional `serverCertPin`: SHA-256 des Server-Zertifikats (64 Hex) – Pinning gegen MITM.
+3. Client starten → **Zeitprotokoll öffnen** (Server-UI im App-Fenster).
+4. **Einmal anmelden** – Sitzung liegt auf dem Server (`__Host-zp_session`, HttpOnly + Secure).
 
-**Kein Geräte-Token nötig.** Die Anmeldung liegt auf dem Server; der Client speichert kein Passwort und kein Token für den Normalbetrieb.
+**Kein Geräte-Token nötig.** Passwort/OIDC bleiben auf Server/IdP.
 
-Zurück zum Einzelplatz: `"mode": "local"`.
+Zurück zum Einzelplatz: `"mode": "local"`.  
+Dev: `allowHttpTeam: true` nur für `http://localhost` / `127.0.0.1`.
 
-Dev: `allowHttpTeam: true` erlaubt `http://localhost` / `127.0.0.1`.
+## Verbindungs-Sicherheit
+
+| Schutz | Wirkung |
+|---|---|
+| HTTPS Pflicht | Team-URL ohne `https://` wird abgelehnt |
+| TLS-Prüfung | Ungültige/abgelaufene Zertifikate werden nie akzeptiert |
+| Optional Cert-Pin | Nur exakt dieses Server-Zertifikat für `serverUrl` |
+| Kein HTTP-Downgrade | Klartext-Requests im Team-Modus blockiert |
+| Server-Sitzung | Cookie `__Host-zp_session` (Secure, HttpOnly, Path=/); Hash mit `ZP_SECRET_KEY` |
+| HSTS | Server sendet `Strict-Transport-Security` bei https-`ZP_PUBLIC_URL` |
+| Betrieb | `ZP_PUBLIC_URL=https://…` ist Pflicht |
 
 ## Was speichert wer?
 
 | Was | Wo |
 |---|---|
-| Sitzung (Login) | **Server** (Tabelle `sessions`, Hash); Client nur HttpOnly-Cookie in der Electron-Session |
-| Passwort / OIDC | **Server** / IdP – nie im Client |
-| Geräte-Token | **optional**, nur Add-on/curl/Skript ohne Browser-Login; Server nur HMAC |
-
-## Optionales Geräte-Token
-
-Nur für Browser-Add-on, curl oder Headless ohne Login-Fenster: unter **Einstellungen › Erkennung** anlegen. Der Mac-Client braucht das nicht, wenn man sich im Fenster anmeldet.
-
-## Sicherheit
-
-- Team-UI immer im Electron-Fenster (nicht Systembrowser), damit die Sitzung in der App bleibt.
-- API aus dem Main-Prozess: `session.fetch` mit Cookie, ohne `Origin` (CSRF-Schutz).
-- `serverUrl` nur `https://` (localhost-HTTP mit `allowHttpTeam`).
-- Geräte-Token falls gesetzt: `safeStorage`, nicht in `desktop.json`.
+| Sitzung | **Server** (`sessions`, HMAC); Client nur HttpOnly-Cookie |
+| Passwort / OIDC | **Server** / IdP |
+| Geräte-Token | optional (Add-on/curl); Server nur HMAC |
 
 ## Noch offen
 
-- Tray-UI zum Setzen der Server-URL
-- Timer/Pause im Mini-Fenster über dieselbe Session
-- Add-on auf Server-URL (dann optional Geräte-Token)
+- Tray-UI für Server-URL / Cert-Pin
+- Timer im Mini über dieselbe Session
+- Add-on auf Server-URL
