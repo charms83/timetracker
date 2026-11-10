@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
-	"sync"
 	"time"
 )
 
@@ -203,22 +202,34 @@ func (a *App) auditList(w http.ResponseWriter, r *http.Request, u User) {
 
 /* ── Hash-Kette prüfen ──────────────────────────────────────────── */
 
-type chainResult struct {
-	at       time.Time
-	ok       bool
-	rows     int64
-	brokenID int64
-	brokenTS string
-	brokenBy int64 // Eigentümer der gebrochenen Zeile (nur intern)
-	err      error
+// Die Kette wird schrittweise geprüft: Stand (letzte geprüfte id/hash) bleibt im Speicher, jeder Lauf prüft nur Neues
+// (höchstens chainBatch Zeilen); stündlich beginnt die Prüfung wieder von vorn. Nur ein Lauf gleichzeitig; Wartende brechen
+// mit ihrer Anfrage ab. Fehler werden kurz gemerkt, damit ein Fehlerfall nicht jeden Aufruf erneut scannen lässt.
+type chainState struct {
+	checkedAt time.Time // letzter Lauf
+	fullFrom  time.Time // Beginn der aktuellen Prüfung ab id 0
+	lastID    int64
+	lastHash  *string
+	rows      int64
+	complete  bool // bis zur letzten Zeile geprüft
+	ok        bool
+	brokenID  int64
+	brokenTS  string
+	brokenBy  int64 // Eigentümer der gebrochenen Zeile (nur intern)
+	err       error
+	errAt     time.Time
 }
 
 var (
-	chainMu    sync.Mutex
-	chainCache *chainResult
+	chainSem    = make(chan struct{}, 1)
+	chainState0 = &chainState{ok: true}
 )
 
-const chainCacheFor = time.Minute
+const (
+	chainCacheFor = time.Minute
+	chainFullFor  = time.Hour
+	chainBatch    = 500000
+)
 
 // chainLink: Hash wie time_entries_audit() (008/018): sha256(prev|ts|uid|rid|action|before|after). rid NULL → Hash NULL (SQL-Verkettung).
 func chainLink(prev, ts string, uid int64, rid *int64, action, before, after string) *string {
@@ -238,57 +249,75 @@ func strEq(a, b *string) bool {
 	return *a == *b
 }
 
-// verifyChain läuft über die ganze Kette (gestreamt); Ergebnis eine Minute zwischengespeichert, gleichzeitige Aufrufe warten auf denselben Lauf
-func (a *App) verifyChain(ctx context.Context) *chainResult {
-	chainMu.Lock()
-	defer chainMu.Unlock()
-	if c := chainCache; c != nil && c.err == nil && time.Since(c.at) < chainCacheFor {
-		return c
+// verifyChain liefert eine Kopie des Prüfstands (nach einem Lauf, wenn nötig)
+func (a *App) verifyChain(ctx context.Context) (chainState, error) {
+	select {
+	case chainSem <- struct{}{}:
+	case <-ctx.Done():
+		return chainState{}, ctx.Err()
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 55*time.Second)
+	defer func() { <-chainSem }()
+	c := chainState0
+	now := time.Now()
+	if c.err != nil && now.Sub(c.errAt) < 30*time.Second {
+		return *c, c.err
+	}
+	if c.complete && now.Sub(c.checkedAt) < chainCacheFor && now.Sub(c.fullFrom) < chainFullFor {
+		return *c, nil
+	}
+	if !c.ok && now.Sub(c.fullFrom) < chainFullFor { // Bruch bleibt Bruch bis zur nächsten Vollprüfung
+		return *c, nil
+	}
+	if now.Sub(c.fullFrom) >= chainFullFor || c.fullFrom.IsZero() {
+		c = &chainState{ok: true, fullFrom: now}
+		chainState0 = c
+	}
+	c.err = nil
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 50*time.Second)
 	defer cancel()
-	res := &chainResult{at: time.Now(), ok: true}
-	rows, err := a.DB.Query(ctx, `SELECT id, user_id, row_id, action, to_char(ts AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
-		COALESCE(before::text,''), COALESCE(after::text,''), prev_hash, hash FROM entry_audit ORDER BY id`)
+	rows, err := a.DB.Query(rctx, `SELECT id, user_id, row_id, action, to_char(ts AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+		COALESCE(before::text,''), COALESCE(after::text,''), prev_hash, hash FROM entry_audit WHERE id > $1 ORDER BY id LIMIT $2`, c.lastID, chainBatch)
 	if err != nil {
-		res.err = err
-		return res
+		c.err, c.errAt = err, now
+		return *c, err
 	}
 	defer rows.Close()
-	var last *string
+	n := 0
 	for rows.Next() {
+		n++
 		var id, uid int64
 		var rid *int64
 		var act, ts, b, af string
 		var prev, hash *string
 		if err := rows.Scan(&id, &uid, &rid, &act, &ts, &b, &af, &prev, &hash); err != nil {
-			res.err = err
-			return res
+			c.err, c.errAt = err, now
+			return *c, err
 		}
 		p := ""
-		if last != nil {
-			p = *last
+		if c.lastHash != nil {
+			p = *c.lastHash
 		}
-		if !strEq(prev, last) || !strEq(chainLink(p, ts, uid, rid, act, b, af), hash) {
-			res.ok, res.brokenID, res.brokenTS, res.brokenBy = false, id, ts, uid
+		if !strEq(prev, c.lastHash) || !strEq(chainLink(p, ts, uid, rid, act, b, af), hash) {
+			c.ok, c.brokenID, c.brokenTS, c.brokenBy = false, id, ts, uid
 			break
 		}
-		last = hash
-		res.rows++
+		c.lastID, c.lastHash = id, hash
+		c.rows++
 	}
-	if err := rows.Err(); err != nil && res.ok {
-		res.err = err
-		return res
+	if err := rows.Err(); err != nil && c.ok {
+		c.err, c.errAt = err, now
+		return *c, err
 	}
-	chainCache = res
-	return res
+	c.complete = n < chainBatch || !c.ok
+	c.checkedAt = now
+	return *c, nil
 }
 
 func (a *App) auditVerify(w http.ResponseWriter, r *http.Request, u User) {
 	ctx := r.Context()
-	c := a.verifyChain(ctx)
-	if c.err != nil {
-		a.fail(w, c.err)
+	c, err := a.verifyChain(ctx)
+	if err != nil {
+		a.fail(w, err)
 		return
 	}
 	var own int64
@@ -296,7 +325,7 @@ func (a *App) auditVerify(w http.ResponseWriter, r *http.Request, u User) {
 		a.fail(w, err)
 		return
 	}
-	out := map[string]any{"ok": c.ok, "rows": own, "scope": "global", "checked_at": c.at.UTC().Format(isoMillis), "file": nil, "file_ok": nil, "last_hash": nil}
+	out := map[string]any{"ok": c.ok, "rows": own, "scope": "global", "complete": c.complete, "checked_at": c.checkedAt.UTC().Format(isoMillis), "file": nil, "file_ok": nil, "last_hash": nil}
 	if !c.ok {
 		out["broken_at"], out["ts"], out["own"] = nil, nil, c.brokenBy == u.ID
 		if c.brokenBy == u.ID { // eigene Zeile: Id und Zeitpunkt zeigen, fremde nie

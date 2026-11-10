@@ -53,14 +53,32 @@ func TestEmptyPasswordNeverSent(t *testing.T) {
 func TestGroupCN(t *testing.T) {
 	for in, want := range map[string]string{
 		"CN=zp-team-Entwicklung,OU=Gruppen,DC=example,DC=local": "zp-team-Entwicklung",
-		"cn=zp-team-a\\,b,ou=g,dc=x":                             "zp-team-a,b",
-		"zp-team-support":                                        "zp-team-support",
-		"ou=zp-team-x,dc=x":                                      "",
-		"cn=":                                                    "",
-		"  ":                                                     "",
+		"cn=zp-team-a\\,b,ou=g,dc=x":                            "zp-team-a,b",
+		"zp-team-support":                                       "zp-team-support",
+		"ou=zp-team-x,dc=x":                                     "",
+		"cn=":                                                   "",
+		"  ":                                                    "",
 	} {
 		if got := GroupCN(in); got != want {
 			t.Errorf("%q: %q, erwartet %q", in, got, want)
 		}
+	}
+}
+
+func TestInBase(t *testing.T) {
+	base := "OU=ZP-Teams,DC=example,DC=local"
+	for dn, want := range map[string]bool{
+		"CN=zp-team-a,OU=ZP-Teams,DC=example,DC=local":    true,
+		"cn=zp-team-a,ou=zp-teams,dc=example,dc=local":    true,
+		"CN=zp-team-a-lead,OU=Andere,DC=example,DC=local": false,
+		"CN=zp-team-a,DC=local":                           false,
+		"kein dn":                                         false,
+	} {
+		if InBase(dn, base) != want {
+			t.Errorf("%q: erwartet %v", dn, want)
+		}
+	}
+	if !InBase("CN=x,DC=y", "") {
+		t.Error("ohne Basis: alle")
 	}
 }

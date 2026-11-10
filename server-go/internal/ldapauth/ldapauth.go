@@ -71,6 +71,17 @@ func memberOf(e *ldap.Entry) []string {
 	return out
 }
 
+// InBase: liegt die Gruppe dn unterhalb von base (DN-Vergleich ohne Groß-/Kleinschreibung)? base leer = ja.
+func InBase(dn, base string) bool {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return true
+	}
+	b, err1 := ldap.ParseDN(base)
+	d, err2 := ldap.ParseDN(strings.TrimSpace(dn))
+	return err1 == nil && err2 == nil && b.AncestorOfFold(d)
+}
+
 // GroupCN: Name einer Gruppe aus ihrem DN (erster RDN cn=…); ein Wert ohne „=“ gilt schon als Name. "" = nicht lesbar.
 func GroupCN(dn string) string {
 	dn = strings.TrimSpace(dn)

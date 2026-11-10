@@ -17,6 +17,7 @@ const teamUsage = `Aufruf:
   team unmember <team> <benutzer>            Person aus dem Team nehmen
   user set-hr <benutzer> <on|off>            Personal-Recht (sieht alle) – bei Verzeichnis-Konten setzt die Gruppe es beim Login neu
 Benutzer = Benutzername oder E-Mail.
+Teams aus dem Verzeichnis ([Verzeichnis]) pflegt das Verzeichnis: Mitglieder nicht änderbar, löschen nur leer.
 `
 
 func findUserID(ctx context.Context, pool *pgxpool.Pool, who string) (int64, bool) {
@@ -32,7 +33,8 @@ func cmdTeam(ctx context.Context, pool *pgxpool.Pool, args []string) int {
 	}
 	switch args[0] {
 	case "list":
-		rows, err := pool.Query(ctx, `SELECT t.name, COALESCE(string_agg(x.name || CASE WHEN m.is_lead THEN ' (Leitung)' ELSE '' END, ', ' ORDER BY x.name), '–')
+		rows, err := pool.Query(ctx, `SELECT t.name || CASE WHEN t.source='directory' THEN ' [Verzeichnis]' ELSE '' END,
+			COALESCE(string_agg(x.name || CASE WHEN m.is_lead THEN ' (Leitung)' ELSE '' END, ', ' ORDER BY x.name), '–')
 			FROM teams t LEFT JOIN team_members m ON m.team_id=t.id LEFT JOIN users x ON x.id=m.user_id GROUP BY t.id ORDER BY lower(t.name)`)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Fehler:", err)
@@ -63,9 +65,9 @@ func cmdTeam(ctx context.Context, pool *pgxpool.Pool, args []string) int {
 			fmt.Print(teamUsage)
 			return 2
 		}
-		tag, err := pool.Exec(ctx, `DELETE FROM teams WHERE lower(name)=lower($1)`, args[1])
+		tag, err := pool.Exec(ctx, `DELETE FROM teams t WHERE lower(t.name)=lower($1) AND (t.source='local' OR NOT EXISTS(SELECT 1 FROM team_members m WHERE m.team_id=t.id))`, args[1])
 		if err != nil || tag.RowsAffected() == 0 {
-			fmt.Fprintln(os.Stderr, "Team nicht gefunden.")
+			fmt.Fprintln(os.Stderr, "Team nicht gefunden (oder Verzeichnis-Team mit Mitgliedern).")
 			return 1
 		}
 		audit(ctx, pool, "cli.team", "Team „"+args[1]+"“ gelöscht")
@@ -77,8 +79,13 @@ func cmdTeam(ctx context.Context, pool *pgxpool.Pool, args []string) int {
 			return 2
 		}
 		var tid int64
-		if err := pool.QueryRow(ctx, `SELECT id FROM teams WHERE lower(name)=lower($1)`, args[1]).Scan(&tid); err != nil {
+		var src string
+		if err := pool.QueryRow(ctx, `SELECT id, source FROM teams WHERE lower(name)=lower($1)`, args[1]).Scan(&tid, &src); err != nil {
 			fmt.Fprintln(os.Stderr, "Team nicht gefunden.")
+			return 1
+		}
+		if src == "directory" {
+			fmt.Fprintln(os.Stderr, "Verzeichnis-Team: Mitglieder und Leitung kommen aus den Verzeichnisgruppen.")
 			return 1
 		}
 		uid, ok := findUserID(ctx, pool, args[2])
@@ -87,13 +94,13 @@ func cmdTeam(ctx context.Context, pool *pgxpool.Pool, args []string) int {
 			return 1
 		}
 		if args[0] == "unmember" {
-			_, _ = pool.Exec(ctx, `DELETE FROM team_members WHERE team_id=$1 AND user_id=$2`, tid, uid)
+			_, _ = pool.Exec(ctx, `DELETE FROM team_members WHERE team_id=$1 AND user_id=$2 AND source='local'`, tid, uid)
 			audit(ctx, pool, "cli.team", fmt.Sprintf("Team %d: Person %d entfernt", tid, uid))
 			fmt.Println("Entfernt.")
 			return 0
 		}
 		lead := len(args) > 3 && args[3] == "--lead"
-		if _, err := pool.Exec(ctx, `INSERT INTO team_members(team_id,user_id,is_lead) VALUES($1,$2,$3) ON CONFLICT (team_id,user_id) DO UPDATE SET is_lead=EXCLUDED.is_lead`, tid, uid, lead); err != nil {
+		if _, err := pool.Exec(ctx, `INSERT INTO team_members(team_id,user_id,is_lead,source) VALUES($1,$2,$3,'local') ON CONFLICT (team_id,user_id) DO UPDATE SET is_lead=EXCLUDED.is_lead WHERE team_members.source='local'`, tid, uid, lead); err != nil {
 			fmt.Fprintln(os.Stderr, "Fehler:", err)
 			return 1
 		}

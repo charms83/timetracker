@@ -6,7 +6,7 @@ import {
   CalendarClock, CalendarDays, PenLine, Download, RotateCcw, Coffee,
   ChevronLeft, ChevronRight, Settings, TrendingUp, TrendingDown,
   Minus, Umbrella, HeartPulse, Star, BookOpen, HelpCircle, Calendar, Terminal
-  , CloudUpload, Upload, Compass, Inbox, Send
+  , CloudUpload, Upload, Compass, Inbox, Send, Users as UsersIcon, UserCog as UserCogIcon
 } from "lucide-react";
 import { ReportView as ReportViewNeu } from "./zp-report.jsx";
 import { WeekGrid } from "./zp-week.jsx";
@@ -22,6 +22,8 @@ import { ProjectSourcesPanel } from "./zp-projects.jsx";
 import { CleanupPanel, useAllowLocal } from "./zp-cleanup.jsx";
 import { DayPanel, DaySummaryLine, PresenceToggle, BrowserToggle, OverlapCard, ReviewCard } from "./zp-day.jsx";
 import { AssistantView, AssistantHint, AssistantToggle, useAssistantAutoOpen } from "./zp-assistant.jsx";
+import TeamView from "./zp-team.jsx";
+import PersonalView from "./zp-personal.jsx";
 import { ServerUserBox, ServerBanner, ClientHint, MonthApprovalCard, useJiraModule } from "./zp-servermode.jsx";
 import { call, api as uiApi, isServerMode, useServerMode, ImpreciseMark, NowCard, QuickStart, TimerActions, DayTimeline, PlaneSettingsTab, PlaneSyncView, TicketInput, projColor, projectFromTicket, resolveTask, ticketLabel, useActivities, reloadActivities, MissingBanner, BrowserTicketBar } from "./zp-ui.jsx";
 
@@ -1555,7 +1557,7 @@ export default function App() {
   };
 
   const jiraOn = useJiraOn();
-  const { serverMode } = useServerMode();
+  const { serverMode, me: srvMe } = useServerMode();
   const [assistOn, setAssistOn] = useState(false);
   useEffect(()=>{ api("GET","/assistant").then(r=>r&&!r.error&&setAssistOn(!!r.enabled)); },[]);
   useAssistantAutoOpen(setView);
@@ -1563,14 +1565,26 @@ export default function App() {
   const [uiMode, setUiMode] = useState(() => { try { return localStorage.getItem("zp-ui-mode") || "einfach"; } catch (_) { return "einfach"; } });
   const toggleMode = () => { const m = uiMode==="einfach" ? "erweitert" : "einfach"; setUiMode(m); try { localStorage.setItem("zp-ui-mode", m); } catch (_) {} };
   const adv = uiMode==="erweitert";
+  // Servermodus: Bereiche „Team“ (Teamleitung) und „Personal“ je Rolle; bei Rollenkombination untereinander mit Überschriften
+  const isLead = serverMode && !!srvMe?.is_lead, isHr = serverMode && !!srvMe?.is_hr;
+  const roleAreas = isLead || isHr;
+  const showEmpl = !(roleAreas && srvMe?.productive === false);   // Konten ohne Zeiterfassung sehen den Mitarbeiter-Bereich nicht
+  const emplL = roleAreas ? "Mitarbeiter · " : "";
+  useEffect(()=>{ if(serverMode&&srvMe&&!showEmpl&&!["team","personal","einstellungen"].includes(view)){ const v=isLead?"team":"personal"; location.hash=v; setView(v); } },[serverMode,srvMe,showEmpl,view,isLead]);
   const NAV_GROUPS = [
-    { label:"Erfassen",  ids:["timer","planung","woche","kalender","abwesenheiten", ...(adv?["stundenzettel"]:[])] },
-    { label:"Prüfen",    ids:["vorschlaege","uebertragen"] },
-    { label:"Auswerten", ids:["report","projects", ...(adv?["ssh"]:[])] },
-    ...(adv ? [{ label:"Tickets", ids:["plane","jira"] }] : []),
-    { label:"",          ids:["assistent","einstellungen"] },
+    ...(showEmpl ? [
+    { label:emplL+"Erfassen",  ids:["timer","planung","woche","kalender","abwesenheiten", ...(adv?["stundenzettel"]:[])] },
+    { label:emplL+"Prüfen",    ids:["vorschlaege","uebertragen"] },
+    { label:emplL+"Auswerten", ids:["report","projects", ...(adv?["ssh"]:[])] },
+    ...(adv ? [{ label:emplL+"Tickets", ids:["plane","jira"] }] : []),
+    ] : []),
+    ...(isLead ? [{ label:"Team", ids:["team"] }] : []),
+    ...(isHr ? [{ label:"Personal", ids:["personal"] }] : []),
+    { label:"",          ids:[...(showEmpl?["assistent"]:[]),"einstellungen"] },
   ];
   const nav = [
+    ...(isLead ? [{id:"team", label:"Team", icon:<UsersIcon size={16}/>}] : []),
+    ...(isHr ? [{id:"personal", label:"Personal", icon:<UserCogIcon size={16}/>}] : []),
     {id:"timer",       label:"Heute",        icon:<Timer size={16}/>},
     {id:"vorschlaege", label:"Vorschläge",   icon:<Inbox size={16}/>},
     {id:"uebertragen", label:"Übertragen",   icon:<Send size={16}/>},
@@ -1672,6 +1686,8 @@ export default function App() {
               getWeekRange={getWeekRange}
             />
           )}
+          {view==="team"&&isLead&&<TeamView key={hashKey}/>}
+          {view==="personal"&&isHr&&<PersonalView key={hashKey}/>}
           {view==="woche"&&<WeekGrid/>}
           {view==="kalender"&&<CalendarView/>}
           {view==="projects"&&<><CleanupPanel onChanged={()=>{ loadProjects(); setPvKey(k=>k+1); }}/><div style={{height:12}}/><ProjectSourcesPanel onChanged={()=>{ loadProjects(); setPvKey(k=>k+1); }}/><ProjectsView key={pvKey} onRefreshNeeded={()=>{loadProjects();}}/></>}

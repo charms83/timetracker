@@ -57,6 +57,7 @@ func oidcSafeNext(s string) string {
 var OIDCKeys = map[string]string{
 	"oidc_issuer": "", "oidc_client_id": "", "oidc_client_secret": "", "oidc_groups_claim": "groups",
 	"oidc_group_user": "", "oidc_group_lead": "", "oidc_group_admin": "", "oidc_group_hr": "",
+	"oidc_team_prefix": defaultTeamPrefix, // Teams aus Gruppen <präfix><name> / <präfix><name>-lead (teamsync.go); „-“ = aus
 }
 
 type oidcProv struct {
@@ -267,15 +268,24 @@ func (a *App) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	groups := map[string]bool{}
+	var groupList []string // nil = Claim fehlt (Teams dann unverändert lassen)
 	switch g := cl[strings.TrimSpace(a.confDefault(ctx, "oidc_groups_claim"))].(type) {
 	case []any:
+		groupList = []string{}
 		for _, x := range g {
 			if s, ok := x.(string); ok {
 				groups[s] = true
+				if len(groupList) < 1000 {
+					groupList = append(groupList, s)
+				}
 			}
 		}
 	case string:
 		groups[g] = true
+		groupList = []string{g}
+	}
+	if groupList != nil {
+		groupList = groupNames(groupList)
 	}
 	role := ""
 	switch {
@@ -304,7 +314,7 @@ func (a *App) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		name = uname
 	}
 	subject := "oidc:" + idt.Issuer + "|" + idt.Subject
-	uid, _, _, err := a.provisionExternal(ctx, "oidc", subject, uname, name, trim(str("email"), 200), role, hr)
+	uid, _, _, err := a.provisionExternal(ctx, "oidc", subject, uname, name, trim(str("email"), 200), role, hr, groupList, teamPrefix(a.confDefault(ctx, "oidc_team_prefix")))
 	if err != nil {
 		if errors.Is(err, errLDAPAccount) {
 			deny("Konto gesperrt oder Name schon vergeben")
@@ -351,6 +361,10 @@ func SetOIDCConfig(ctx context.Context, x ConfExecer, key []byte, allowHTTP bool
 		u, err := url.Parse(v) // genau so speichern, wie der Anbieter ihn nennt (authentik: mit „/“ am Ende)
 		if v != "" && (err != nil || u.Host == "" || u.User != nil || (u.Scheme != "https" && !(u.Scheme == "http" && (hostLoopback(u.Host) || allowHTTP)))) {
 			return errors.New("Issuer: https://… (Adresse des Anbieters, bei authentik …/application/o/<name>/)")
+		}
+	case "oidc_team_prefix":
+		if err := checkTeamPrefix(v); err != nil {
+			return err
 		}
 	case "oidc_client_secret":
 		if v != "" {

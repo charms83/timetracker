@@ -88,7 +88,7 @@ Vorschläge („Light“, Regeln/Textabgleich, keine KI) folgen einem gemeinsame
 | `/absence-hints`, `/absence-hints/{key}` | GET/POST | zp-assistant | gebaut (liefert gespeicherte Hinweise; Übernahme unter Monatssperre) |
 | `/ticket-estimates`, `/ticket-estimates/{ticket}` | GET/PUT | zp-report, zp-ui | gebaut |
 
-Bleibt im Client (keine Erkennung im Server): Termin-Vorschläge und -Vorbereitung (Kalender), SSH-Vorschläge und Verknüpfen von SSH/Termin beim Lernen, „am Mac von–bis“ (Anwesenheit), Abwesenheits-Erkennung aus dem Kalender. Grund: lokales Wissen des Rechners. Offen: Annahme-Schnittstelle, über die der Client erkannte Abwesenheits-Hinweise ablegt; Tempo-Abwesenheiten als Hinweis (braucht Tempo-Import); `/ticket/ensure`, `/ticket/start` (von zp-gaps/zp-ui genutzt, nicht in D).
+Bleibt im Client (keine Erkennung im Server): Termin-Vorschläge und -Vorbereitung (Kalender), SSH-Vorschläge und Verknüpfen von SSH/Termin beim Lernen, „am Mac von–bis“ (Anwesenheit), Abwesenheits-Erkennung aus dem Kalender. Grund: lokales Wissen des Rechners. Offen: Annahme-Schnittstelle, über die der Client erkannte Abwesenheits-Hinweise ablegt; Tempo-Abwesenheiten als Hinweis (braucht Tempo-Import); `/ticket/ensure`, `/ticket/start` – gebaut 10.11. (siehe E).
 
 ## E Betrieb/Aufräumen (Schritt 3) – 13
 
@@ -98,15 +98,21 @@ Bleibt im Client (keine Erkennung im Server): Termin-Vorschläge und -Vorbereitu
 | `/admin/backup` | POST | zp-server |  |
 | `/admin/reset-range` | DELETE | App |  |
 | `/admin/server-info` | GET | zp-server | /api/admin/status |
-| `/audit` | GET | zp-calendar | /api/admin/audit |
-| `/audit/verify` | GET | zp-calendar |  |
-| `/check/integrity` | GET | App |  |
-| `/cleanup/local-projects` | GET | zp-cleanup |  |
-| `/cleanup/search` | GET | zp-cleanup |  |
+| `/audit` | GET | zp-calendar | gebaut 10.11. (`audit_view.go`): nur eigene Buchungen, Format wie Node (`rows/projects/tasks/total`, vorher/nachher nur COLS); `actor` = Name bei Nachtrag |
+| `/audit/verify` | GET | zp-calendar | gebaut 10.11.: Kette global, schrittweise geprüft (Stand im Speicher, stündlich von vorn, `complete`), `rows` = eigene Einträge; Bruch bei fremder Zeile ohne Id/Zeitpunkt; `file`/`file_ok` immer null |
+| `/check/integrity` | GET | App | gebaut 10.11. (`integrity.go`): nur eigene Daten; Überschneidungen/Pausen letzte 365 Tage, sonst ≤ 500 Treffer |
+| `/cleanup/local-projects`, `/cleanup/apply`, `/cleanup/allow-local` | GET/POST/PUT | zp-cleanup | gebaut 10.11. (`cleanup.go`): je Person, eine Transaktion, Monatssperre → 409; ohne Datei-Sicherung (`backup: null`) |
+| `/cleanup/search` | GET | zp-cleanup | gebaut 10.11.: eigene Aufgaben + Jira (nur Modul an, alle nutzbaren Instanzen) |
 | `/logs` | DELETE/GET | App | /api/admin/logs |
 | `/logs/cleanup` | POST | App |  |
 | `/selfcheck` | GET | zp-server | /api/admin/selfcheck |
 | `/selfcheck/run` | POST | zp-server | POST /api/admin/selfcheck |
+| `/projects/{id}/merge`, `/projects/adopt-names` | POST | zp-projects, zp-assistant | gebaut 10.11. (`project_tools.go`) |
+| `/sources/duplicates` (+ Feld `duplicates` in `GET /sources`), `/sources/duplicates/ignore` | GET/POST | zp-projects, zp-assistant | gebaut 10.11. |
+| `/sources/local-times`, `/sources/local-times/assign` | GET/POST | zp-assistant | gebaut 10.11. (assign lässt gesperrte Monate aus: `skipped_locked`) |
+| `/ticket/ensure`, `/ticket/start` | POST | zp-gaps, zp-ui | gebaut 10.11. (`ticket_routes.go`): legt nie ein Ticket in Plane/Jira an, nur die lokale Aufgabe; Sperre je Person gegen Doppelanlage; neue Jira-Aufgabe nur mit Modul an |
+
+Nicht im Mitarbeiter-Server (bewusst): `/admin/actions`, `/admin/backup`, `/admin/reset-range`, `/admin/server-info`, `/logs`, `/logs/cleanup`, `/selfcheck*` (→ `/admin`), Tempo-Rückimport, Cloud. Neu für Teamleiter/Personal: `/api/team/overview`, `/api/team/members`, `/api/personal/overview`, `/api/personal/people` (`team_view.go`).
 
 ## Reihenfolge
 1. B + C (Jira/Tempo/Plane – Jira bald, Plane Hauptweg)

@@ -7,7 +7,20 @@ import (
 )
 
 /* Teams und Merkmale – nur für Administratoren (nicht für den Notfallzugang). Teamleiter sind Mitglieder mit is_lead.
-   Personal (is_hr) sieht alle. Jede Änderung wird protokolliert. Hinweis: Wer Personal-Rechte vergibt (auch sich selbst), gibt damit Zugriff auf alle Zeitdaten. */
+   Personal (is_hr) sieht alle. Jede Änderung wird protokolliert. Hinweis: Wer Personal-Rechte vergibt (auch sich selbst), gibt damit Zugriff auf alle Zeitdaten.
+   Teams mit source='directory' (teamsync.go) pflegt das Verzeichnis: Mitglieder/Leitung hier nicht änderbar (409), löschen nur, wenn leer. */
+
+// errDirTeam: Antwort für Änderungsversuche an Verzeichnis-Teams
+const errDirTeam = "Verzeichnis-Team: Mitglieder und Teamleitung kommen aus den Verzeichnisgruppen (Präfix siehe Hinweis) und lassen sich hier nicht ändern"
+
+// teamSource: Quelle des Teams ("" = nicht gefunden)
+func (a *App) teamSource(r *http.Request, tid int64) string {
+	var src string
+	if err := a.DB.QueryRow(r.Context(), `SELECT source FROM teams WHERE id=$1`, tid).Scan(&src); err != nil {
+		return ""
+	}
+	return src
+}
 
 func (a *App) routesTeams(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/admin/teams", a.strictAdmin(a.teamsList))
@@ -19,8 +32,8 @@ func (a *App) routesTeams(mux *http.ServeMux) {
 }
 
 func (a *App) teamsList(w http.ResponseWriter, r *http.Request, u User) {
-	rs, err := a.maps(r.Context(), `SELECT t.id, t.name,
-		COALESCE((SELECT json_agg(json_build_object('user_id', m.user_id, 'name', x.name, 'is_lead', m.is_lead) ORDER BY x.name)
+	rs, err := a.maps(r.Context(), `SELECT t.id, t.name, t.source,
+		COALESCE((SELECT json_agg(json_build_object('user_id', m.user_id, 'name', x.name, 'is_lead', m.is_lead, 'source', m.source) ORDER BY x.name)
 		          FROM team_members m JOIN users x ON x.id=m.user_id WHERE m.team_id=t.id), '[]'::json) AS members
 		FROM teams t ORDER BY lower(t.name)`)
 	if err != nil {
@@ -36,7 +49,9 @@ func (a *App) teamsList(w http.ResponseWriter, r *http.Request, u User) {
 	for _, h := range hr {
 		ids = append(ids, h["id"])
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"teams": rs, "hr": ids})
+	ctx := r.Context()
+	writeJSON(w, http.StatusOK, map[string]any{"teams": rs, "hr": ids, "auth_mode": a.conf(ctx, "auth_mode"),
+		"ldap_team_prefix": teamPrefix(ldapConf(ctx, a.DB, "ldap_team_prefix")), "oidc_team_prefix": teamPrefix(a.confDefault(ctx, "oidc_team_prefix"))})
 }
 
 func (a *App) teamsCreate(w http.ResponseWriter, r *http.Request, u User) {
@@ -66,8 +81,18 @@ func (a *App) teamsDelete(w http.ResponseWriter, r *http.Request, u User) {
 		badRequest(w, "id ungültig")
 		return
 	}
+	src := a.teamSource(r, id)
+	if src == "" {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "nicht gefunden"})
+		return
+	}
 	var name string
-	if err := a.DB.QueryRow(r.Context(), `DELETE FROM teams WHERE id=$1 RETURNING name`, id).Scan(&name); err != nil {
+	// Verzeichnis-Team nur leer löschbar (sonst entfiele die Leitung bis zum nächsten Login); Prüfung und Löschen in einer Anweisung
+	if err := a.DB.QueryRow(r.Context(), `DELETE FROM teams t WHERE t.id=$1 AND (t.source='local' OR NOT EXISTS(SELECT 1 FROM team_members m WHERE m.team_id=t.id)) RETURNING name`, id).Scan(&name); err != nil {
+		if src == "directory" {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "Verzeichnis-Team hat noch Mitglieder – löschen erst, wenn es leer ist (Mitglieder kommen aus dem Verzeichnis)"})
+			return
+		}
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "nicht gefunden"})
 		return
 	}
@@ -98,8 +123,15 @@ func (a *App) teamMemberSet(w http.ResponseWriter, r *http.Request, u User) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "nicht gefunden"})
 		return
 	}
-	if _, e := a.DB.Exec(ctx, `INSERT INTO team_members(team_id,user_id,is_lead) VALUES($1,$2,$3) ON CONFLICT (team_id,user_id) DO UPDATE SET is_lead=EXCLUDED.is_lead`, tid, uid, in.IsLead); e != nil {
+	// nur lokale Teams und lokale Mitgliedschaften (Bedingung in der Anweisung selbst: kein Rennen mit dem Verzeichnisabgleich)
+	tag, e := a.DB.Exec(ctx, `INSERT INTO team_members(team_id,user_id,is_lead,source) SELECT $1,$2,$3,'local' WHERE EXISTS(SELECT 1 FROM teams WHERE id=$1 AND source='local')
+		ON CONFLICT (team_id,user_id) DO UPDATE SET is_lead=EXCLUDED.is_lead WHERE team_members.source='local'`, tid, uid, in.IsLead)
+	if e != nil {
 		a.fail(w, e)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": errDirTeam})
 		return
 	}
 	a.audit(ctx, u.ID, "admin.team", "Team "+strconv.FormatInt(tid, 10)+": Person "+strconv.FormatInt(uid, 10)+", Teamleiter "+strconv.FormatBool(in.IsLead))
@@ -113,7 +145,11 @@ func (a *App) teamMemberDelete(w http.ResponseWriter, r *http.Request, u User) {
 		badRequest(w, "id ungültig")
 		return
 	}
-	if _, e := a.DB.Exec(r.Context(), `DELETE FROM team_members WHERE team_id=$1 AND user_id=$2`, tid, uid); e != nil {
+	if a.teamSource(r, tid) == "directory" {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": errDirTeam})
+		return
+	}
+	if _, e := a.DB.Exec(r.Context(), `DELETE FROM team_members WHERE team_id=$1 AND user_id=$2 AND source='local'`, tid, uid); e != nil {
 		a.fail(w, e)
 		return
 	}

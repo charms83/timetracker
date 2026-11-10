@@ -187,6 +187,7 @@ func (a *App) Routes(mux *http.ServeMux) {
 	a.routesGapSuggest(mux)
 	a.routesAssistant(mux)
 	a.routesWorkday(mux)
+	a.routesUserOps(mux) // Team-/Personal-Übersichten, Gruppe E (userops.go)
 }
 
 /* ── Servereinstellungen ─────────────────────────────────────────── */

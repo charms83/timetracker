@@ -9,8 +9,9 @@ import (
 )
 
 /* Monatsschluss mit Nachfrist (Regel 1): Nach Monatsende darf die Person nur noch bis zum Ende des n-ten Werktags danach
-   (Mo–Fr ohne Feiertage; Servereinstellung month_grace_workdays, Standard 1, 0–5) nachtragen. Danach schließt ein Hintergrundlauf
+   (Mo–Fr ohne Feiertage der serverweiten Liste; Servereinstellung month_grace_workdays, Standard 1, 0–5) nachtragen. Danach schließt ein Hintergrundlauf
    den Monat: month_approvals.status='closed', Kommentar „automatisch geschlossen“, Verlauf 'auto_close', Audit.
+   Erfassungsbeginn = früheste Buchung bzw. Anlage des Kontos; Feiertage nur aus der serverweiten Liste (beides nicht von der Person änderbar).
    Lauf: beim Start und alle 15 min, nur eine Instanz zugleich (Advisory-Sperre), idempotent (ON CONFLICT DO NOTHING unter der
    exklusiven Sperre je Person). Betroffen: zeiterfassende, nicht gesperrte Konten; zurückliegende Monate ab Erfassungsbeginn,
    höchstens die letzten 3. Monate mit Status (eingereicht, freigegeben, abgelehnt = zur Korrektur zurückgegeben) bleiben, wie sie sind.
@@ -111,13 +112,10 @@ func shouldAutoClose(month, deadline, today, timerStart string) (bool, bool) {
 	return true, false
 }
 
-// holidayFn: Feiertage der Person (Abwesenheit „feiertag“) und Niedersachsen-Liste zusammen – verlängert die Frist eher, als sie zu kürzen
-func (a *App) holidayFn(ctx context.Context, uid int64, from, to string) func(string) bool {
-	cal, err := a.workCalendar(ctx, uid, from, to)
-	if err != nil {
-		cal = workCal{hol: map[string]bool{}}
-	}
-	return func(d string) bool { return cal.hol[d] || niHoliday(d) }
+// holidayFn: Feiertage für die Frist – nur die serverweite Liste (holidays.go). Eigene Abwesenheiten „feiertag“ zählen bewusst nicht:
+// die legt die Person selbst an und könnte damit ihre Nachfrist beliebig verlängern.
+func (a *App) holidayFn(_ context.Context, _ int64, _, _ string) func(string) bool {
+	return niHoliday
 }
 
 var niHolidaySet = func() map[string]bool {
@@ -222,13 +220,15 @@ func (a *App) monthCloseTick(ctx context.Context) {
 
 // closeMonthsFor schließt die fälligen Monate einer Person (Fehler nur ins Log; nächster Lauf versucht es erneut)
 func (a *App) closeMonthsFor(ctx context.Context, uid int64, created string, n int, today string) {
-	st, err := a.userSettings(ctx, uid)
-	if err != nil {
+	// Erfassungsbeginn für den Schluss: früheste Buchung bzw. Anlage des Kontos – nicht tracking_start_date
+	// (die Person setzt die Einstellung selbst und könnte den Schluss damit aussetzen)
+	from := created
+	var minDate *string
+	if err := a.DB.QueryRow(ctx, `SELECT MIN(date) FROM time_entries WHERE user_id=$1`, uid).Scan(&minDate); err != nil {
 		return
 	}
-	from, err := a.trackFrom(ctx, uid, st, created)
-	if err != nil {
-		return
+	if minDate != nil && isoDateRE.MatchString(*minDate) && (!isoDateRE.MatchString(from) || *minDate < from) {
+		from = *minDate
 	}
 	months := closeCandidates(from, today, closeLookback)
 	if len(months) == 0 {
@@ -374,4 +374,19 @@ func ddmmyyyy(d string) string {
 		return d
 	}
 	return d[8:10] + "." + d[5:7] + "." + d[:4]
+}
+
+// checkBypassGUC: die Umgehung der Monatssperre darf nur transaktionslokal gesetzt sein (nachtrag.go). Ist zp.bypass_user/zp.actor
+// außerhalb einer Transaktion gesetzt (ALTER ROLE/DATABASE … SET, PGOPTIONS, DSN-options), wäre die Sperre für alle Schreibzugriffe offen.
+func (a *App) checkBypassGUC(ctx context.Context, add func(string, string, string)) {
+	var b, act string
+	if err := a.DB.QueryRow(ctx, `SELECT COALESCE(current_setting('zp.bypass_user', true),''), COALESCE(current_setting('zp.actor', true),'')`).Scan(&b, &act); err != nil {
+		add("Monatssperre", "warn", "nicht prüfbar: "+err.Error())
+		return
+	}
+	if b != "" || act != "" {
+		add("Monatssperre", "error", "zp.bypass_user/zp.actor sind dauerhaft gesetzt (Rolle, Datenbank oder Verbindungsoptionen) – Umgehung der Sperre entfernen")
+		return
+	}
+	add("Monatssperre", "ok", "keine dauerhafte Umgehung gesetzt")
 }

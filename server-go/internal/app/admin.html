@@ -87,6 +87,7 @@
 
   <section id="t-teams" class="hidden">
     <p class="mut">Teamleiter sehen die Zeiten der Mitglieder ihrer Teams, <b>Personal</b> sieht alle. Beides lässt sich kombinieren. Bei Verzeichnis-Konten (LDAP/authentik) setzt die Gruppe das Personal-Recht bei jeder Anmeldung neu. Niemand kann sich selbst Personal- oder Teamleiter-Rechte geben.</p>
+    <p class="mut" id="team-prefix"></p>
     <div class="row"><input id="nt-name" placeholder="Neues Team" size="22"><button class="act" onclick="addTeam()">Team anlegen</button></div>
     <div id="team-list"></div>
     <h3>Personal (sieht alle)</h3>
@@ -109,10 +110,12 @@
     <label>Tempo <select id="ji-tempo"><option value="dc">Tempo DC</option><option value="none">ohne Tempo</option><option value="cloud">Tempo Cloud (folgt)</option></select></label>
     <button class="act" onclick="addJira()">Anlegen</button></div>
     <h3>Monatsfreigabe</h3>
-    <div class="row"><label>Wer gibt frei? <select id="c-amode"><option value="either">Teamleiter oder Personal</option><option value="lead">nur Teamleiter</option><option value="hr">nur Personal</option></select></label>
+    <div class="row"><label>Wer gibt frei? <select id="c-amode"><option value="hr">nur Personal (Standard)</option><option value="either">Teamleiter oder Personal</option><option value="lead">nur Teamleiter</option></select></label>
+    <label>Nachfrist nach Monatsende (Werktage, 0–5) <input id="c-grace" size="3"></label>
     <label>Einreichen bis Werktag <input id="c-asub" size="3"></label>
     <label>Freigabe bis Werktag <input id="c-adec" size="3"></label>
     <button class="act" onclick="saveApproval()">Speichern</button></div>
+    <p class="mut">Nach Ablauf der Nachfrist schließt der Server den Monat automatisch. Danach tragen nur Teamleitung (eigenes Team) und Personal nach – mit Begründung und Protokoll. Einreichen/Freigeben bleibt als früherer Abschluss möglich.</p>
     <p class="mut">Anmeldung (Testmodus/OIDC) ändert man auf <a href="/setup">/setup</a> mit dem Einrichtungs-Token aus dem Server-Log.</p>
     <p class="mut" id="c-auth"></p>
   </section>
@@ -254,12 +257,17 @@ async function loadTeams() {
   const [t, us] = await Promise.all([api('GET', '/admin/teams'), api('GET', '/admin/users')]);
   teamUsers = us.filter(u => u.role !== 'breakglass' && !u.disabled);
   const opts = teamUsers.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('');
-  $('team-list').innerHTML = t.teams.map(x => `<div class="card" style="margin:0 0 10px"><b>${esc(x.name)}</b>
+  const pfx = t.auth_mode === 'oidc' ? t.oidc_team_prefix : t.ldap_team_prefix;
+  $('team-prefix').textContent = (t.auth_mode === 'ldap' || t.auth_mode === 'oidc')
+    ? (pfx === '-' ? 'Teams aus dem Verzeichnis: ausgeschaltet.' : `Teams aus dem Verzeichnis: Gruppe „${pfx}<name>“ = Mitglied, „${pfx}<name>-lead“ = Teamleitung (Abgleich bei jeder Anmeldung${t.auth_mode === 'ldap' ? ' und in der Nachprüfung alle 30 min' : ''}). Verzeichnis-Teams sind hier nicht änderbar und nur leer löschbar.`)
+    : 'Teams aus dem Verzeichnis gibt es nur mit Anmeldung über LDAP oder authentik (OIDC).';
+  $('team-list').innerHTML = t.teams.map(x => { const dir = x.source === 'directory'; return `<div class="card" style="margin:0 0 10px"><b>${esc(x.name)}</b>
+    <span class="mut"> · ${dir ? 'Verzeichnis' : 'lokal'}</span>
     <a href="#" onclick="delTeam(${x.id},'${esc(x.name).replace(/'/g,'')}');return false" style="float:right">Team löschen</a>
     <table><tbody>${x.members.map(m => `<tr><td>${esc(m.name)}</td>
-      <td><label><input type="checkbox" ${m.is_lead?'checked':''} onchange="setMember(${x.id},${m.user_id},this.checked)"> Teamleiter</label></td>
-      <td><a href="#" onclick="delMember(${x.id},${m.user_id});return false">entfernen</a></td></tr>`).join('') || '<tr><td class="mut">keine Mitglieder</td></tr>'}</tbody></table>
-    <div class="row" style="margin-top:8px"><select id="am-${x.id}">${opts}</select><button class="act sec" onclick="addMember(${x.id})">Hinzufügen</button></div></div>`).join('') || '<p class="mut">Noch keine Teams.</p>';
+      <td><label><input type="checkbox" ${m.is_lead?'checked':''} ${dir?'disabled':''} onchange="setMember(${x.id},${m.user_id},this.checked)"> Teamleiter</label></td>
+      <td>${dir ? '<span class="mut">aus dem Verzeichnis</span>' : `<a href="#" onclick="delMember(${x.id},${m.user_id});return false">entfernen</a>`}</td></tr>`).join('') || '<tr><td class="mut">keine Mitglieder</td></tr>'}</tbody></table>
+    ${dir ? '' : `<div class="row" style="margin-top:8px"><select id="am-${x.id}">${opts}</select><button class="act sec" onclick="addMember(${x.id})">Hinzufügen</button></div>`}</div>`; }).join('') || '<p class="mut">Noch keine Teams.</p>';
   $('hr-list').innerHTML = teamUsers.map(u => `<label style="display:inline-block;margin:0 14px 6px 0"><input type="checkbox" ${t.hr.includes(u.id)?'checked':''} onchange="setHR(${u.id},this.checked)"> ${esc(u.name)}</label>`).join('') || '<p class="mut">–</p>';
 }
 async function addTeam() {
@@ -337,13 +345,13 @@ async function delJira(id) {
   loadJira();
 }
 async function saveApproval() {
-  try { await api('PUT', '/admin/config', { approval_mode: $('c-amode').value, approval_submit_workday: $('c-asub').value, approval_decide_workday: $('c-adec').value }); msg('Gespeichert.'); } catch (e) { msg(e.message, true); }
+  try { await api('PUT', '/admin/config', { approval_mode: $('c-amode').value, month_grace_workdays: $('c-grace').value, approval_submit_workday: $('c-asub').value, approval_decide_workday: $('c-adec').value }); msg('Gespeichert.'); } catch (e) { msg(e.message, true); }
 }
 
 async function loadConfig() {
   const c = await api('GET', '/admin/config');
   $('c-tempo').checked = c.module_tempo === '1'; $('c-suggest').checked = c.module_suggest !== '0'; loadJira();
-  $('c-amode').value = c.approval_mode || 'either'; $('c-asub').value = c.approval_submit_workday || '3'; $('c-adec').value = c.approval_decide_workday || '5';
+  $('c-amode').value = c.approval_mode || 'hr'; $('c-grace').value = c.month_grace_workdays || '1'; $('c-asub').value = c.approval_submit_workday || '3'; $('c-adec').value = c.approval_decide_workday || '5';
   $('c-base').value = c.plane_base_url || ''; $('c-ws').value = c.plane_workspace || '';
   $('c-auth').textContent = 'Anmeldung: ' + (c.auth_mode || '–') + (c.oidc_issuer ? ' · Issuer ' + c.oidc_issuer : '');
 }

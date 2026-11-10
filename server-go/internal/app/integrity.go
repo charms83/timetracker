@@ -15,7 +15,7 @@ import (
 const integrityDays = 365
 
 func (a *App) routesIntegrity(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/check/integrity", a.auth(a.checkIntegrity))
+	mux.HandleFunc("GET /api/check/integrity", a.auth(a.integrityRoute))
 }
 
 func integritySummary(issues []map[string]any) map[string]any {
@@ -26,7 +26,7 @@ func integritySummary(issues []map[string]any) map[string]any {
 	return map[string]any{"total": len(issues), "errors": n["error"], "warnings": n["warn"], "infos": n["info"]}
 }
 
-func (a *App) checkIntegrity(w http.ResponseWriter, r *http.Request, u User) {
+func (a *App) integrityRoute(w http.ResponseWriter, r *http.Request, u User) {
 	ctx := r.Context()
 	issues := []map[string]any{}
 	// 1. Überschneidungen
@@ -125,7 +125,7 @@ func (a *App) checkIntegrity(w http.ResponseWriter, r *http.Request, u User) {
 				if ok3 && ok4 && ps.Before(ee) && es.Before(pe) {
 					issues = append(issues, map[string]any{"type": "pause_overlap", "severity": "warn", "date": d,
 						"message": fmt.Sprintf("Pause überschneidet sich mit Eintrag: Pause %s–%s, Eintrag %s–%s", a.hm(asStr(pz["start_time"])), a.hm(asStr(pz["end_time"])), a.hm(asStr(e["start_time"])), a.hm(asStr(e["end_time"]))),
-						"ids": []any{pz["id"], e["id"]}})
+						"ids":     []any{pz["id"], e["id"]}})
 				}
 			}
 		}
@@ -136,7 +136,7 @@ func (a *App) checkIntegrity(w http.ResponseWriter, r *http.Request, u User) {
 			if ok1 && ok2 && xe.After(ys) {
 				issues = append(issues, map[string]any{"type": "pause_overlap", "severity": "warn", "date": d,
 					"message": fmt.Sprintf("Zwei Pausen überschneiden sich: %s–%s und %s–%s", a.hm(asStr(x["start_time"])), a.hm(asStr(x["end_time"])), a.hm(asStr(y["start_time"])), a.hm(asStr(y["end_time"]))),
-					"ids": []any{x["id"], y["id"]}})
+					"ids":     []any{x["id"], y["id"]}})
 			}
 		}
 	}

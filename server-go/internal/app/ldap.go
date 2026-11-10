@@ -26,6 +26,8 @@ var LDAPKeys = map[string]string{
 	"ldap_base_dn": "", "ldap_filter": "(&(objectClass=user)(sAMAccountName=%s))",
 	"ldap_attr_name": "displayName", "ldap_attr_mail": "mail", "ldap_attr_id": "objectGUID",
 	"ldap_group_user": "", "ldap_group_lead": "", "ldap_group_admin": "", "ldap_group_hr": "", "ldap_nested": "0", "ldap_link_user": "", "ldap_link_subject": "",
+	"ldap_team_prefix": defaultTeamPrefix, // Teams aus Gruppen <präfix><name> / <präfix><name>-lead (teamsync.go); „-“ = aus
+	"ldap_team_base":   "",                // nur Team-Gruppen unterhalb dieser DN (empfohlen: OU, die nur Berechtigte pflegen)
 }
 
 type ConfQuerier interface {
@@ -91,6 +93,14 @@ func SetLDAPConfig(ctx context.Context, x ConfExecer, key []byte, k, v string) e
 		if v != "" && strings.Count(v, "%s") != 1 {
 			return errors.New("Filter braucht genau ein %s")
 		}
+	case "ldap_team_base":
+		if v != "" && !strings.Contains(v, "=") {
+			return errors.New("Basis für Team-Gruppen als DN angeben (ou=…,dc=…)")
+		}
+	case "ldap_team_prefix":
+		if err := checkTeamPrefix(v); err != nil {
+			return err
+		}
 	case "ldap_bind_password":
 		if v != "" {
 			blob, err := crypto.SealAAD(key, []byte(v), ldapSecretAAD())
@@ -113,11 +123,13 @@ var errLDAPAccount = errors.New("Konto gesperrt oder nicht zulässig")
 // ProvisionLDAPUser legt das Konto zur Verzeichnis-Identität an oder aktualisiert es (Name, Mail, Rolle aus Gruppen).
 // Ein lokales Konto wird nur übernommen, wenn der Administrator es mit „ldap_link_user“ ausdrücklich freigegeben hat (einmalig).
 func (a *App) ProvisionLDAPUser(ctx context.Context, res *ldapauth.Result) (uid int64, name, role string, err error) {
-	return a.provisionExternal(ctx, "ldap", "ldap:"+res.ID, res.Username, res.Name, res.Mail, res.Role, res.HR)
+	return a.provisionExternal(ctx, "ldap", "ldap:"+res.ID, res.Username, res.Name, res.Mail, res.Role, res.HR,
+		groupNames(teamGroups(res.Groups, ldapConf(ctx, a.DB, "ldap_team_base"))), teamPrefix(ldapConf(ctx, a.DB, "ldap_team_prefix")))
 }
 
-// provisionExternal: gemeinsam für LDAP und OIDC (kind 'ldap' | 'oidc'); subject ist die stabile Kennung im Verzeichnis
-func (a *App) provisionExternal(ctx context.Context, kind, subject, username, dname, dmail, drole string, hr bool) (uid int64, name, role string, err error) {
+// provisionExternal: gemeinsam für LDAP und OIDC (kind 'ldap' | 'oidc'); subject ist die stabile Kennung im Verzeichnis.
+// groups (Namen, nil = unbekannt) und prefix steuern die Teams aus dem Verzeichnis (teamsync.go), in derselben Transaktion.
+func (a *App) provisionExternal(ctx context.Context, kind, subject, username, dname, dmail, drole string, hr bool, groups []string, prefix string) (uid int64, name, role string, err error) {
 	tx, err := a.DB.Begin(ctx)
 	if err != nil {
 		return 0, "", "", err
@@ -192,9 +204,14 @@ func (a *App) provisionExternal(ctx context.Context, kind, subject, username, dn
 	if err != nil {
 		return 0, "", "", err
 	}
+	skipped, err := syncDirectoryTeams(ctx, tx, uid, groups, prefix)
+	if err != nil {
+		return 0, "", "", err
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return 0, "", "", err
 	}
+	a.logSkippedTeams(ctx, uid, skipped)
 	return uid, dname, drole, nil
 }
 
@@ -277,6 +294,7 @@ func (a *App) ldapRecheckTick(ctx context.Context) {
 	if err != nil || cfg.Validate() != nil || cfg.BindDN == "" {
 		return
 	}
+	prefix, base := teamPrefix(ldapConf(ctx, a.DB, "ldap_team_prefix")), ldapConf(ctx, a.DB, "ldap_team_base")
 	rows, err := a.DB.Query(ctx, `SELECT id, username, role, oidc_subject, is_hr FROM users WHERE kind='ldap' AND NOT disabled AND username IS NOT NULL`)
 	if err != nil {
 		return
@@ -315,5 +333,34 @@ func (a *App) ldapRecheckTick(ctx context.Context) {
 				a.DB.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, x.id) //nolint:errcheck
 			}
 		}
+		// Teams aus dem Verzeichnis: gesperrt/entfernt → Verzeichnis-Mitgliedschaften enden; andere Person mit gleichem Namen → nichts ändern
+		var groups []string
+		switch {
+		case gone:
+			groups = []string{}
+		case res != nil && (res.ID == "" || "ldap:"+res.ID == x.sb):
+			groups = groupNames(teamGroups(res.Groups, base))
+		}
+		if groups != nil {
+			a.recheckTeams(ctx, x.id, groups, prefix)
+		}
 	}
+}
+
+// recheckTeams: Teamabgleich aus der Nachprüfung (gleiche Sperre wie beim Login, damit beide sich nicht überholen)
+func (a *App) recheckTeams(ctx context.Context, uid int64, groups []string, prefix string) {
+	var skipped []string
+	err := a.inTx(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(727002)`); err != nil {
+			return err
+		}
+		var err error
+		skipped, err = syncDirectoryTeams(ctx, tx, uid, groups, prefix)
+		return err
+	})
+	if err != nil {
+		a.Log.Warn("Teamabgleich (Verzeichnis) fehlgeschlagen", "person", uid, "err", err)
+		return
+	}
+	a.logSkippedTeams(ctx, uid, skipped)
 }

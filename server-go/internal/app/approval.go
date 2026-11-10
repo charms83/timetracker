@@ -183,10 +183,21 @@ func (a *App) approvalWithdraw(w http.ResponseWriter, r *http.Request, u User) {
 		a.fail(w, err)
 		return
 	}
-	// Nachfrist schon vorbei: zurück auf „geschlossen“ statt offen (sonst ließe Einreichen+Zurückziehen den Monat wieder auf)
+	// Zurückziehen stellt den Stand vor dem Einreichen her: war der Monat zur Korrektur zurückgegeben (abgelehnt/wiedereröffnet),
+	// bleibt er 'rejected' (wird nie automatisch geschlossen); sonst nach Fristablauf 'closed' statt offen
+	// (Einreichen+Zurückziehen darf den Schluss nicht aufheben), vor Fristablauf offen.
 	newStatus := "open"
 	var tag pgconn.CommandTag
-	if deadline := a.graceDeadline(ctx, u.ID, in.Month); deadline != "" && a.today() > deadline {
+	var corrected bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM month_approval_log WHERE user_id=$1 AND month=$2 AND action IN ('reject','reopen')
+		AND id > COALESCE((SELECT MAX(id) FROM month_approval_log WHERE user_id=$1 AND month=$2 AND action IN ('approve','auto_close')), 0))`, u.ID, in.Month).Scan(&corrected); err != nil {
+		a.fail(w, err)
+		return
+	}
+	if corrected {
+		newStatus = "rejected"
+		tag, err = tx.Exec(ctx, `UPDATE month_approvals SET status='rejected', submitted_at=NULL WHERE user_id=$1 AND month=$2 AND status='submitted'`, u.ID, in.Month)
+	} else if deadline := a.graceDeadline(ctx, u.ID, in.Month); deadline != "" && a.today() > deadline {
 		newStatus = "closed"
 		tag, err = tx.Exec(ctx, `UPDATE month_approvals SET status='closed', submitted_at=NULL, decided_at=now(), decided_by=NULL, comment=$3
 			WHERE user_id=$1 AND month=$2 AND status='submitted'`, u.ID, in.Month, autoCloseComment+" (nach Zurückziehen)")

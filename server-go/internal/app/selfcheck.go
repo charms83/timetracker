@@ -111,6 +111,7 @@ func (a *App) SelfCheck(ctx context.Context, o CheckOpts) CheckReport {
 	// 4) Schlüssel zu den gespeicherten Zugangsdaten
 	a.checkSecrets(ctx, o, add)
 	a.checkTempoMonth(ctx, add)
+	a.checkBypassGUC(ctx, add)
 
 	// 5) Datenstimmigkeit (nur melden)
 	a.checkIntegrity(ctx, add)

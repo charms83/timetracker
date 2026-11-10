@@ -111,24 +111,24 @@ type teamRef struct {
 
 // personRow: eine Zeile der Übersicht (Antwortform für /api/team/overview und /api/personal/overview)
 type personRow struct {
-	ID              int64     `json:"id"`
-	Name            string    `json:"name"`
-	Team            string    `json:"team"`
-	Teams           []teamRef `json:"teams"`
-	Self            bool      `json:"self"`
-	Status          string    `json:"status"`
-	StatusRaw       any       `json:"status_raw,omitempty"`
-	SubmittedAt     any       `json:"submitted_at"`
-	DecidedAt       any       `json:"decided_at"`
-	SollH           float64   `json:"soll_h"`
-	SollToDateH     float64   `json:"soll_bis_heute_h"`
-	IstH            float64   `json:"ist_h"`
-	SaldoH          float64   `json:"saldo_h"`
-	KontoH          any       `json:"konto_h"`
-	ChecksOpen      int64     `json:"checks_open"`
-	LateEntries     int64     `json:"late_entries"`
-	Nachtraege      int64     `json:"nachtraege"`
-	Nachgetragen    bool      `json:"nachgetragen"`
+	ID           int64     `json:"id"`
+	Name         string    `json:"name"`
+	Team         string    `json:"team"`
+	Teams        []teamRef `json:"teams"`
+	Self         bool      `json:"self"`
+	Status       string    `json:"status"`
+	StatusRaw    any       `json:"status_raw,omitempty"`
+	SubmittedAt  any       `json:"submitted_at"`
+	DecidedAt    any       `json:"decided_at"`
+	SollH        float64   `json:"soll_h"`
+	SollToDateH  float64   `json:"soll_bis_heute_h"`
+	IstH         float64   `json:"ist_h"`
+	SaldoH       float64   `json:"saldo_h"`
+	KontoH       any       `json:"konto_h"`
+	ChecksOpen   int64     `json:"checks_open"`
+	LateEntries  int64     `json:"late_entries"`
+	Nachtraege   int64     `json:"nachtraege"`
+	Nachgetragen bool      `json:"nachgetragen"`
 }
 
 func tsOrNil(t *time.Time) any {

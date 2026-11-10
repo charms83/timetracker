@@ -55,20 +55,33 @@ func (a *App) stopTimerTx(ctx context.Context, tx pgx.Tx, uid int64, end time.Ti
 		return 0, nil
 	}
 	if st, ok := a.parseTime(*start); ok {
-		if dur := int64(end.Sub(st).Seconds()); dur >= 60 {
-			// Monat inzwischen gesperrt (z. B. nach langer Laufzeit automatisch geschlossen): Eintrag nicht speichern, Timer trotzdem
-			// beenden (sonst hinge er für immer am Trigger). Die Zeit steht im Systemlog; nachtragen kann Teamleitung/Personal.
-			if locked, err := monthLockedTx(ctx, tx, uid, a.dateOf(*start)); err != nil {
-				return 0, err
-			} else if locked {
-				a.sysLog(ctx, uid, "warn", "pruefung", fmt.Sprintf("Timer %s–%s nicht gespeichert: Monat %s ist geschlossen – bitte Teamleitung/Personal um Nachtrag",
-					*start, end.UTC().Format(isoMillis), a.dateOf(*start)[:7]))
-				_, err = tx.Exec(ctx, `UPDATE timer_state SET project_id=NULL,task_id=NULL,plan_task_id=NULL,comment=NULL,start_time=NULL,activity=NULL WHERE user_id=$1`, uid)
-				return 0, err
+		// Monat des Beginns inzwischen gesperrt (z. B. nach langer Laufzeit automatisch geschlossen): der Teil im gesperrten Monat wird
+		// nicht gespeichert (Systemlog, Nachtrag durch Teamleitung/Personal), der Teil ab Beginn des Monats von „end“ schon, wenn dieser offen ist.
+		// Der Timer endet in jedem Fall – er hängt nie am Trigger.
+		startIso := *start
+		if locked, err := monthLockedTx(ctx, tx, uid, a.dateOf(*start)); err != nil {
+			return 0, err
+		} else if locked {
+			el := end.In(a.Loc)
+			cut := time.Date(el.Year(), el.Month(), 1, 0, 0, 0, 0, a.Loc)
+			a.sysLog(ctx, uid, "warn", "pruefung", fmt.Sprintf("Timer ab %s: Teil bis %s nicht gespeichert – Monat %s ist gesperrt, bitte Teamleitung/Personal um Nachtrag",
+				*start, cut.UTC().Format(isoMillis), a.dateOf(*start)[:7]))
+			origSt := st
+			st = end // ohne offenen Teil: nichts speichern
+			if cut.After(origSt) && !end.Before(cut) {
+				l2, err := monthLockedTx(ctx, tx, uid, dayStr(cut))
+				if err != nil {
+					return 0, err
+				}
+				if !l2 {
+					st, startIso = cut, cut.UTC().Format(isoMillis)
+				}
 			}
+		}
+		if dur := int64(end.Sub(st).Seconds()); dur >= 60 {
 			if err := tx.QueryRow(ctx, `INSERT INTO time_entries(user_id,project_id,task_id,plan_task_id,start_time,end_time,duration_seconds,comment,date,source,activity)
 				VALUES($1,$2,$3,(SELECT id FROM plan_tasks WHERE id=$4 AND user_id=$1),$5,$6,$7,$8,$9,'manual',$10) RETURNING id`,
-				uid, proj, task, plan, *start, end.UTC().Format(isoMillis), dur, comment, a.dateOf(*start), activity).Scan(&newID); err != nil {
+				uid, proj, task, plan, startIso, end.UTC().Format(isoMillis), dur, comment, a.dateOf(startIso), activity).Scan(&newID); err != nil {
 				return 0, err
 			}
 		}
@@ -190,6 +203,16 @@ func (a *App) startTimer(ctx context.Context, uid int64, pid, tid, plid, comment
 		if lastEnd != nil {
 			if le, ok := a.parseTime(*lastEnd); ok && le.After(start) {
 				start = le
+			}
+		}
+		// nie rückwirkend in einen gesperrten (geschlossenen/eingereichten) Monat: dann ab Beginn des laufenden Monats
+		if nl := now.In(a.Loc); start.In(a.Loc).Month() != nl.Month() {
+			var locked bool
+			if err := a.DB.QueryRow(ctx, `SELECT zp_month_locked($1, $2)`, uid, start.In(a.Loc).Format("2006-01-02")).Scan(&locked); err != nil {
+				return nil, nil, err
+			}
+			if locked {
+				start = time.Date(nl.Year(), nl.Month(), 1, 0, 0, 0, 0, a.Loc)
 			}
 		}
 		startIso = start.UTC().Format(isoMillis)

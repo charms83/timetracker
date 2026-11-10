@@ -17,8 +17,8 @@ import (
    Ein Projekt ist das echte Projekt (z. B. „Beispiel Marketing“); Plane-/Jira-Projekte sind QUELLEN für Tickets, die genau
    einem Projekt zugeordnet sind. Der Server legt in Plane/Jira keine Projekte an: Die Projekte werden gelesen, neue landen
    unter „Neue Projekte gefunden“ und werden übernommen (Vorschlag: gleiches Kürzel / ähnlicher Name).
-   Hier: Einlesen aus Plane, Verknüpfen, Ignorieren, Regel je Projekt, Nachfolger. Jira-Quelle, Zusammenführen,
-   Namen angleichen und „Lokale Zeiten“ folgen. */
+   Hier: Einlesen aus Plane, Verknüpfen, Ignorieren, Regel je Projekt, Nachfolger. Zusammenführen, Namen angleichen,
+   Doppelte und „Lokale Zeiten“: project_tools.go. Jira-Quelle beim Einlesen folgt. */
 
 var outputRules = []string{"default", "bridge", "plane", "tempo", "none"}
 
@@ -634,7 +634,12 @@ func (a *App) sourcesList(w http.ResponseWriter, r *http.Request, u User) {
 	if v := st["sources_last_scan"]; v != "" {
 		lastScan = v
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"pending": pending, "projects": rows, "ignored": ignored, "duplicates": []any{},
+	dups, err := a.duplicates(ctx, u.ID) // project_tools.go
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"pending": pending, "projects": rows, "ignored": ignored, "duplicates": dups,
 		"last_scan": lastScan, "last": nil, "default_rule": def})
 }
 

@@ -134,7 +134,9 @@ func isMonthLocked(err error) bool {
 const lockedStatusSQL = `('submitted','approved','closed')`
 
 // monthStatusLocked: Status sperrt den Monat für die Person selbst (geschlossen zählt wie freigegeben)
-func monthStatusLocked(st string) bool { return st == "submitted" || st == "approved" || st == "closed" }
+func monthStatusLocked(st string) bool {
+	return st == "submitted" || st == "approved" || st == "closed"
+}
 
 // lockedMonths: geschlossene/eingereichte/freigegebene Monate der Person (nur lesen, ohne Sperre – für Anzeigen)
 func (a *App) lockedMonths(ctx context.Context, uid int64) (map[string]bool, error) {
