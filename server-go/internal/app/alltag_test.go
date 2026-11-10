@@ -40,18 +40,20 @@ func TestAlltagRoutesRegistered(t *testing.T) {
 
 func TestSuggestSwitchFourLevels(t *testing.T) {
 	for _, tc := range []struct {
-		kind       string
+		kind, role string
 		productive bool
 		want       bool
 	}{
-		{"local", false, false}, // technisches Admin-/Testkonto
-		{"local", true, true},   // Admin, der selbst Zeiten erfasst
-		{"oidc", false, true},   // OIDC/LDAP immer zeiterfassend
-		{"ldap", false, true},
-		{"oidc", true, true},
+		{"local", "admin", false, false}, // technisches Admin-Konto
+		{"local", "user", true, true},
+		{"oidc", "admin", true, false}, // Admin-Gruppe: nie Zeiterfassung (keine Doppelrolle)
+		{"oidc", "user", false, true},  // OIDC/LDAP-Mitarbeiter zeiterfassend
+		{"ldap", "user", false, true},
+		{"oidc", "lead", true, true},
+		{"ldap", "breakglass", true, false},
 	} {
-		if got := tracksTime(tc.kind, tc.productive); got != tc.want {
-			t.Errorf("tracksTime(%s,%v)=%v", tc.kind, tc.productive, got)
+		if got := tracksTime(tc.kind, tc.role, tc.productive); got != tc.want {
+			t.Errorf("tracksTime(%s,%s,%v)=%v", tc.kind, tc.role, tc.productive, got)
 		}
 	}
 	for _, tc := range []struct {

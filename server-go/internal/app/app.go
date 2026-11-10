@@ -285,10 +285,13 @@ func (a *App) auth(h func(http.ResponseWriter, *http.Request, User)) http.Handle
 	}
 }
 
-// timeAccount: Konto, das Zeiten erfasst. Das lokale Testkonto „Administrator“ (kind local, nicht produktiv) ist nur für die Verwaltung da;
-// Konten aus LDAP/authentik und produktive lokale Konten erfassen Zeiten (auch wenn sie zusätzlich Administrator sind).
+// timeAccount: Konto, das Zeiten erfasst. Technischer Admin (role=admin) und Notfallzugang erfassen nie Zeiten –
+// auch nicht per LDAP/OIDC-Admin-Gruppe (kein Mischkonto). Reine lokale Admin-Konten: productive=false.
 func (u User) timeAccount() bool {
-	return !(u.Kind == "local" && !u.Productive) && u.Role != "breakglass"
+	if u.Role == "admin" || u.Role == "breakglass" {
+		return false
+	}
+	return !(u.Kind == "local" && !u.Productive)
 }
 
 // adminAccountAllowed: was ein reines Administrationskonto aufrufen darf (alles andere ist verboten)

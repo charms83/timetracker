@@ -55,7 +55,7 @@ func (a *App) tempoSyncTick(ctx context.Context) {
 		return
 	}
 	rows, err := a.DB.Query(ctx, `SELECT u.id FROM users u
-		WHERE NOT u.disabled AND u.role<>'breakglass' AND NOT (u.kind='local' AND NOT u.productive)
+		WHERE NOT u.disabled AND u.role<>'breakglass' AND u.role<>'admin' AND NOT (u.kind='local' AND NOT u.productive)
 		  AND EXISTS (SELECT 1 FROM user_settings s WHERE s.user_id=u.id AND s.key='tempo_sync_from' AND s.value<>'')`)
 	if err != nil {
 		return

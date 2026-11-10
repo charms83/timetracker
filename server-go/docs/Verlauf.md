@@ -66,6 +66,12 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - `server rekey` (`RekeySecrets` + CLI); DB-Rollen `deploy/postgres/roles.sql`.
 - Exchange/Multi-Mail bewusst zurückgestellt.
 
+## Weiterbau (Admin ohne Doppelrolle / GUI-Trennung)
+- Entscheidung umgesetzt: technischer Admin = getrenntes Konto (LDAP/OIDC-Admin-Gruppe ok), **keine** Doppelrolle mit Zeiterfassung.
+- Migration 026 setzt `productive=false` für alle `role=admin`; `timeAccount()` / `tracksTime()` schließen Admin und Notfallzugang aus; Provision/Nachprüfung/Admin-API erzwingen das.
+- Login/OIDC und React-`isAdminOnly` leiten Admin nur nach `/admin`; Nutzer-GUI `/` ohne Admin-Link; Team-/Monat-/Sync-Filter ohne Admin-Konten.
+- Docs: Spezifikation §4 und Stand-und-Plan angepasst.
+
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik, SMTP); gefundene Fehler beheben.
 2. Exchange-OAuth/Graph und mehrere Mail-Konten.

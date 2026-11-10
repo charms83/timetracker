@@ -142,6 +142,9 @@ func (a *App) provisionExternal(ctx context.Context, kind, subject, username, dn
 	if mail == "" {
 		mail = "kein-mail@" + kind + ".invalid"
 	}
+	if drole == "admin" {
+		hr = false // Admin-Gruppe = reines Administrationskonto, kein Personal-/Mitarbeiter-Mischkonto
+	}
 	var disabled, oldHR bool
 	err = tx.QueryRow(ctx, `SELECT id, disabled, is_hr FROM users WHERE oidc_subject=$1 AND kind=$2`, subject, kind).Scan(&uid, &disabled, &oldHR)
 	switch {
@@ -152,10 +155,11 @@ func (a *App) provisionExternal(ctx context.Context, kind, subject, username, dn
 		if oldHR != hr {
 			_, _ = tx.Exec(ctx, `INSERT INTO audit_log(user_id,action,detail) VALUES($1,'user.hr_synced',$2)`, uid, fmt.Sprintf("Personal-Recht %v → %v (Verzeichnisgruppe)", oldHR, hr))
 		}
+		prod := drole != "admin" // Admin-Gruppe = reines Administrationskonto, keine Doppelrolle mit Zeiterfassung
 		if kind == "ldap" { // Verzeichnisname ist geprüft; bei OIDC ist preferred_username änderbar und wird nur beim Anlegen übernommen
-			_, err = tx.Exec(ctx, `UPDATE users SET name=$2, email=$3, role=$4, username=NULLIF($5,''), is_hr=$6, last_login=now() WHERE id=$1`, uid, dname, mail, drole, username, hr)
+			_, err = tx.Exec(ctx, `UPDATE users SET name=$2, email=$3, role=$4, username=NULLIF($5,''), is_hr=$6, productive=$7, last_login=now() WHERE id=$1`, uid, dname, mail, drole, username, hr, prod)
 		} else {
-			_, err = tx.Exec(ctx, `UPDATE users SET name=$2, email=$3, role=$4, is_hr=$5, last_login=now() WHERE id=$1`, uid, dname, mail, drole, hr)
+			_, err = tx.Exec(ctx, `UPDATE users SET name=$2, email=$3, role=$4, is_hr=$5, productive=$6, last_login=now() WHERE id=$1`, uid, dname, mail, drole, hr, prod)
 		}
 	case errors.Is(err, pgx.ErrNoRows):
 		link := ""
@@ -172,8 +176,8 @@ func (a *App) provisionExternal(ctx context.Context, kind, subject, username, dn
 		}
 		if lid != 0 { // bestehendes lokales Konto übernehmen: Daten bleiben, Passwort entfällt, alte Sitzungen enden
 			uid = lid
-			if _, err = tx.Exec(ctx, `UPDATE users SET kind=$7, oidc_subject=$2, password_hash=NULL, must_change_password=false, name=$3, email=$4, role=$5, username=NULLIF($6,''), is_hr=$8, last_login=now() WHERE id=$1`,
-				uid, subject, dname, mail, drole, username, kind, hr); err == nil {
+			if _, err = tx.Exec(ctx, `UPDATE users SET kind=$7, oidc_subject=$2, password_hash=NULL, must_change_password=false, name=$3, email=$4, role=$5, username=NULLIF($6,''), is_hr=$8, productive=$9, last_login=now() WHERE id=$1`,
+				uid, subject, dname, mail, drole, username, kind, hr, drole != "admin"); err == nil {
 				_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, uid)
 			}
 			if err == nil {
@@ -190,8 +194,8 @@ func (a *App) provisionExternal(ctx context.Context, kind, subject, username, dn
 					username = ""
 				}
 			}
-			err = tx.QueryRow(ctx, `INSERT INTO users(oidc_subject,email,name,role,kind,username,productive,is_hr) VALUES($1,$2,$3,$4,$6,NULLIF($5,''),true,$7) RETURNING id`,
-				subject, mail, dname, drole, username, kind, hr).Scan(&uid)
+			err = tx.QueryRow(ctx, `INSERT INTO users(oidc_subject,email,name,role,kind,username,productive,is_hr) VALUES($1,$2,$3,$4,$6,NULLIF($5,''),$8,$7) RETURNING id`,
+				subject, mail, dname, drole, username, kind, hr, drole != "admin").Scan(&uid)
 			if err == nil {
 				_, err = tx.Exec(ctx, `INSERT INTO audit_log(user_id,action,detail) VALUES($1,'user.created_'||$3::text,$2)`, uid, "Beim ersten Anmelden angelegt: "+username+" ("+drole+")", kind)
 			}
@@ -327,7 +331,12 @@ func (a *App) ldapRecheckTick(ctx context.Context) {
 		case res.ID != "" && "ldap:"+res.ID != x.sb:
 			a.DB.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, x.id) //nolint:errcheck // anderer Mensch mit gleichem Namen
 		case res.Role != x.role || res.HR != x.hr:
-			a.DB.Exec(ctx, `UPDATE users SET role=$2, is_hr=$3 WHERE id=$1`, x.id, res.Role, res.HR) //nolint:errcheck
+			hr := res.HR
+			prod := true
+			if res.Role == "admin" { // kein Mischkonto: Admin ohne Personal und ohne Zeiterfassung
+				hr, prod = false, false
+			}
+			a.DB.Exec(ctx, `UPDATE users SET role=$2, is_hr=$3, productive=$4 WHERE id=$1`, x.id, res.Role, hr, prod) //nolint:errcheck
 			a.audit(ctx, x.id, "user.role_synced", x.role+" → "+res.Role+" (Verzeichnis)")
 			if res.Role != "admin" {
 				a.DB.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, x.id) //nolint:errcheck

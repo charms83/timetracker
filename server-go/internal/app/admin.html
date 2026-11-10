@@ -81,7 +81,7 @@
       <label><input type="checkbox" id="nu-prod" checked> produktiv</label>
       <button class="act" onclick="addUser()">Lokales Konto anlegen</button>
     </div>
-    <p class="mut">Lokale Konten gelten für Installation und Einzelbetrieb: Solange authentik/LDAP nicht eingerichtet ist, darf nur <b>eine</b> Person produktiv arbeiten. Der Administrator ist ein Testkonto (nicht produktiv).</p>
+    <p class="mut">Lokale Konten gelten für Installation und Einzelbetrieb: Solange authentik/LDAP nicht eingerichtet ist, darf nur <b>eine</b> Person produktiv arbeiten. Rolle <b>admin</b> ist immer ein reines Administrationskonto (keine Zeiterfassung, keine Doppelrolle). Bei LDAP/OIDC: Admin-Gruppe und Mitarbeiter-Gruppe nicht derselben Person zuweisen.</p>
     <table><thead><tr><th>ID</th><th>Name / E-Mail</th><th>Art</th><th>Rolle</th><th>produktiv</th><th>Zugangsdaten</th><th>Einträge</th><th>Letzte Anmeldung</th><th>Gesperrt</th><th>Vorschläge</th><th></th></tr></thead><tbody id="user-rows"></tbody></table>
   </section>
 

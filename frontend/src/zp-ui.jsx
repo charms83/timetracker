@@ -97,8 +97,8 @@ const SERVER = { mode: false, me: null, boot: null, subs: new Set() };
 export const isServerMode = () => SERVER.mode;
 export const getMe = () => SERVER.me;
 const meSet = m => { SERVER.me = m; SERVER.subs.forEach(f => f(m)); };
-// reines Administrationskonto (lokales Testkonto, nicht produktiv) oder Notfallzugang: kein Zeiterfassungs-Bereich
-export const isAdminOnly = me => !!me && ((me.kind === "local" && !me.productive) || me.role === "breakglass");
+// Technischer Admin, lokales Testkonto (nicht produktiv) oder Notfallzugang: kein Zeiterfassungs-Bereich (keine Doppelrolle)
+export const isAdminOnly = me => !!me && (me.role === "admin" || me.role === "breakglass" || (me.kind === "local" && !me.productive));
 export async function loadMe() {
   try {
     const r = await fetch("/api/me", { headers: { Accept: "application/json" } });

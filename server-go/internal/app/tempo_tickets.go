@@ -269,9 +269,13 @@ func suggestOn(server string, blocked bool, user string) (bool, string) {
 	return suggestOnFor("Ticket-Vorschläge", true, server, blocked, user)
 }
 
-// tracksTime: Konto erfasst Zeiten = nicht (lokales Konto UND nicht produktiv). LDAP/OIDC immer; Admin mit productive=true auch.
-// Das technische Admin-/Testkonto (local, productive=false) bekommt keine Vorschläge und keinen Assistenten.
-func tracksTime(kind string, productive bool) bool { return kind != "local" || productive }
+// tracksTime: Konto erfasst Zeiten (nicht Admin, nicht Notfall, nicht lokales Testkonto ohne productive).
+func tracksTime(kind, role string, productive bool) bool {
+	if role == "admin" || role == "breakglass" {
+		return false
+	}
+	return kind != "local" || productive
+}
 
 // suggestOnFor: dieselben Stufen für jede „Light“-Vorschlagsart (Ticket, To-do, Nachtragen, „Jetzt vermutlich“, Assistent):
 // Konto erfasst Zeiten · Servermodul · Admin-Sperre je Person · Einstellung der Person.
@@ -296,12 +300,12 @@ func (a *App) suggestAllowed(ctx context.Context, uid int64) (bool, string) {
 
 func (a *App) suggestAllowedFor(ctx context.Context, uid int64, what string) (bool, string) {
 	var blocked, productive bool
-	var user, kind string
-	if err := a.DB.QueryRow(ctx, `SELECT u.suggest_blocked, u.kind, u.productive, COALESCE((SELECT value FROM user_settings s WHERE s.user_id=u.id AND s.key='suggest_enabled'),'1')
-		FROM users u WHERE u.id=$1`, uid).Scan(&blocked, &kind, &productive, &user); err != nil {
+	var user, kind, role string
+	if err := a.DB.QueryRow(ctx, `SELECT u.suggest_blocked, u.kind, u.role, u.productive, COALESCE((SELECT value FROM user_settings s WHERE s.user_id=u.id AND s.key='suggest_enabled'),'1')
+		FROM users u WHERE u.id=$1`, uid).Scan(&blocked, &kind, &role, &productive, &user); err != nil {
 		return false, what + " gerade nicht verfügbar" // im Zweifel aus
 	}
-	if !tracksTime(kind, productive) { // vor allen weiteren Abfragen
+	if !tracksTime(kind, role, productive) { // vor allen weiteren Abfragen
 		return suggestOnFor(what, false, "", false, "")
 	}
 	return suggestOnFor(what, true, a.conf(ctx, "module_suggest"), blocked, user)

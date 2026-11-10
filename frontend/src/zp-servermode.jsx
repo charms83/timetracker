@@ -4,12 +4,12 @@
    Hinweis „braucht den Mac-Client“. Am Node-System wird nichts davon eingebunden.
 ═══════════════════════════════════════════════════════════════════ */
 import { useState, useEffect, useCallback } from "react";
-import { LogOut, ShieldCheck, ChevronLeft, ChevronRight, Send, Undo2, MonitorSmartphone, Info, KeyRound, Trash2, Check } from "lucide-react";
+import { LogOut, ChevronLeft, ChevronRight, Send, Undo2, MonitorSmartphone, Info, KeyRound, Trash2, Check } from "lucide-react";
 import { api, call, Box, lab, inpS, btn, loadMe, useServerMode, PlaneWorkspacesPanel } from "./zp-ui.jsx";
 export { PlaneWorkspacesPanel };
 
 /* ── Abmelden, Name, Administration (Seitenleiste / Titelleiste) ── */
-const ROLE = { admin: "Administrator", lead: "Teamleiter", user: "Mitarbeiter", breakglass: "Notfallzugang" };
+const ROLE = { lead: "Teamleiter", user: "Mitarbeiter" };
 export async function logout() {
   await call("POST", "/auth/logout");
   location.href = "/login";
@@ -17,12 +17,11 @@ export async function logout() {
 export function ServerUserBox({ compact }) {
   const { serverMode, me } = useServerMode();
   if (!serverMode || !me) return null;
-  const roles = [ROLE[me.role] || me.role, me.is_lead && me.role !== "lead" ? "Teamleiter" : "", me.is_hr ? "Personal" : ""].filter(Boolean).join(" · ");
-  const admin = me.role === "admin";   // reine Administrationskonten werden schon beim Start nach /admin geleitet
+  // Admin/Notfall landen nie hier (isAdminOnly → /admin); Anzeige nur Fachrollen
+  const roles = [ROLE[me.role] || "Mitarbeiter", me.is_lead && me.role !== "lead" ? "Teamleiter" : "", me.is_hr ? "Personal" : ""].filter(Boolean).join(" · ");
   if (compact) return (
     <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 8, WebkitAppRegion: "no-drag", fontSize: 12 }}>
       <span title={roles} style={{ color: "var(--text2)", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{me.name}</span>
-      {admin && <a href="/admin" title="Administration" style={{ display: "flex", color: "var(--text2)" }}><ShieldCheck size={15} /></a>}
       <button className="zp-nav" title="Abmelden" onClick={logout}><LogOut size={15} /></button>
     </div>);
   return (
@@ -30,7 +29,6 @@ export function ServerUserBox({ compact }) {
       <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={me.email || me.name}>{me.name}</div>
       {roles && <div style={{ color: "var(--text2)", fontSize: 11 }}>{roles}</div>}
       <div style={{ display: "flex", gap: 4, marginTop: 6, flexWrap: "wrap" }}>
-        {admin && <a href="/admin" className="zp-nav" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, textDecoration: "none", color: "var(--text)", padding: "4px 8px" }}><ShieldCheck size={14} /> Administration</a>}
         <button className="zp-nav" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, padding: "4px 8px" }} onClick={logout}><LogOut size={14} /> Abmelden</button>
       </div>
     </div>);

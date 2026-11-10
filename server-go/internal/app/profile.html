@@ -67,11 +67,11 @@ let me = null;
 async function load() {
   me = await api('GET', '/me');
   const u = me.user;
-  if (u.kind === 'local' && !u.productive) { location.href = '/admin'; return; }   // reines Administrationskonto: kein Zeiterfassungs-Profil
+  if (u.role === 'admin' || u.role === 'breakglass' || (u.kind === 'local' && !u.productive)) { location.href = '/admin'; return; }   // Admin/Notfall: kein Zeiterfassungs-Profil
   $('who').textContent = u.name || 'Mein Profil';
-  $('roles').innerHTML = [u.role === 'admin' ? 'Administrator' : 'Mitarbeiter', u.is_lead ? 'Teamleiter' : '', u.is_hr ? 'Personal' : ''].filter(Boolean).map(r => `<span class="badge">${r}</span>`).join('');
+  $('roles').innerHTML = ['Mitarbeiter', u.is_lead ? 'Teamleiter' : '', u.is_hr ? 'Personal' : ''].filter(Boolean).map(r => `<span class="badge">${r}</span>`).join('');
   $('notices').innerHTML = (me.notices || []).map(n => `<div class="notice">${esc(n)}</div>`).join('');
-  $('adminlink').style.display = u.role === 'admin' ? 'inline' : 'none'; $('adminlink').href = '/admin';
+  $('adminlink').style.display = 'none';
   $('pw-box').style.display = u.kind === 'local' ? 'block' : 'none';
   await planeState();
   await jiraList();

@@ -198,6 +198,9 @@ func (a *App) adminUserUpdate(w http.ResponseWriter, r *http.Request, u User) {
 	if v, has := in["productive"]; has && kind == "local" {
 		productive = truthy(v)
 	}
+	if role == "admin" {
+		productive = false // nie Doppelrolle: Admin erfasst keine Zeiten
+	}
 	var suggestBlocked *bool // Ticket-Vorschläge für diese Person sperren (nur Administrator)
 	if v, has := in["suggest_blocked"]; has {
 		b := truthy(v)

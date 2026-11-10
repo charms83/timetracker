@@ -37,15 +37,15 @@ Besseres Tempo für Plane: ein zentraler Server (Go, PostgreSQL, OpenShift) füh
 | E-Mail-Versand | gewünscht (Erinnerungen); Technik SMTP-Relay/Exchange-OAuth/Graph | **offen**, nächster Baustein |
 | Nachprüfung OIDC im IdP | Sperrung wirkt erst bei neuer Anmeldung; Behelf `server user logout` | Entscheidung nötig |
 
-## 4. Rollen und Sichtbarkeit (Entscheidung 05.11.)
-Drei Rollen, **kombinierbar** (eine Person kann Teamleiter und Personal zugleich sein):
+## 4. Rollen und Sichtbarkeit (Entscheidung 05.11., nachgeschärft 10.11./11.11.)
+Drei Fachrollen, **untereinander kombinierbar** (eine Person kann Teamleiter und Personal zugleich sein):
 - **Mitarbeiter:** sieht und bucht nur sich selbst.
 - **Teamleiter:** sieht die Buchungen seines Teams (Einzelbuchungen, wie in Tempo).
 - **Personal:** sieht alle Personen.
-- **Admin (technisch):** Server, Konten, Einstellungen; sieht und ändert **keine** Zeitdaten per Rolle (Entscheidung 10.11.: nur Technik; fachliche „Admin“-Aufgaben wie Nachtragen und Freigeben liegen beim Personal).
+- **Admin (technisch):** getrenntes Konto – Server, Konten, Einstellungen; **nie** Zeiterfassung, **keine** Doppelrolle mit Mitarbeiter/Teamleiter/Personal (Entscheidung 10.11./11.11.). LDAP/OIDC: eigene Admin-Gruppe; dieselbe Person nicht zugleich in Mitarbeiter- und Admin-Gruppe.
 - Notfallzugang bleibt außerhalb der Rollen.
 
-**Umgesetzt:** Merkmale statt Einzelrolle (`users.is_hr`, Teamleitung je Team in `team_members.is_lead`), Teams (lokal im Admin, aus Verzeichnisgruppen in Arbeit), Gruppe `group_hr` für Personal (LDAP/OIDC), Sichtbarkeit über `?user=`-Lesezugriff nur nach Rolle. Der technische Admin sieht keine Zeitdaten; ein reines Administrationskonto (lokal, nicht produktiv) darf nur die Verwaltung aufrufen. „Buchhaltung“ entfällt (Personal). Das Konzeptpapier ist entsprechend anzupassen.
+**Umgesetzt:** Merkmale statt Einzelrolle (`users.is_hr`, Teamleitung je Team in `team_members.is_lead`), Teams (lokal im Admin, aus Verzeichnisgruppen), Gruppe `group_hr` für Personal (LDAP/OIDC), Sichtbarkeit über `?user=`-Lesezugriff nur nach Rolle. `role=admin` → `timeAccount()=false`, `productive=false`, Weiterleitung nur nach `/admin`; Mitarbeiter-Oberfläche `/` im Servermodus wie das lokale Zeitprotokoll. „Buchhaltung“ entfällt (Personal).
 
 ## 5. Zeitdaten (Kern)
 | Funktion | Status |
@@ -112,7 +112,7 @@ Eine Anmeldung, aber getrennte Oberflächen – jede Person sieht nur, was zu ih
 | **Mitarbeiter** | alle, die Zeiten erfassen | das bisherige Zeitprotokoll: Heute, Woche, To-dos, Kalender, Abwesenheiten, Auswertung, Übertragen, Einstellungen (nur persönliche: Plane-/Jira-Token, Arbeitszeit); Monat einreichen | `/` (alte Oberfläche läuft am Go-Server im Servermodus; im Browser noch nicht abgenommen) |
 | **Teamleiter** | Leitung eines Teams | Team-Übersicht (Salden, Einzelbuchungen wie Tempo), Monate des Teams freigeben/ablehnen | `/team` (Server-Übersichten in Arbeit, Bildschirm offen) |
 | **Personal** | Personal/GL | alle Personen, alle Monate freigeben/wiedereröffnen, Auswertungen, Exporte | `/personal` (Server-Übersichten in Arbeit, Bildschirm offen) |
-Rollen sind kombinierbar: Wer Mitarbeiter und Teamleiter ist, hat beide Bereiche (Umschalter in der Navigation). Die Server-Schnittstellen (Freigabe, Sichtbarkeit `?user=`) gibt es; es fehlen die Bildschirme. Admin-Dinge stehen nie in den anderen Oberflächen (der alte Reiter „Einstellungen › Server“ wandert nach `/admin`).
+Fachrollen sind kombinierbar: Wer Mitarbeiter und Teamleiter ist, hat beide Bereiche (Umschalter in der Navigation). Der technische Admin bleibt ein getrenntes Konto und sieht die Mitarbeiter-GUI nicht. Die Server-Schnittstellen (Freigabe, Sichtbarkeit `?user=`) gibt es; Teamleiter-/Personal-Bildschirme fehlen noch. Admin-Dinge stehen nie in den anderen Oberflächen (der alte Reiter „Einstellungen › Server“ wandert nach `/admin`).
 
 ### Oberfläche
 Die Bedienoberfläche (Web, danach Clients) wird erst gebaut, wenn der Server im Hintergrund feststeht, und folgt den Entscheidungen des lokalen Zeittrackers (Node/Mac-App), damit Bedienung und Begriffe gleich bleiben.

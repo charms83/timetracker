@@ -9,7 +9,7 @@ import (
 )
 
 /* Sichtbarkeit: Mitarbeiter sehen sich selbst, Teamleiter die Mitglieder ihrer Teams, Personal (is_hr) alle.
-   Die Rollen sind kombinierbar. Der technische Administrator sieht über seine Rolle KEINE Zeitdaten.
+   Fachrollen sind kombinierbar; der technische Administrator ist ein getrenntes Konto und sieht KEINE Zeitdaten.
    Fremde Daten gibt es nur lesend über „?user=<id>“ an ausgewählten GET-Routen (asTarget); alles Schreibende bleibt eigene Daten. */
 
 // canSee: darf viewer die Zeitdaten von target lesen?
