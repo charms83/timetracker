@@ -61,7 +61,7 @@ Ziel: Der Go-Server liefert die bestehende Oberfläche aus (`ZP_STATIC_DIR`) und
 | `/integrations/plane/map/suggest` | GET | zp-tempo |  |
 | `/integrations/plane/map/apply` | POST | zp-tempo |  |
 
-Vorhanden, aber mit abweichender Antwort: `/integrations/tempo-push/status` (Go liefert je Instanz `instances[]`, Node oben `ok/user/issues`); `/integrations/tempo-push/outbox` (ohne `suggest`/`gaps`, dafür Instanzfelder).
+Vorhanden, aber mit abweichender Antwort: `/integrations/tempo-push/status` (Go liefert je Instanz `instances[]`, Node oben `ok/user/issues`); `/integrations/tempo-push/outbox` hat `suggest` und `gaps` aus `dayOverview` (wie Node).
 
 ## D Arbeitsalltag (Schritt 2) – gebaut 10.11.2026
 
