@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from "react";
 import { UserCog, Check, X, RotateCcw, Search } from "lucide-react";
 import { call, Box, inpS, btn, useServerMode } from "./zp-ui.jsx";
 import { MonthNav, RefreshBtn, PeopleTable, PersonDetail, ReasonDialog, Empty, Err, STATUS, prevMonth, monthLabel, friendly, when } from "./zp-people.jsx";
+import { LeavePendingPanel } from "./zp-leave.jsx";
 
 const LIMIT = 50;
 const SELF_MSG = "Nicht möglich: Eigene Monate gibt das Personal nicht selbst frei (oder keine Berechtigung). Bitte eine andere Person aus dem Personal bitten.";
@@ -109,6 +110,8 @@ export default function PersonalView() {
               <ApprovalButtons userId={it.user_id} name={it.name} month={it.month} status="submitted" onDone={done} />
             </div>))}
       </Box>
+
+      <div style={{ margin: "12px 0" }}><LeavePendingPanel /></div>
 
       <Box title="Alle Personen" sub="Monatsübersicht mit Status, Salden und Hinweisen; Klick auf eine Zeile öffnet die Details."
         right={<MonthNav month={month} onChange={filt(setMonth)} />}>

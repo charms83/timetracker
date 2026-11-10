@@ -53,9 +53,15 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - Gebaut: Nachtragen-UI in Team/Personal (`zp-people.jsx`), „geschlossen“ in Monatsfreigabe (`zp-servermode.jsx`), klarere Sperr-Hinweise (`zp-ui.jsx`), SMTP-E-Mail über `notifyApproval` (`notify_mail.go`, Migration 020, Admin-Einstellungen).
 - Tests: `go test ./…` grün (inkl. angeglichene Tempo-Hashes und Mail-Hilfstests).
 
+## Weiterbau (Tempo / Urlaub / Geräte)
+- Tempo→lokal: `tempo_sync.go` (GET/POST `/api/tempo-sync`, 12‑h-Cron, Migration nutzt bestehende `time_entries.source='tempo'`).
+- Urlaubsantrag: Migration 021 `leave_requests`, `leave.go`, UI `zp-leave.jsx` (Abwesenheiten + Team/Personal).
+- Geräte-Token + Client-Hinweise: Migration 021 `client_hints` / `device_tokens.kind`, `devices.go`, UI `zp-devices.jsx`.
+- Tests: `go test ./internal/app` grün (inkl. Hilfstests Monatfenster / Leave-Regel / Token-Hash).
+
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik, SMTP); gefundene Fehler beheben.
-2. Exchange-OAuth/Graph; Urlaubsantrag mit Genehmigung durch die Teamleitung (Vertretung Personal).
-3. Mehrere Plane-Workspaces; Tempo-Grundimport/Abgleich; Exporte.
-4. Web-Maske LDAP/OIDC; Geräte-Token und Annahme-Schnittstelle; gemeinsame Zähler; DB-Rollen; `govulncheck`.
+2. Exchange-OAuth/Graph.
+3. Mehrere Plane-Workspaces; Exporte.
+4. Web-Maske LDAP/OIDC; gemeinsame Zähler; DB-Rollen; `govulncheck`.
 5. Sicherheits-Audit fortsetzen; Client-Anbindung und Mac-Härtung; Cloud-Varianten.

@@ -1,0 +1,253 @@
+package app
+
+import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+)
+
+/* Geräte-Token (Mac-Client, Browser-Add-on, Minimal-Client) + Annahme-Schnittstelle für Client-Hinweise.
+   Token nur gehasht in der DB; Klartext einmal bei Erstellung. Nie für Admin-Funktionen.
+   Client-Auth: Authorization: Bearer zpdev_<token> oder X-ZP-Device-Token. */
+
+const deviceTokenPrefix = "zpdev_"
+
+func (a *App) routesDevices(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/devices", a.auth(a.devicesList))
+	mux.HandleFunc("POST /api/devices", a.auth(a.devicesCreate))
+	mux.HandleFunc("DELETE /api/devices/{id}", a.auth(a.devicesRevoke))
+	mux.HandleFunc("GET /api/client/hints", a.auth(a.clientHintsList))
+	mux.HandleFunc("POST /api/client/hints/{id}/consume", a.auth(a.clientHintsConsume))
+	mux.HandleFunc("POST /api/client/hints", a.deviceOrSession(a.clientHintsIngest))
+}
+
+func deviceTokenHash(raw string) string {
+	h := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(h[:])
+}
+
+func (a *App) devicesList(w http.ResponseWriter, r *http.Request, u User) {
+	rs, err := a.maps(r.Context(), `SELECT id, label, kind, created_at, last_used, revoked_at,
+		(revoked_at IS NULL) AS active FROM device_tokens WHERE user_id=$1 ORDER BY created_at DESC`, u.ID)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, rs)
+}
+
+func (a *App) devicesCreate(w http.ResponseWriter, r *http.Request, u User) {
+	var in body
+	if !readJSON(w, r, &in) {
+		return
+	}
+	kind := strings.ToLower(strings.TrimSpace(asStr(in["kind"])))
+	if kind == "" {
+		kind = "mac"
+	}
+	switch kind {
+	case "mac", "addon", "minimal", "other":
+	default:
+		badRequest(w, "kind: mac, addon, minimal oder other")
+		return
+	}
+	label := truncRunes(strings.TrimSpace(asStr(in["label"])), 80)
+	if label == "" {
+		label = kind
+	}
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		a.fail(w, err)
+		return
+	}
+	raw := deviceTokenPrefix + base64.RawURLEncoding.EncodeToString(b)
+	ctx := r.Context()
+	var id int64
+	err := a.DB.QueryRow(ctx, `INSERT INTO device_tokens(user_id,token_hash,label,kind) VALUES($1,$2,$3,$4) RETURNING id`,
+		u.ID, deviceTokenHash(raw), label, kind).Scan(&id)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	a.audit(ctx, u.ID, "device.create", fmt.Sprintf("#%d %s (%s)", id, label, kind))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id": id, "label": label, "kind": kind, "token": raw,
+		"hint": "Token nur einmal sichtbar – im Client hinterlegen. Admin-Funktionen sind damit nicht erreichbar.",
+	})
+}
+
+func (a *App) devicesRevoke(w http.ResponseWriter, r *http.Request, u User) {
+	id, ok := pathID(r)
+	if !ok {
+		notFound(w)
+		return
+	}
+	ctx := r.Context()
+	tag, err := a.DB.Exec(ctx, `UPDATE device_tokens SET revoked_at=now() WHERE id=$1 AND user_id=$2 AND revoked_at IS NULL`, id, u.ID)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		notFound(w)
+		return
+	}
+	a.audit(ctx, u.ID, "device.revoke", "Gerät #"+fmt.Sprint(id))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// deviceUser: Benutzer aus Geräte-Token (nie Admin-Routen).
+func (a *App) deviceUser(r *http.Request) (User, int64, bool) {
+	raw := r.Header.Get("X-ZP-Device-Token")
+	if raw == "" {
+		if ah := r.Header.Get("Authorization"); strings.HasPrefix(ah, "Bearer ") {
+			raw = strings.TrimSpace(strings.TrimPrefix(ah, "Bearer "))
+		}
+	}
+	if raw == "" || !strings.HasPrefix(raw, deviceTokenPrefix) || len(raw) > 200 {
+		return User{}, 0, false
+	}
+	var u User
+	var did int64
+	err := a.DB.QueryRow(r.Context(), `SELECT d.id, u.id, u.email, u.name, u.role, u.kind, u.productive, u.must_change_password, u.is_hr,
+		EXISTS(SELECT 1 FROM team_members m WHERE m.user_id=u.id AND m.is_lead)
+		FROM device_tokens d JOIN users u ON u.id=d.user_id
+		WHERE d.token_hash=$1 AND d.revoked_at IS NULL AND NOT u.disabled AND u.role<>'breakglass'`, deviceTokenHash(raw)).
+		Scan(&did, &u.ID, &u.Email, &u.Name, &u.Role, &u.Kind, &u.Productive, &u.MustChange, &u.IsHR, &u.IsLead)
+	if err != nil {
+		return User{}, 0, false
+	}
+	if !u.timeAccount() {
+		return User{}, 0, false
+	}
+	_, _ = a.DB.Exec(r.Context(), `UPDATE device_tokens SET last_used=now() WHERE id=$1 AND (last_used IS NULL OR last_used < now() - interval '1 minute')`, did)
+	return u, did, true
+}
+
+// deviceOrSession: Sitzung ODER Geräte-Token (für Client-Ingest).
+func (a *App) deviceOrSession(h func(http.ResponseWriter, *http.Request, User, int64)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if u, did, ok := a.deviceUser(r); ok {
+			h(w, r, u, did)
+			return
+		}
+		a.auth(func(w http.ResponseWriter, r *http.Request, u User) {
+			h(w, r, u, 0)
+		})(w, r)
+	}
+}
+
+func (a *App) clientHintsList(w http.ResponseWriter, r *http.Request, u User) {
+	q := r.URL.Query()
+	sql := `SELECT * FROM client_hints WHERE user_id=$1`
+	args := []any{u.ID}
+	if q.Get("open") != "0" {
+		sql += " AND consumed_at IS NULL"
+	}
+	if d := q.Get("from"); d != "" {
+		args = append(args, d)
+		sql += fmt.Sprintf(" AND day>=$%d", len(args))
+	}
+	if d := q.Get("to"); d != "" {
+		args = append(args, d)
+		sql += fmt.Sprintf(" AND day<=$%d", len(args))
+	}
+	rs, err := a.maps(r.Context(), sql+" ORDER BY day DESC, id DESC LIMIT 500", args...)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, rs)
+}
+
+func (a *App) clientHintsConsume(w http.ResponseWriter, r *http.Request, u User) {
+	id, ok := pathID(r)
+	if !ok {
+		notFound(w)
+		return
+	}
+	tag, err := a.DB.Exec(r.Context(), `UPDATE client_hints SET consumed_at=now() WHERE id=$1 AND user_id=$2 AND consumed_at IS NULL`, id, u.ID)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		notFound(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// clientHintsIngest: Vorschläge vom Client (keine Buchungen). Body: {hints:[{kind,day,start_time?,end_time?,title?,payload?,dedupe_key?}]}
+func (a *App) clientHintsIngest(w http.ResponseWriter, r *http.Request, u User, deviceID int64) {
+	var in struct {
+		Hints []body `json:"hints"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	if len(in.Hints) == 0 {
+		badRequest(w, "hints erforderlich")
+		return
+	}
+	if len(in.Hints) > 200 {
+		badRequest(w, "höchstens 200 Hinweise je Aufruf")
+		return
+	}
+	ctx := r.Context()
+	var deviceRef any
+	if deviceID > 0 {
+		deviceRef = deviceID
+	}
+	accepted, skipped := 0, 0
+	for _, h := range in.Hints {
+		kind := strings.ToLower(asStr(h["kind"]))
+		switch kind {
+		case "ssh", "meeting", "calendar", "presence", "other":
+		default:
+			skipped++
+			continue
+		}
+		day := asStr(h["day"])
+		if !isoDateRE.MatchString(day) {
+			skipped++
+			continue
+		}
+		title := truncRunes(asStr(h["title"]), 200)
+		dedupe := truncRunes(asStr(h["dedupe_key"]), 200)
+		var start, end any
+		if s := asStr(h["start_time"]); s != "" {
+			if t, ok := parseTimeIn(s, a.Loc); ok {
+				start = t.UTC()
+			}
+		}
+		if s := asStr(h["end_time"]); s != "" {
+			if t, ok := parseTimeIn(s, a.Loc); ok {
+				end = t.UTC()
+			}
+		}
+		payload, _ := json.Marshal(h["payload"])
+		if payload == nil || string(payload) == "null" {
+			payload = []byte("{}")
+		}
+		tag, err := a.DB.Exec(ctx, `INSERT INTO client_hints(user_id,device_id,kind,day,start_time,end_time,title,payload,dedupe_key)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)
+			ON CONFLICT (user_id, kind, dedupe_key) WHERE (dedupe_key <> '') DO NOTHING`,
+			u.ID, deviceRef, kind, day, start, end, title, string(payload), dedupe)
+		if err != nil {
+			a.fail(w, err)
+			return
+		}
+		if tag.RowsAffected() > 0 {
+			accepted++
+		} else {
+			skipped++
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"accepted": accepted, "skipped": skipped})
+}

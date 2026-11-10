@@ -32,7 +32,7 @@ Besseres Tempo für Plane: ein zentraler Server (Go, PostgreSQL, OpenShift) füh
 | OIDC (authentik, Keycloak, Entra) | PKCE, state/nonce, Rücksprung aus `ZP_PUBLIC_URL`, Kennung (iss,sub), OIDC-Sitzung 8 h / Admin 4 h | fertig, nicht gegen echtes authentik getestet |
 | Verknüpfung bestehender Konten | `ldap link` / `oidc link <name> <sub>`, einmalig, 24 h | fertig |
 | Web-Maske LDAP/OIDC | Einrichtung in `/admin` statt per Befehl | **offen** |
-| Geräte-Token (Mac-App, Add-on, curl) | gehasht, widerrufbar, nie für Admin-Funktionen | **offen** |
+| Geräte-Token (Mac-App, Add-on, curl) | gehasht, widerrufbar, nie für Admin-Funktionen; Annahme-Schnittstelle `client_hints` | gebaut (Migration 021), Browser-/Client-Abnahme offen |
 | Eigenes Profil (Plane-Schlüssel, Jira-Token je Instanz, Vorschläge, Passwort) | in der Oberfläche (Servermodus) und als einfache Seite `/profile`; Administration kann Zugangsdaten löschen, nie lesen | fertig |
 | E-Mail-Versand | gewünscht (Erinnerungen); Technik SMTP-Relay/Exchange-OAuth/Graph | **offen**, nächster Baustein |
 | Nachprüfung OIDC im IdP | Sperrung wirkt erst bei neuer Anmeldung; Behelf `server user logout` | Entscheidung nötig |
@@ -60,7 +60,7 @@ Drei Rollen, **kombinierbar** (eine Person kann Teamleiter und Personal zugleich
 | Assistent | fertig (regelbasiert, ohne KI); Schritte mit lokalem Wissen bleiben im Client |
 | Import aus dem lokalen Tracker (SQLite) | **entfällt** (Entscheidung 09.11.) |
 | Import von Zeiten aus Plane (Worklogs der Person, ungenau markiert, auf Anforderung) | fertig |
-| Grundimport/Abgleich aus Tempo | **offen** |
+| Grundimport/Abgleich aus Tempo | gebaut (`/api/tempo-sync`), Abnahme gegen echtes Tempo offen |
 | Exporte (Lohn, Kunden; nur freigegebene Monate) | **offen** |
 
 ## 6. Freigabe-Workflow
@@ -91,7 +91,7 @@ Persönlicher API-Schlüssel je Person (verschlüsselt, an Host gebunden), Adres
 
 ## 8. Jira/Tempo (Modul, abschaltbar)
 Grundlage: [Jira-Tempo-Spezifikation.md](Jira-Tempo-Spezifikation.md) (Verhalten des Node-Systems).
-- **Jira Data Center + Tempo Timesheets DC:** **gebaut:** mehrere Instanzen (Admin legt fest, Token je Person und Instanz), Push (ein Eintrag = ein Worklog) mit Schutz gegen Doppelbuchung, Monatssperre aus Stundenzettel-Status, Ticket-Vorschlag (Light), bestätigtes Anlegen von Tickets, Übergangs-Ticket je Person/Instanz/Monat, Jira-Ticket-Ansicht, Statuswechsel, Kommentar, Tempo-Einstellungen je Instanz. **Offen:** Tempo→lokal-Abgleich und Grundimport. Nie gegen ein echtes Jira/Tempo getestet.
+- **Jira Data Center + Tempo Timesheets DC:** **gebaut:** mehrere Instanzen (Admin legt fest, Token je Person und Instanz), Push (ein Eintrag = ein Worklog) mit Schutz gegen Doppelbuchung, Monatssperre aus Stundenzettel-Status, Ticket-Vorschlag (Light), bestätigtes Anlegen von Tickets, Übergangs-Ticket je Person/Instanz/Monat, Jira-Ticket-Ansicht, Statuswechsel, Kommentar, Tempo-Einstellungen je Instanz, Tempo→lokal-Abgleich und Grundimport (`/api/tempo-sync`). Nie gegen ein echtes Jira/Tempo getestet.
 - **Jira Cloud (E-Mail + API-Token) und Tempo Cloud (api.tempo.io):** im Node-System **nicht vorhanden**, Neubau, nachrangig. Cloud-Instanzen lassen sich anlegen, bleiben aber abgeschaltet. **offen**.
 - **Entschieden:** Es gibt nur das Jira-Token je Person und Instanz, kein eigenes Tempo-Token. Grenze „Zählung ab 01.10.2026“ ist Einstellung `tempo_push_since`. Nachträge in geschlossene Monate/Monatstickets nur mit Freigabe bzw. durch Teamleitung/Personal nach Monatsschluss (Abschnitt 16); das Monatsticket wird beim Wiedereröffnen geöffnet und nach erneutem Abschluss geschlossen. Offen: ob Jira Cloud ohne Tempo (nur Jira-Worklogs) reichen soll.
 - Modul abschaltbar; auch „nur Jira, ohne Tempo“ muss gehen.
@@ -163,7 +163,7 @@ Pilot: Vorschlag 3 Personen (Betrieb und Entwicklung), 1 Monat – **Entscheidun
 7. Offene Fragen aus Abschnitt 6 und 13 dort eintragen.
 
 ## 15. Nächste Schritte (aktuell)
-1. Abnahme Browser + echte Systeme. 2. Exchange-OAuth/Graph, dann Urlaubsantrag. 3. Mehrere Plane-Workspaces, Tempo-Grundimport/Abgleich, Exporte. 4. Web-Maske LDAP/OIDC, Geräte-Token/Annahme-Schnittstelle, gemeinsame Zähler, DB-Rollen, `govulncheck`. 5. Client-Anbindung und Mac-Härtung. 6. Cloud-Varianten (nachrangig). Nachtragen-UI und SMTP-E-Mail sind gebaut (noch ohne Browser-/SMTP-Abnahme).
+1. Abnahme Browser + echte Systeme. 2. Exchange-OAuth/Graph. 3. Mehrere Plane-Workspaces, Exporte. 4. Web-Maske LDAP/OIDC, gemeinsame Zähler, DB-Rollen, `govulncheck`. 5. Client-Anbindung und Mac-Härtung. 6. Cloud-Varianten (nachrangig). Nachtragen-UI, SMTP, Tempo-Rücksync, Urlaubsantrag und Geräte-Token/Client-Hinweise sind gebaut (Abnahme offen).
 
 ## 16. Entscheidungen zu Freigabe, Teams, Erinnerungen, Urlaub (10.11.2026)
 Antworten des Nutzers auf die acht Fragen des Systemvergleichs:
@@ -174,4 +174,4 @@ Antworten des Nutzers auf die acht Fragen des Systemvergleichs:
 5. **Vertretung:** Keine eigene Vertretung; Personal gibt frei und übernimmt jede Freigabe. Teamleitung gibt nicht frei.
 6. **Erinnerungen:** In-App-Hinweise und SMTP-E-Mail (gebaut, abschaltbar, ohne Zeiten). Exchange Online per OAuth/XOAUTH2 oder Graph – offen.
 7. **Exporte (Lohn/Kunden, „exportiert“-Sperre):** kommt später, noch nicht entschieden.
-8. **Urlaub:** Urlaubsantrag **mit Genehmigung durch die Teamleitung**; Vertretung: Personal (oder Admin). Offen: Admin = Personal oder technischer Admin (Empfehlung: Personal, weil der technische Admin keine Zeitdaten sieht). – nach E-Mail-Baustein.
+8. **Urlaub:** Urlaubsantrag **mit Genehmigung durch die Teamleitung**; Vertretung: Personal (technischer Admin entscheidet nicht). Gebaut: `/api/leave*`, Genehmigung legt Abwesenheit `urlaub` an; Browser-Abnahme offen.

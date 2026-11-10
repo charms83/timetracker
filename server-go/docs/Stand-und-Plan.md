@@ -24,13 +24,16 @@ Monatsschluss nach einem Werktag, Nachtragen nur Teamleitung/Personal, Teams aus
 
 ## Zuletzt fertig (Fortsetzung nach 10.11.)
 - Oberfläche: Nachtragen-Dialog (Team/Personal, Begründung 10–500), „geschlossen“-Anzeige in der Monatsfreigabe, Hinweistexte und Tempo-Hash-Tests an Node angeglichen.
-- E-Mail-Erinnerungen SMTP (abschaltbar, `/admin`, Migration 020 `notify_sent`, Inhalt ohne Zeiten) über `notifyApproval`. Exchange-OAuth und Urlaubsantrag folgen.
+- E-Mail-Erinnerungen SMTP (abschaltbar, `/admin`, Migration 020 `notify_sent`, Inhalt ohne Zeiten) über `notifyApproval`.
+- Tempo→lokal Abgleich (`GET/POST /api/tempo-sync`, Spiegel `source=tempo`, 12‑h-Automatik, Grundimport).
+- Urlaubsantrag mit Genehmigung Teamleitung / Vertretung Personal (Migration 021 `leave_requests`, UI Abwesenheiten + Team/Personal).
+- Geräte-Token + Client-Hinweise (Migration 021 `client_hints`, `device_tokens.kind`, UI Einstellungen › Erkennung; Ingest `POST /api/client/hints`).
 
 ## Offen (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, OIDC, SMTP).
-2. Exchange-OAuth/Graph für E-Mail; Urlaubsantrag mit Genehmigung durch die Teamleitung (Vertretung Personal).
-3. Mehrere Plane-Workspaces (Admin legt fest), Abgleich von Tempo zurück + Grundimport, Exporte (Lohn/Kunden; später entschieden).
-4. Geräte-Token und Annahme-Schnittstelle für Client-Vorschläge; gemeinsame Zähler (Anmeldesperre, Plane-/Jira-Bremse) für Mehr-Pod-Betrieb; getrennte Datenbank-Rollen; `server rekey`.
+2. Exchange-OAuth/Graph für E-Mail.
+3. Mehrere Plane-Workspaces (Admin legt fest), Exporte (Lohn/Kunden; später entschieden).
+4. Gemeinsame Zähler (Anmeldesperre, Plane-/Jira-Bremse) für Mehr-Pod-Betrieb; getrennte Datenbank-Rollen; `server rekey`.
 5. Client: Mac-App spricht den Server an (nur lokale Erkennung: SSH, Meetings, Anwesenheit), Härtung, später Tray/Windows.
 6. Jira Cloud / Tempo Cloud / Plane Cloud (nachrangig).
 

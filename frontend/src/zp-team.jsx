@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Users, ShieldCheck } from "lucide-react";
 import { call, Box, inpS, useServerMode } from "./zp-ui.jsx";
 import { MonthNav, RefreshBtn, PeopleTable, PersonDetail, Note, Empty, Err, prevMonth, friendly } from "./zp-people.jsx";
+import { LeavePendingPanel } from "./zp-leave.jsx";
 
 export default function TeamView() {
   const { me } = useServerMode();
@@ -42,7 +43,8 @@ export default function TeamView() {
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
         <Users size={20} /><h2 style={{ margin: 0, fontSize: 18, flex: 1 }}>Team</h2>
       </div>
-      <Note icon={<ShieldCheck size={15} />}>Freigabe durch Personal – Teamleitung sieht Monate, Salden und Buchungen, gibt aber nicht frei.</Note>
+      <Note icon={<ShieldCheck size={15} />}>Freigabe durch Personal – Teamleitung sieht Monate, Salden und Buchungen, gibt aber nicht frei. Urlaubsanträge entscheidet die Teamleitung (unten).</Note>
+      <div style={{ marginBottom: 12 }}><LeavePendingPanel /></div>
       <Box title="Teammitglieder" sub="Soll bis heute, Ist, Saldo und Konto aus der Zeiterfassung der Personen; Klick auf eine Zeile öffnet die Details."
         right={<div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {teams.length > 1 && <select style={{ ...inpS, width: "auto" }} value={team} onChange={e => setTeam(e.target.value)} aria-label="Team filtern">

@@ -25,6 +25,8 @@ import { AssistantView, AssistantHint, AssistantToggle, useAssistantAutoOpen } f
 import TeamView from "./zp-team.jsx";
 import PersonalView from "./zp-personal.jsx";
 import { ServerUserBox, ServerBanner, ClientHint, MonthApprovalCard, useJiraModule } from "./zp-servermode.jsx";
+import { LeaveRequestCard } from "./zp-leave.jsx";
+import { DevicesPanel } from "./zp-devices.jsx";
 import { call, api as uiApi, isServerMode, useServerMode, ImpreciseMark, NowCard, QuickStart, TimerActions, DayTimeline, PlaneSettingsTab, PlaneSyncView, TicketInput, projColor, projectFromTicket, resolveTask, ticketLabel, useActivities, reloadActivities, MissingBanner, BrowserTicketBar } from "./zp-ui.jsx";
 
 /* ═══ API ══════════════════════════════════════ */
@@ -2057,6 +2059,7 @@ function AbwesenheitenView({ only = "abwesenheiten" }) {
       {/* ── Abwesenheiten ── */}
       {tab==="abwesenheiten" && (
         <div>
+          {isServerMode()&&<div style={{marginBottom:12}}><LeaveRequestCard/></div>}
           {!isServerMode()&&<div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,padding:"12px 18px",marginBottom:12,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
             <CalendarDays size={18} style={{color:"var(--accent)"}}/>
             <div style={{flex:"1 1 260px",fontSize:13}}><b>Im Mac-Kalender anzeigen</b><div style={{fontSize:12,color:"var(--text2)"}}>Einmal abonnieren – danach erscheinen neue und geänderte Abwesenheiten automatisch (Kalender „Zeitprotokoll Abwesenheiten“, stündlich aktualisiert).<br/>So geht’s: Adresse kopieren → im Kalender <b>Ablage › Neues Kalenderabonnement …</b> → einfügen → bei „Ort“ <b>Auf meinem Mac</b> wählen (nicht iCloud – iCloud kommt an deinen Rechner nicht heran).</div></div>
@@ -2255,7 +2258,7 @@ function EinstellungenView() {
       {tab==="verbindungen" && conn!=="plane" && <JiraTempoSettings initial={conn==="tempo"?"tempo":conn==="tempocsvimport"?"csv":"jira"}/>}
       {tab==="arbeitszeit" && <ArbeitszeitSettings/>}
       {tab==="erkennung" && (sm
-        ? <ClientHint title="Erkennung braucht den Mac-Client">Meetings, SSH-Sitzungen, Zeit am Mac (Anwesenheit), Browser-Add-on und Kopplung laufen auf deinem Rechner im Mac-Client. Im Browser gibt es dazu keine Einstellungen; Zeiterfassung, Freigabe und Übertragung funktionieren hier vollständig.</ClientHint>
+        ? <><DevicesPanel/><div style={{height:12}}/><ClientHint title="Erkennung braucht den Mac-Client">Meetings, SSH-Sitzungen, Zeit am Mac (Anwesenheit), Browser-Add-on und Kopplung laufen auf deinem Rechner im Mac-Client. Hier legst du Geräte-Token an; der Client meldet Vorschläge an den Server. Zeiterfassung, Freigabe und Übertragung funktionieren im Browser vollständig.</ClientHint></>
         : <><PresenceToggle/><AddonSettings/><BrowserToggle/><MeetingSettingsTab/></>)}
       {tab==="wartung" && !sm && wt==="audit" && <AuditTab/>}
       {tab==="wartung" && !sm && wt==="server" && <ServerView/>}

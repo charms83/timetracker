@@ -318,6 +318,7 @@ func (a *App) notices(ctx context.Context, u User) []string {
 		out = append(out, "ACHTUNG: Der Notfallzugang ist scharf geschaltet bis "+until.In(a.Loc).Format("02.01. 15:04")+" Uhr.")
 	}
 	out = append(out, a.approvalNotices(ctx, u)...)
+	out = append(out, a.leaveNotices(ctx, u)...)
 	return out
 }
 
