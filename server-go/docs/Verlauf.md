@@ -97,6 +97,7 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - Abrechnungs-API: Integrations-Token `zpint_…` (Admin, Migration 028), `GET /api/integrations/projects` (+ entries) für Stunden auf Projekten/Tickets, plus Lohn (`/payroll`); Geräte-Token wieder nur Client-Hinweise; Doku/UI korrigiert.
 - Tracken ohne Ticket: Timer ohne Projekt/Ticket starten, später zuweisen (`POST /api/timer/assign`); Dauerbuchung wie Tempo (nur Stunden) → Server legt Uhrzeit in freie Lücke (`time_precise=false`).
 - User „Daten prüfen“ auch im Servermodus (Einstellungen › Allgemein); Überschneidungen bleiben unter Heute – Assistent nicht vermischt. Mini/Tray: Team-Server-Session für Timer.
+- Team-Anwesenheit: Mac schreibt `POST /presence` (Session) bzw. Hint→`presence_min`; Tempo-Outbox `gaps` aus `dayOverview` (wie Node).
 - Offen bleibt: „exportiert“-Sperre/Formate; Add-on Server-URL; echte Systemtests.
 
 ## Als Nächstes (Reihenfolge)

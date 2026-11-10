@@ -1411,7 +1411,18 @@ func (a *App) tempoOutbox(w http.ResponseWriter, r *http.Request, u User) {
 				needs++
 			}
 		}
-		days = append(days, map[string]any{"date": d, "entries": es, "minutes": sum, "open": open, "needs": needs, "gaps": []any{}})
+		// Lücken wie Node (presence.dayOverview) – ab 10 Min, für Tempo-Ausgang „nichts gebucht“
+		gaps := []any{}
+		if ov, err := a.dayOverview(ctx, u.ID, d); err == nil {
+			if gs, ok := ov["gaps"].([]span); ok {
+				for _, g := range gs {
+					if g.E-g.S >= 10 {
+						gaps = append(gaps, map[string]any{"s": g.S, "e": g.E})
+					}
+				}
+			}
+		}
+		days = append(days, map[string]any{"date": d, "entries": es, "minutes": sum, "open": open, "needs": needs, "gaps": gaps})
 	}
 	monthTickets, err := a.maps(ctx, `SELECT instance_id, month, worker, issue_key, created_at, closed_at, close_error FROM tempo_month_tickets WHERE user_id=$1 ORDER BY month DESC LIMIT 24`, u.ID)
 	if err != nil {

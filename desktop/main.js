@@ -501,13 +501,18 @@ async function calendarTick() {
   await onMeetingEvent({ type: "calendar", app: "Termin" });
 }
 setInterval(() => calendarTick().catch(() => {}), 60 * 1000);
-// ── Anwesenheit: lokal → POST /presence; Team-Server → client_hints (kind=presence), keine Admin-Rechte
+// ── Anwesenheit → presence_min (Gaps/Heute/Tempo-Outbox). Team mit Session = wie lokal;
+//    nur Geräte-Token: Hint, Server schreibt presence_min mit.
 let screenLocked = false;
 async function presenceTick() {
   const active = !screenLocked && powerMonitor.getSystemIdleTime() < cfg.idleLimitSeconds;
   if (!active) return;
   if (isTeamMode()) {
-    if (!(await hasTeamSession()) && !deviceTokenMem) return;
+    if (await hasTeamSession()) {
+      await api("POST", "/presence", { active: true });
+      return;
+    }
+    if (!deviceTokenMem) return;
     const day = new Date();
     const d = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
     const hm = `${String(day.getHours()).padStart(2, "0")}:${String(day.getMinutes()).padStart(2, "0")}`;

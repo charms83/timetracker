@@ -47,6 +47,7 @@ Zurück zum Einzelplatz: `"mode": "local"`.
 
 - Schnellfenster (Mini) spricht den Team-Server über die Electron-Session an (gleiche Login-Sitzung wie das Hauptfenster) – kein extra Geräte-Token.
 - Tray zeigt Modus/Server-Host und öffnet Einstellungen.
+- Anwesenheit („am Mac“): mit Login-Sitzung `POST /presence` → Gaps/Heute/Tempo-Ausgang; nur Geräte-Token: Hint, Server legt `presence_min` an.
 
 ## Noch offen
 

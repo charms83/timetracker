@@ -295,6 +295,18 @@ func (a *App) clientHintsIngest(w http.ResponseWriter, r *http.Request, u User, 
 		}
 		if tag.RowsAffected() > 0 {
 			accepted++
+			// Anwesenheit vom Client auch in presence_min (Gaps/Heute/Tempo), nicht nur als Hint liegen lassen
+			if kind == "presence" && a.presenceOn(ctx, u.ID) {
+				hm := ""
+				if i := strings.LastIndex(dedupe, ":"); i >= 0 && i+1 < len(dedupe) {
+					hm = dedupe[i+1:]
+				}
+				if len(hm) != 5 {
+					hm = time.Now().In(a.Loc).Format("15:04")
+				}
+				_, _ = a.DB.Exec(ctx, `INSERT INTO presence_min(user_id,ts,date) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`,
+					u.ID, day+"T"+hm, day)
+			}
 		} else {
 			skipped++
 		}
