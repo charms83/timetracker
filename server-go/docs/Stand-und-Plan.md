@@ -22,9 +22,13 @@ Anmeldung: lokale Konten (Einzelbetrieb), Notfallzugang (nur Betrieb, nie Zeiten
 ## Zuletzt fertig (10.11.)
 Monatsschluss nach einem Werktag, Nachtragen nur Teamleitung/Personal, Teams aus Verzeichnis oder lokal, Freigabe nur durch Personal, Übersichten und Bildschirme für Teamleiter und Personal, restliche Mitarbeiter-Routen. 19 Migrationen laufen lokal fehlerfrei. Nichts davon ist im Browser oder gegen echte Systeme abgenommen.
 
+## Zuletzt fertig (Fortsetzung nach 10.11.)
+- Oberfläche: Nachtragen-Dialog (Team/Personal, Begründung 10–500), „geschlossen“-Anzeige in der Monatsfreigabe, Hinweistexte und Tempo-Hash-Tests an Node angeglichen.
+- E-Mail-Erinnerungen SMTP (abschaltbar, `/admin`, Migration 020 `notify_sent`, Inhalt ohne Zeiten) über `notifyApproval`. Exchange-OAuth und Urlaubsantrag folgen.
+
 ## Offen (Reihenfolge)
-1. Abnahme im Browser; Oberfläche: Nachtragen-Dialog, „geschlossen“-Anzeige, neue Hinweise.
-2. E-Mail-Erinnerungen (SMTP/Exchange-OAuth, abschaltbar) und Urlaubsantrag mit Genehmigung durch die Teamleitung (Vertretung Personal).
+1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, OIDC, SMTP).
+2. Exchange-OAuth/Graph für E-Mail; Urlaubsantrag mit Genehmigung durch die Teamleitung (Vertretung Personal).
 3. Mehrere Plane-Workspaces (Admin legt fest), Abgleich von Tempo zurück + Grundimport, Exporte (Lohn/Kunden; später entschieden).
 4. Geräte-Token und Annahme-Schnittstelle für Client-Vorschläge; gemeinsame Zähler (Anmeldesperre, Plane-/Jira-Bremse) für Mehr-Pod-Betrieb; getrennte Datenbank-Rollen; `server rekey`.
 5. Client: Mac-App spricht den Server an (nur lokale Erkennung: SSH, Meetings, Anwesenheit), Härtung, später Tray/Windows.

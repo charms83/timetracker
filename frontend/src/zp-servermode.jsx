@@ -79,8 +79,11 @@ const monthLabel = m => `${MONTHS[+m.slice(5, 7) - 1]} ${m.slice(0, 4)}`;
 const shiftMonth = (m, d) => { const x = new Date(+m.slice(0, 4), +m.slice(5, 7) - 1 + d, 1); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}`; };
 const curMonth = () => { const x = new Date(); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}`; };
 const fh = h => (Math.round(h * 4) / 4).toLocaleString("de-DE") + " h";
-const ACT = { submit: "eingereicht", withdraw: "zurückgezogen", approve: "freigegeben", reject: "abgelehnt", reopen: "wiedereröffnet" };
-const ST = { open: ["offen", ""], submitted: ["eingereicht – wartet auf Freigabe", "changed"], approved: ["freigegeben", "synced"], rejected: ["abgelehnt", "error"] };
+const ACT = { submit: "eingereicht", withdraw: "zurückgezogen", approve: "freigegeben", reject: "abgelehnt", reopen: "wiedereröffnet", auto_close: "automatisch geschlossen", nachtrag: "nachgetragen" };
+const ST = {
+  open: ["offen", ""], submitted: ["eingereicht – wartet auf Freigabe", "changed"], approved: ["freigegeben", "synced"],
+  rejected: ["abgelehnt", "error"], closed: ["geschlossen", "new"],
+};
 const when = iso => { try { return new Date(iso).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); } catch (_) { return ""; } };
 
 export function MonthApprovalCard() {
@@ -128,11 +131,17 @@ export function MonthApprovalCard() {
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span className={`zp-pill ${cls}`}>{lbl}</span>
           {status === "submitted" && st.submitted_at && <span style={{ fontSize: 12, color: "var(--text2)" }}>seit {when(st.submitted_at)}</span>}
-          {status === "approved" && <span style={{ fontSize: 12, color: "var(--text2)" }}>{st.decided_by_name ? `von ${st.decided_by_name} ` : ""}{st.decided_at ? `am ${when(st.decided_at)}` : ""} – Nachträge nur nach Wiedereröffnung durch Personal.</span>}
+          {status === "approved" && <span style={{ fontSize: 12, color: "var(--text2)" }}>{st.decided_by_name ? `von ${st.decided_by_name} ` : ""}{st.decided_at ? `am ${when(st.decided_at)}` : ""} – Nachträge nur durch Teamleitung/Personal oder nach Wiedereröffnung.</span>}
+          {status === "closed" && <span style={{ fontSize: 12, color: "var(--text2)" }}>{st.decided_at ? `seit ${when(st.decided_at)} · ` : ""}Nachtragen nur noch durch Teamleitung oder Personal (mit Begründung).</span>}
           <div style={{ flex: 1 }} />
           {(status === "open" || status === "rejected") && <button style={btn(true)} disabled={busy} onClick={() => act("submit")}><Send size={14} /> {status === "rejected" ? "Erneut einreichen" : "Monat einreichen"}</button>}
           {status === "submitted" && <button style={btn(false)} disabled={busy} onClick={() => act("withdraw")}><Undo2 size={14} /> Zurückziehen</button>}
         </div>
+        {status === "closed" && (
+          <div style={{ marginTop: 10, padding: "9px 12px", borderRadius: 8, background: "var(--fill)", border: "1px solid var(--line)", fontSize: 13 }}>
+            <b>Monat geschlossen.</b> Die Nachfrist nach Monatsende ist abgelaufen. Du kannst hier nichts mehr ändern.
+            <div style={{ color: "var(--text2)", fontSize: 12, marginTop: 2 }}>Fehlende oder falsche Zeiten: Teamleitung oder Personal tragen sie nach – mit Begründung und Protokoll. Wiedereröffnen kann nur das Personal.</div>
+          </div>)}
         {status === "rejected" && (
           <div style={{ marginTop: 10, padding: "9px 12px", borderRadius: 8, background: "rgba(217,69,59,.08)", fontSize: 13 }}>
             <b>Abgelehnt{st.decided_by_name ? ` von ${st.decided_by_name}` : ""}.</b> {st.comment ? <>Kommentar: „{st.comment}“</> : null}

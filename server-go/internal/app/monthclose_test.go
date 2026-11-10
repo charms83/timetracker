@@ -125,9 +125,9 @@ func TestSelfApproveRule(t *testing.T) {
 	}
 }
 
-func TestNotifyApprovalIsNoop(t *testing.T) {
+func TestNotifyApprovalSafeWithoutDB(t *testing.T) {
 	a := &App{}
 	for _, ev := range []string{evClosingSoon, evClosed, evRejected, evNachtrag, evPending} {
-		a.notifyApproval(context.Background(), ev, 1, "2026-10") // Platzhalter: darf ohne Datenbank nichts tun
+		a.notifyApproval(context.Background(), ev, 1, "2026-10") // ohne DB: darf nicht panicen / blockieren
 	}
 }

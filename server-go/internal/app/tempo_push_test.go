@@ -45,11 +45,12 @@ func TestTempoPlanNodeCompat(t *testing.T) {
 			[8]any{"ZEIT-5", "ticket", int64(60), "2026-11-01T00:00:00.000", "Titel zwei", "", "Ticket", "c22f99ca5626c992"}},
 		{"eigenes_jira_keys", cfg(func(c *tempoCfg) { c.Account = "STD"; c.JiraKeys["OPS"] = true }), tempoLookup{}, tempoEntry{TaskID: 1, Ticket: "ops-7", Duration: 90, StartTime: "2026-03-29T00:30:00", TempoAccount: "KUNDE"},
 			[8]any{"OPS-7", "ticket", int64(120), "2026-03-29T00:30:00.000", "Arbeit", "KUNDE", "Buchung", "f28e79741d59ce5f"}},
+		// Hash wie Node JSON.stringify (U+2028 bleibt Zeichen, wird nicht als \\u2028 escaped) – Abgleich 10.11.2026
 		{"plane_month", cfg(func(c *tempoCfg) { c.PlaneURL = "https://plane.example/hon"; c.Worker = "harm" }), tempoLookup{MonthTickets: map[string]string{"2026-10": "ZEIT-99"}},
 			tempoEntry{TaskID: 2, Ticket: "PRJA-7", TaskTitle: "Tür \"x\" ü\\ <a>&", PlaneWI: "wi", ProjectID: 3, ProjectName: "Projekt A", Date: "2026-10-06", Duration: 1800, StartTime: "2026-10-06T00:00:00", Comment: "a\u2028b\tc", ProjAccount: "PA"},
-			[8]any{"ZEIT-99", "month", int64(1800), "2026-10-06T00:00:00.000", "[PRJA-7] Tür \"x\" ü\\ <a>& – a b c · Projekt A · Plane: https://plane.example/hon/browse/PRJA-7/", "PA", "Projekt", "eda41587b3771cbb"}},
+			[8]any{"ZEIT-99", "month", int64(1800), "2026-10-06T00:00:00.000", "[PRJA-7] Tür \"x\" ü\\ <a>& – a b c · Projekt A · Plane: https://plane.example/hon/browse/PRJA-7/", "PA", "Projekt", "cc559cad2bd3e258"}},
 		{"plane_month_create", cfg(func(c *tempoCfg) { c.NewProject = "ZEIT"; c.Worker = "harm" }), tempoLookup{}, tempoEntry{TaskID: 2, Ticket: "PRJA-7", PlaneWI: "wi", ProjectID: 3, Date: "2026-11-02", Duration: 61, StartTime: "2026-11-02T08:15:31"},
-			[8]any{"NEU:ZEIT Monat 2026-11", "create-month", int64(60), "2026-11-02T08:15:31.000", "[PRJA-7]", "", "", "af8561ddd50a618a"}},
+			[8]any{"NEU:ZEIT Monat 2026-11", "create-month", int64(60), "2026-11-02T08:15:31.000", "[PRJA-7]", "", "", "34094b0bbd18e412"}},
 		{"plane_month_prev_target", cfg(func(c *tempoCfg) { c.Worker = "harm" }), tempoLookup{MonthTickets: map[string]string{"2026-10": "ZEIT-99"}},
 			tempoEntry{TaskID: 2, Ticket: "PRJA-7", PlaneWI: "wi", ProjectID: 3, Date: "2026-10-06", PushID: "123", PushTarget: "ZEIT-50", Duration: 600, StartTime: "2026-10-06T10:00:00"},
 			[8]any{"ZEIT-50", "ticket", int64(600), "2026-10-06T10:00:00.000", "Arbeit", "", "Ticket", "ba5ef4d407c15208"}},
@@ -180,7 +181,8 @@ func TestTempoHashStable(t *testing.T) {
 	if h := tempoHash("ABC-1", "2026-10-05T09:00:00.000", 3600, "Arbeit", ""); h != "f4212e5dea813327" { // Node-Wert
 		t.Errorf("Hash %s", h)
 	}
-	if h := tempoHash("ZEIT-12", "2026-10-31T23:59:00.000", 60, "[PRJA-7] Tür \"x\" – ü\\ <a>&\u2028\t", "IMPROVEMENTS"); h != "e08395cb19a50910" {
+	// U+2028 bleibt in modernem JSON.stringify unescaped → Hash wie Node (nicht mehr \\u2028)
+	if h := tempoHash("ZEIT-12", "2026-10-31T23:59:00.000", 60, "[PRJA-7] Tür \"x\" – ü\\ <a>&\u2028\t", "IMPROVEMENTS"); h != "2f9cab7700db017a" {
 		t.Errorf("Hash mit Sonderzeichen %s", h)
 	}
 	a := tempoHash("A-1", "s", 60, "c", "")

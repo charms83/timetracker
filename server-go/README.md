@@ -16,5 +16,4 @@ curl localhost:8090/healthz           # zweiter Tab
 - `DATABASE_URL` (Pflicht), `ZP_ADDR` (`:8080`), `ZP_STATIC_DIR` (Pfad zu `frontend/dist`), `ZP_SECRET_KEY` (ab Phase 1c)
 
 ## Stand
-- Gerüst, Migrationen (`internal/db/migrations/`, nummeriert, automatisch beim Start), `/healthz`.
-- Noch offen: Tabellen für Tempo-/Plane-/Quellen-/Meeting-Logik, Anmeldung per OIDC, API.
+Aktuell: `docs/Stand-und-Plan.md`. Migrationen 001–020, Anmeldung (lokal/LDAP/OIDC), Rollen, Freigabe, Monatsschluss/Nachtragen, Plane/Jira/Tempo, Alltag, Team/Personal, SMTP-E-Mail (abschaltbar). Oberfläche: `scripts/build-web.sh`.
