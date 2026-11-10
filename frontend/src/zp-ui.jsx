@@ -105,7 +105,9 @@ export async function loadMe() {
     const j = await r.json().catch(() => null);
     if ((r.status === 401 && j?.error === "login_required") || (r.status === 403 && j?.error === "password_change_required")) { location.replace("/login?next=/"); return null; }
     if (!r.ok || !j?.user) return SERVER.me;
-    meSet({ ...j.user, auth_mode: j.auth_mode, secrets: j.secrets || {}, notices: Array.isArray(j.notices) ? j.notices : [] });
+    const me = { ...j.user, auth_mode: j.auth_mode, secrets: j.secrets || {}, notices: Array.isArray(j.notices) ? j.notices : [] };
+    meSet(me);
+    if (SERVER.mode && isAdminOnly(me) && !location.pathname.startsWith("/admin")) { location.replace("/admin"); return null; }
   } catch (_) {}
   return SERVER.me;
 }

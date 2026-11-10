@@ -75,8 +75,9 @@ export function LeavePendingPanel() {
     if (busy) return;
     let note = "";
     if (decision === "rejected") {
-      note = prompt("Kommentar zur Ablehnung (optional):") ?? "";
-      if (note === null) return;
+      note = prompt("Kommentar zur Ablehnung (optional):");
+      if (note === null) return; // Abbrechen
+      note = note.trim();
     } else if (!confirm("Urlaub genehmigen? Es wird eine Abwesenheit „Urlaub“ angelegt.")) return;
     setBusy(true); setMsg(null);
     const r = await call("POST", `/leave/${id}/decide`, { decision, note });

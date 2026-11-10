@@ -1603,6 +1603,9 @@ export default function App() {
     ...(assistOn ? [{id:"assistent", label:"Assistent", icon:<Compass size={16}/>}] : []),
     {id:"einstellungen",  label:"Einstellungen",   icon:<Settings size={16}/>},
   ];
+  // Desktop und Mobile dieselbe Rollen-Filterung (NAV_GROUPS), sonst sieht man falsche Einträge
+  const navAllowed = new Set(NAV_GROUPS.flatMap(g => g.ids));
+  const navShown = nav.filter(n => navAllowed.has(n.id));
 
   return (
     <div style={{minHeight:"100vh",position:"relative"}}>
@@ -1646,8 +1649,8 @@ export default function App() {
         </div>
 
         <nav style={SB.tabs}>
-          {nav.map(n=>(
-            <button key={n.id} style={{...SB.tabBtn,...(view===n.id?SB.tabActive:{})}} onClick={()=>setView(n.id)}>
+          {navShown.map(n=>(
+            <button key={n.id} style={{...SB.tabBtn,...(view===n.id?SB.tabActive:{})}} onClick={()=>{ location.hash=n.id; setView(n.id); }}>
               <span style={SB.navIcon}>{n.icon}</span>
               <span>{n.label}</span>
             </button>

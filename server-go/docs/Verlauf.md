@@ -72,6 +72,11 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - Login/OIDC und React-`isAdminOnly` leiten Admin nur nach `/admin`; Nutzer-GUI `/` ohne Admin-Link; Team-/Monat-/Sync-Filter ohne Admin-Konten.
 - Docs: Spezifikation §4 und Stand-und-Plan angepasst.
 
+## GUI-Stand + Bugbot (11.11.)
+- **Rollen-Gates:** Admin `/admin`; Mitarbeiter `/`; Lead `#team`; HR `#personal`; Mischrollen additive Nav – Code fertig, Browser-Abnahme offen; Personal-Exporte offen.
+- **Bugbot** (Branch-Review): behoben – LDAP-Rollenwechsel beendet Sitzungen immer; Urlaub `days` nur serverseitig; Ablehnen-Prompt Abbrechen; Mobile-Nav = Desktop-Filter; `loadMe` leitet nach Admin um.
+- Spez-Statuszeilen (Oberfläche, LDAP-Webmaske, Team/Personal, SMTP) nachgezogen.
+
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik, SMTP); gefundene Fehler beheben.
 2. Exchange-OAuth/Graph und mehrere Mail-Konten.

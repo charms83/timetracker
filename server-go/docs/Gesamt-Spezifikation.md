@@ -15,9 +15,9 @@ Besseres Tempo für Plane: ein zentraler Server (Go, PostgreSQL, OpenShift) füh
 | Teil | Festlegung | Status |
 |---|---|---|
 | Backend | Go, eine Programmdatei, `server-go/` | fertig |
-| Datenbank | PostgreSQL, Migrationen 001–017 beim Start (018 in Arbeit), `schema_migrations` | fertig |
+| Datenbank | PostgreSQL, Migrationen 001–026 beim Start, `schema_migrations` | fertig |
 | Mehrbenutzer | jede Abfrage filtert `user_id`; Zeiten als TEXT im Node-Format, Zeitzone `ZP_TZ` | fertig |
-| Oberfläche | Browser-first: alte React-Oberfläche läuft im „Servermodus“ am Go-Server (`/`), Administration `/admin`, Anmeldung `/login`, Profil `/profile` | Mitarbeiter-Bereich gebaut (im Browser noch nicht abgenommen); Teamleiter/Personal-Bildschirme **offen**; Admin: kein LDAP/OIDC-Formular |
+| Oberfläche | Browser-first: React im Servermodus am Go-Server (`/`), Administration `/admin`, Anmeldung `/login`, Profil `/profile`; Team/Personal als Hash-Views `#team`/`#personal` | Rollen-Gates gebaut; Browser-Abnahme offen; Personal-Exporte offen |
 | Betrieb | Befehlszeile `server …`, Selbsttest beim Start und alle 6 h, Logs, Audit mit Hash-Kette | fertig |
 | Container/OpenShift/Linux | Containerfile, OpenShift-Manifeste, Linux-Paket mit systemd-Installer (`scripts/package.sh`), lokaler Test `scripts/dev.sh` | gebaut, noch nicht auf OpenShift/Linux gelaufen; DB-Rollen-Skript + `server rekey` da; `govulncheck` bei Releases |
 | Konfiguration | Umgebung (`ZP_*`) plus `server_config` in der DB | fertig |
@@ -31,10 +31,10 @@ Besseres Tempo für Plane: ein zentraler Server (Go, PostgreSQL, OpenShift) füh
 | LDAP/AD | Bind+Suche, LDAPS/StartTLS, Gruppen als voller DN, Nachprüfung alle 30 min (nur mit Dienstkonto) | fertig, nicht gegen echtes Verzeichnis getestet |
 | OIDC (authentik, Keycloak, Entra) | PKCE, state/nonce, Rücksprung aus `ZP_PUBLIC_URL`, Kennung (iss,sub), OIDC-Sitzung 8 h / Admin 4 h | fertig, nicht gegen echtes authentik getestet |
 | Verknüpfung bestehender Konten | `ldap link` / `oidc link <name> <sub>`, einmalig, 24 h | fertig |
-| Web-Maske LDAP/OIDC | Einrichtung in `/admin` statt per Befehl | **offen** |
+| Web-Maske LDAP/OIDC | Einrichtung in `/admin` statt per Befehl | gebaut (`admin_auth.go`), Abnahme gegen echtes Verzeichnis offen |
 | Geräte-Token (Mac-App, Add-on, curl) | gehasht, widerrufbar, nie für Admin-Funktionen; Annahme-Schnittstelle `client_hints` | gebaut (Migration 021), Browser-/Client-Abnahme offen |
 | Eigenes Profil (Plane-Schlüssel, Jira-Token je Instanz, Vorschläge, Passwort) | in der Oberfläche (Servermodus) und als einfache Seite `/profile`; Administration kann Zugangsdaten löschen, nie lesen | fertig |
-| E-Mail-Versand | gewünscht (Erinnerungen); Technik SMTP-Relay/Exchange-OAuth/Graph | **offen**, nächster Baustein |
+| E-Mail-Versand | Erinnerungen per SMTP (`notifyApproval`, Migration 020); Exchange-OAuth/Graph | SMTP gebaut; Exchange/Multi-Mail **offen** |
 | Nachprüfung OIDC im IdP | Sperrung wirkt erst bei neuer Anmeldung; Behelf `server user logout` | Entscheidung nötig |
 
 ## 4. Rollen und Sichtbarkeit (Entscheidung 05.11., nachgeschärft 10.11./11.11.)
@@ -104,15 +104,15 @@ Der Ticket-Vorschlag im Server ist die **Light-Variante** (nur Textabgleich). Di
 ### Zugangsdaten je Person
 Jede Person trägt ihren Plane-API-Schlüssel und je Jira-Instanz ihr Jira-Token selbst ein (verschlüsselt, nie wieder angezeigt). Kein gemeinsamer Schlüssel, kein Admin-Plane-Token, kein eigenes Tempo-Token. Der technische Administrator richtet nur Adressen/Kennungen ein und kann fremde Tokens löschen (nie lesen).
 
-### Vier Oberflächen je Rolle (Entscheidung 10.11.)
+### Vier Oberflächen je Rolle (Entscheidung 10.11., Stand GUI 11.11.)
 Eine Anmeldung, aber getrennte Oberflächen – jede Person sieht nur, was zu ihrer Rolle gehört:
-| Oberfläche | Für | Inhalt | Adresse |
-|---|---|---|---|
-| **Administration** | technischer Admin | Konten, Teams, Einstellungen, Jira-Instanzen, Plane-Workspaces, Logs, Selbsttest, Notfallzugang – **keine Zeiten** | `/admin` (gebaut) |
-| **Mitarbeiter** | alle, die Zeiten erfassen | das bisherige Zeitprotokoll: Heute, Woche, To-dos, Kalender, Abwesenheiten, Auswertung, Übertragen, Einstellungen (nur persönliche: Plane-/Jira-Token, Arbeitszeit); Monat einreichen | `/` (alte Oberfläche läuft am Go-Server im Servermodus; im Browser noch nicht abgenommen) |
-| **Teamleiter** | Leitung eines Teams | Team-Übersicht (Salden, Einzelbuchungen wie Tempo), Monate des Teams freigeben/ablehnen | `/team` (Server-Übersichten in Arbeit, Bildschirm offen) |
-| **Personal** | Personal/GL | alle Personen, alle Monate freigeben/wiedereröffnen, Auswertungen, Exporte | `/personal` (Server-Übersichten in Arbeit, Bildschirm offen) |
-Fachrollen sind kombinierbar: Wer Mitarbeiter und Teamleiter ist, hat beide Bereiche (Umschalter in der Navigation). Der technische Admin bleibt ein getrenntes Konto und sieht die Mitarbeiter-GUI nicht. Die Server-Schnittstellen (Freigabe, Sichtbarkeit `?user=`) gibt es; Teamleiter-/Personal-Bildschirme fehlen noch. Admin-Dinge stehen nie in den anderen Oberflächen (der alte Reiter „Einstellungen › Server“ wandert nach `/admin`).
+| Oberfläche | Für | Inhalt | Adresse | GUI-Status |
+|---|---|---|---|---|
+| **Administration** | technischer Admin (getrenntes Konto) | Konten, Teams, Einstellungen, Jira-Instanzen, Plane-Workspaces, LDAP/OIDC, Logs, Selbsttest, Notfallzugang – **keine Zeiten** | `/admin` | gebaut; Abnahme offen |
+| **Mitarbeiter** | alle, die Zeiten erfassen | Zeitprotokoll wie lokal: Heute, Woche, To-dos, Kalender, Abwesenheiten, Auswertung, Übertragen, persönliche Einstellungen, Monat einreichen, Urlaubsantrag | `/` (Servermodus) | gebaut; Abnahme offen |
+| **Teamleiter** | Leitung eines Teams (`is_lead`) | Team-Übersicht, Personen-Detail, Nachtragen, Urlaub genehmigen – **kein** Monats-Freigeben (nur Personal) | `/` › `#team` | gebaut; Abnahme offen |
+| **Personal** | Personal/GL (`is_hr`) | alle Personen, freigeben/ablehnen/wiedereröffnen, Nachtragen, Urlaub-Vertretung | `/` › `#personal` | gebaut; Exporte Lohn/Kunden **offen**; Abnahme offen |
+Fachrollen sind kombinierbar (Nav zeigt Zusatzbereiche). Technischer Admin = kein Mischkonto, nur `/admin`. Admin-Dinge stehen nie in der Mitarbeiter-Oberfläche.
 
 ### Oberfläche
 Die Bedienoberfläche (Web, danach Clients) wird erst gebaut, wenn der Server im Hintergrund feststeht, und folgt den Entscheidungen des lokalen Zeittrackers (Node/Mac-App), damit Bedienung und Begriffe gleich bleiben.

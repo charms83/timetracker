@@ -338,9 +338,9 @@ func (a *App) ldapRecheckTick(ctx context.Context) {
 			}
 			a.DB.Exec(ctx, `UPDATE users SET role=$2, is_hr=$3, productive=$4 WHERE id=$1`, x.id, res.Role, hr, prod) //nolint:errcheck
 			a.audit(ctx, x.id, "user.role_synced", x.role+" → "+res.Role+" (Verzeichnis)")
-			if res.Role != "admin" {
-				a.DB.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, x.id) //nolint:errcheck
-			}
+			// Sitzungen immer beenden: sonst bleibt die alte Oberfläche (z. B. Mitarbeiter → Admin) sichtbar
+			a.DB.Exec(ctx, `DELETE FROM sessions WHERE user_id=$1`, x.id) //nolint:errcheck
+
 		}
 		// Teams aus dem Verzeichnis: gesperrt/entfernt → Verzeichnis-Mitgliedschaften enden; andere Person mit gleichem Namen → nichts ändern
 		var groups []string

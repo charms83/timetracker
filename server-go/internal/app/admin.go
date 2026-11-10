@@ -35,6 +35,15 @@ func (a *App) adminOnly(h func(http.ResponseWriter, *http.Request, User)) http.H
 
 func (a *App) routesAdmin(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin", func(w http.ResponseWriter, r *http.Request) {
+		u, ok := a.sessionUser(r)
+		if !ok {
+			http.Redirect(w, r, "/login?next=/admin", http.StatusSeeOther)
+			return
+		}
+		if u.Role != "admin" && u.Role != "breakglass" {
+			http.Redirect(w, r, "/", http.StatusSeeOther) // Mitarbeiter gehören nicht in die Administration
+			return
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(adminHTML)

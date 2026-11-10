@@ -113,10 +113,9 @@ func (a *App) leaveCreate(w http.ResponseWriter, r *http.Request, u User) {
 		badRequest(w, "Im Zeitraum liegen keine Werktage")
 		return
 	}
-	if v := asFloat(in["days"]); v > 0 {
-		days = v
-	}
+	// Tage nur serverseitig (leaveWorkdays) – Client-Wert nicht übernehmen
 	var overlap int
+
 	_ = a.DB.QueryRow(ctx, `SELECT COUNT(*) FROM leave_requests WHERE user_id=$1 AND status IN ('pending','approved')
 		AND date_from<=$3 AND date_to>=$2`, u.ID, from, to).Scan(&overlap)
 	if overlap > 0 {

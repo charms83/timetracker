@@ -31,6 +31,18 @@ Monatsschluss nach einem Werktag, Nachtragen nur Teamleitung/Personal, Teams aus
 - Tempo-Abwesenheitsvorschläge nach Abgleich (`is_absence` + `absence_hints`); gemeinsame Zähler Mehr-Pod (Migration 022 `rate_events`/`rate_blocks` für Login/Plane/Jira).
 - Mehrere Plane-Workspaces (Migration 023/024/025): Admin `/admin` nur Adresse/Kennung (**ohne** Plane-Token); Nutzer Schlüssel je Host + Auswahl je Workspace; Scan, Tickets, Import, Push, Status und To-do über gewählte Workspaces; `plane_workspace_id` an Projekt/Aufgabe/Buchung; `plane_me_id` je Workspace.
 - Web-Maske LDAP/OIDC in `/admin` (neben CLI); `server rekey`; DB-Rollen-Skript `deploy/postgres/roles.sql`.
+- Admin ohne Doppelrolle (Migration 026); Bugbot: LDAP-Rollenwechsel beendet Sitzungen, Urlaubstage nur serverseitig, Ablehnen-Abbruch, Mobile-Nav filtert wie Desktop.
+
+## GUI / Rollen – wie weit (11.11.)
+| Rolle | Sieht | Status |
+|---|---|---|
+| Admin | nur `/admin` | fertig verdrahtet (keine Doppelrolle) |
+| Mitarbeiter | `/` Zeit-UI | fertig verdrahtet |
+| Teamleiter | `#team` + Mitarbeiter | fertig verdrahtet |
+| Personal | `#personal` + Mitarbeiter (+ Freigabe) | fertig verdrahtet; Exporte fehlen |
+| Misch (Lead+HR usw.) | additive Nav | fertig verdrahtet |
+
+**GUI-Kern: gebaut.** Fehlt noch: Browser-Abnahme; Personal-Exporte; Client-only (SSH/Meetings) nur Hinweise; echte Systemtests.
 
 ## Offen (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, OIDC, SMTP).
