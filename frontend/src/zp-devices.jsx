@@ -50,7 +50,7 @@ export function DevicesPanel() {
       </div>
       {fresh?.token && (
         <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 8, background: "var(--accent-soft)", border: "1px solid var(--line)", fontSize: 12.5 }}>
-          <b>Einmalig sichtbar:</b> dieses Token jetzt im Client hinterlegen.
+          <b>Einmalig sichtbar:</b> im Mac-Client hinterlegen (System-Schlüsselbund) – der Server speichert nur einen Hash.
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
             <code style={{ flex: 1, wordBreak: "break-all", fontSize: 11 }}>{fresh.token}</code>
             <button style={btn(false)} onClick={copy}>{copied ? <Check size={13} /> : <Copy size={13} />} {copied ? "Kopiert" : "Kopieren"}</button>

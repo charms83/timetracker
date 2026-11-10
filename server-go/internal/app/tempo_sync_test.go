@@ -82,11 +82,20 @@ func TestRangeFromAbsenceTitle(t *testing.T) {
 }
 
 func TestDeviceTokenHashStable(t *testing.T) {
-	a := deviceTokenHash("zpdev_abc")
-	b := deviceTokenHash("zpdev_abc")
-	c := deviceTokenHash("zpdev_xyz")
-	if a != b || a == c || len(a) != 64 {
+	app := &App{Key: []byte("0123456789abcdef0123456789abcdef")}
+	a := app.deviceTokenHash("zpdev_abc")
+	b := app.deviceTokenHash("zpdev_abc")
+	c := app.deviceTokenHash("zpdev_xyz")
+	if a != b || a == c || !strings.HasPrefix(a, "v1:") || len(a) != 3+64 {
 		t.Fatalf("hash %s / %s / %s", a, b, c)
+	}
+	legacy := deviceTokenHashLegacy("zpdev_abc")
+	if legacy == a || len(legacy) != 64 {
+		t.Fatalf("legacy %s vs hmac %s", legacy, a)
+	}
+	other := &App{Key: []byte("ffffffffffffffffffffffffffffffff")}
+	if other.deviceTokenHash("zpdev_abc") == a {
+		t.Fatal("anderer Server-Schlüssel muss anderen Hash erzeugen")
 	}
 }
 

@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -13,10 +15,11 @@ import (
 )
 
 /* Geräte-Token (Mac-Client, Browser-Add-on, Minimal-Client) + Annahme-Schnittstelle für Client-Hinweise.
-   Token nur gehasht in der DB; Klartext einmal bei Erstellung. Nie für Admin-Funktionen.
-   Client-Auth: Authorization: Bearer zpdev_<token> oder X-ZP-Device-Token. */
+   Klartext nur einmal bei Erstellung an den Nutzer; in der DB nur HMAC mit ZP_SECRET_KEY (nie Klartext).
+   Nie für Admin-Funktionen. Client-Auth: Authorization: Bearer zpdev_<token> oder X-ZP-Device-Token. */
 
 const deviceTokenPrefix = "zpdev_"
+const deviceTokenHMACPrefix = "v1:" // Kennzeichnung gepfefferter Hashes (Migration von reinem SHA-256)
 
 func (a *App) routesDevices(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/devices", a.auth(a.devicesList))
@@ -27,9 +30,22 @@ func (a *App) routesDevices(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/client/hints", a.deviceOrSession(a.clientHintsIngest))
 }
 
-func deviceTokenHash(raw string) string {
+// deviceTokenHashLegacy: alter SHA-256 ohne Server-Schlüssel (nur Abwärtskompatibilität).
+func deviceTokenHashLegacy(raw string) string {
 	h := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(h[:])
+}
+
+// deviceTokenHash: HMAC-SHA256 mit Server-Schlüssel – DB-Dump allein reicht nicht zur Verifikation.
+func (a *App) deviceTokenHash(raw string) string {
+	key := a.Key
+	if len(key) == 0 {
+		key = make([]byte, 32) // Tests ohne Key: deterministisch, nicht für Betrieb
+	}
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write([]byte("device_token|v1|"))
+	_, _ = mac.Write([]byte(raw))
+	return deviceTokenHMACPrefix + hex.EncodeToString(mac.Sum(nil))
 }
 
 func (a *App) devicesList(w http.ResponseWriter, r *http.Request, u User) {
@@ -74,7 +90,7 @@ func (a *App) devicesCreate(w http.ResponseWriter, r *http.Request, u User) {
 	ctx := r.Context()
 	var id int64
 	err := a.DB.QueryRow(ctx, `INSERT INTO device_tokens(user_id,token_hash,label,kind) VALUES($1,$2,$3,$4) RETURNING id`,
-		u.ID, deviceTokenHash(raw), label, kind).Scan(&id)
+		u.ID, a.deviceTokenHash(raw), label, kind).Scan(&id)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -82,7 +98,7 @@ func (a *App) devicesCreate(w http.ResponseWriter, r *http.Request, u User) {
 	a.audit(ctx, u.ID, "device.create", fmt.Sprintf("#%d %s (%s)", id, label, kind))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id": id, "label": label, "kind": kind, "token": raw,
-		"hint": "Token nur einmal sichtbar – im Client hinterlegen. Admin-Funktionen sind damit nicht erreichbar.",
+		"hint": "Token nur einmal sichtbar – lokal im System-Credential-Store hinterlegen. Server speichert nur einen Hash. Admin-Funktionen sind damit nicht erreichbar.",
 	})
 }
 
@@ -117,20 +133,34 @@ func (a *App) deviceUser(r *http.Request) (User, int64, bool) {
 	if raw == "" || !strings.HasPrefix(raw, deviceTokenPrefix) || len(raw) > 200 {
 		return User{}, 0, false
 	}
-	var u User
-	var did int64
-	err := a.DB.QueryRow(r.Context(), `SELECT d.id, u.id, u.email, u.name, u.role, u.kind, u.productive, u.must_change_password, u.is_hr,
-		EXISTS(SELECT 1 FROM team_members m WHERE m.user_id=u.id AND m.is_lead)
-		FROM device_tokens d JOIN users u ON u.id=d.user_id
-		WHERE d.token_hash=$1 AND d.revoked_at IS NULL AND NOT u.disabled AND u.role<>'breakglass' AND u.role<>'admin'`, deviceTokenHash(raw)).
-		Scan(&did, &u.ID, &u.Email, &u.Name, &u.Role, &u.Kind, &u.Productive, &u.MustChange, &u.IsHR, &u.IsLead)
-	if err != nil {
-		return User{}, 0, false
+	ctx := r.Context()
+	u, did, ok := a.lookupDeviceUser(ctx, a.deviceTokenHash(raw))
+	if !ok {
+		// Abwärtskompatibilität: alter SHA-256-Hash → einmalig auf HMAC umstellen
+		u, did, ok = a.lookupDeviceUser(ctx, deviceTokenHashLegacy(raw))
+		if !ok {
+			return User{}, 0, false
+		}
+		_, _ = a.DB.Exec(ctx, `UPDATE device_tokens SET token_hash=$1 WHERE id=$2 AND revoked_at IS NULL`, a.deviceTokenHash(raw), did)
 	}
 	if !u.timeAccount() {
 		return User{}, 0, false
 	}
-	_, _ = a.DB.Exec(r.Context(), `UPDATE device_tokens SET last_used=now() WHERE id=$1 AND (last_used IS NULL OR last_used < now() - interval '1 minute')`, did)
+	_, _ = a.DB.Exec(ctx, `UPDATE device_tokens SET last_used=now() WHERE id=$1 AND (last_used IS NULL OR last_used < now() - interval '1 minute')`, did)
+	return u, did, true
+}
+
+func (a *App) lookupDeviceUser(ctx context.Context, hash string) (User, int64, bool) {
+	var u User
+	var did int64
+	err := a.DB.QueryRow(ctx, `SELECT d.id, u.id, u.email, u.name, u.role, u.kind, u.productive, u.must_change_password, u.is_hr,
+		EXISTS(SELECT 1 FROM team_members m WHERE m.user_id=u.id AND m.is_lead)
+		FROM device_tokens d JOIN users u ON u.id=d.user_id
+		WHERE d.token_hash=$1 AND d.revoked_at IS NULL AND NOT u.disabled AND u.role<>'breakglass' AND u.role<>'admin'`, hash).
+		Scan(&did, &u.ID, &u.Email, &u.Name, &u.Role, &u.Kind, &u.Productive, &u.MustChange, &u.IsHR, &u.IsLead)
+	if err != nil {
+		return User{}, 0, false
+	}
 	return u, did, true
 }
 

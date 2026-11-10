@@ -7,14 +7,16 @@
    Der Server (~/zeitprotokoll/backend/server.js) läuft wie bisher per
    LaunchAgent; falls nicht erreichbar, startet das Programm ihn selbst.
 ═══════════════════════════════════════════════════════════════════ */
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, powerMonitor, shell, screen, session, Notification } = require("electron");
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, powerMonitor, shell, screen, session, Notification, safeStorage } = require("electron");
 const path = require("path");
 const fs   = require("fs");
 const os   = require("os");
 const { spawn, execSync } = require("child_process");
 
 const HOME     = os.homedir();
-const CFG_FILE = path.join(HOME, ".zeitprotokoll", "desktop.json");
+const CFG_DIR  = path.join(HOME, ".zeitprotokoll");
+const CFG_FILE = path.join(CFG_DIR, "desktop.json");
+const DEVICE_TOKEN_FILE = path.join(CFG_DIR, "device-token.bin"); // Klartext nie in desktop.json – OS-Verschlüsselung (Keychain/DPAPI)
 const LOCAL_API = "http://127.0.0.1:3747/api";
 const LOCAL_WEB = "http://127.0.0.1:3747/";
 
@@ -28,12 +30,64 @@ const DEFAULTS = {
   showAtLogin: true,
   miniBounds: null,
   mainInBrowser: true,    // v6.30: „Zeitprotokoll öffnen“ öffnet den Standard-Browser statt eines eigenen großen Fensters
-  // Team-Server (Go): mode "team" + serverUrl + deviceToken (zpdev_… aus Einstellungen › Erkennung)
+  // Team-Server (Go): mode "team" + serverUrl; Geräte-Token nur im System-Credential-Store
   mode: "local",          // "local" | "team"
   serverUrl: "",          // nur https://… (http nur localhost mit allowHttpTeam)
-  deviceToken: "",        // Geräte-Token; nie ins Log schreiben
   allowHttpTeam: false,   // Dev: http://localhost bzw. 127.0.0.1 erlauben
 };
+/** Geräte-Token nur im Speicher; Persistenz über safeStorage (Server speichert nur Hash). */
+let deviceTokenMem = "";
+function deviceTokenOk(t) {
+  return typeof t === "string" && (t === "" || /^zpdev_[A-Za-z0-9_-]{20,180}$/.test(t));
+}
+function setDeviceToken(raw) {
+  const t = String(raw || "").trim();
+  if (!deviceTokenOk(t)) return false;
+  deviceTokenMem = t;
+  try {
+    fs.mkdirSync(CFG_DIR, { recursive: true, mode: 0o700 });
+    if (!t) {
+      try { fs.unlinkSync(DEVICE_TOKEN_FILE); } catch (_) {}
+      return true;
+    }
+    let buf;
+    if (safeStorage.isEncryptionAvailable()) buf = safeStorage.encryptString(t);
+    else { log("safeStorage unavailable – Token-Datei nur mit 0600"); buf = Buffer.from(t, "utf8"); }
+    fs.writeFileSync(DEVICE_TOKEN_FILE, buf, { mode: 0o600 });
+    try { fs.chmodSync(DEVICE_TOKEN_FILE, 0o600); } catch (_) {}
+  } catch (e) { log("device-token store", String(e && e.message || e)); }
+  return true;
+}
+function loadDeviceTokenFromDisk() {
+  try {
+    if (!fs.existsSync(DEVICE_TOKEN_FILE)) { deviceTokenMem = ""; return; }
+    const buf = fs.readFileSync(DEVICE_TOKEN_FILE);
+    if (safeStorage.isEncryptionAvailable()) {
+      try { deviceTokenMem = safeStorage.decryptString(buf); }
+      catch (_) { // Fallback: ältere Klartext-Datei
+        const s = buf.toString("utf8").trim();
+        deviceTokenMem = deviceTokenOk(s) && s ? s : "";
+        if (deviceTokenMem) setDeviceToken(deviceTokenMem); // neu verschlüsseln
+      }
+    } else {
+      const s = buf.toString("utf8").trim();
+      deviceTokenMem = deviceTokenOk(s) && s ? s : "";
+    }
+  } catch (_) { deviceTokenMem = ""; }
+}
+/** Einmal: Klartext aus alter desktop.json raus und in den Credential-Store. */
+function migrateDeviceTokenFromCfg() {
+  const legacy = typeof cfg.deviceToken === "string" ? cfg.deviceToken.trim() : "";
+  if (legacy) {
+    if (deviceTokenOk(legacy) && legacy) setDeviceToken(legacy);
+    delete cfg.deviceToken;
+    saveCfg();
+    log("device-token migrated out of desktop.json");
+  } else if ("deviceToken" in cfg) {
+    delete cfg.deviceToken;
+    saveCfg();
+  }
+}
 function teamUrlOk(url) {
   try {
     const u = new URL(String(url || "").trim());
@@ -61,8 +115,10 @@ let cfg = { ...DEFAULTS };
 try { cfg = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(CFG_FILE, "utf8")) }; } catch (_) {}
 const saveCfg = () => {
   try {
-    fs.mkdirSync(path.dirname(CFG_FILE), { recursive: true, mode: 0o700 });
-    fs.writeFileSync(CFG_FILE, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+    fs.mkdirSync(CFG_DIR, { recursive: true, mode: 0o700 });
+    const out = { ...cfg };
+    delete out.deviceToken; // Klartext-Token nie in desktop.json
+    fs.writeFileSync(CFG_FILE, JSON.stringify(out, null, 2), { mode: 0o600 });
     try { fs.chmodSync(CFG_FILE, 0o600); } catch (_) {}
   } catch (_) {}
 };
@@ -81,7 +137,7 @@ async function api(method, p, body) {
   try {
     const { api: base } = baseUrls();
     const headers = { "Content-Type": "application/json", Accept: "application/json" };
-    if (isTeamMode() && cfg.deviceToken) headers["X-ZP-Device-Token"] = cfg.deviceToken;
+    if (isTeamMode() && deviceTokenMem) headers["X-ZP-Device-Token"] = deviceTokenMem;
     const r = await fetch(base + p, { method, headers, body: body ? JSON.stringify(body) : undefined });
     return await r.json();
   } catch (_) { return null; }
@@ -346,7 +402,7 @@ async function onMeetingEvent(ev) {
   log("meeting", ev.type, ev.app);
   // Team-Server: Meeting nur als Hinweis ablegen (keine Buchung); lokale Meeting-API gibt es dort nicht
   if (isTeamMode()) {
-    if (!cfg.deviceToken) return;
+    if (!deviceTokenMem) return;
     const day = new Date();
     const d = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
     await api("POST", "/client/hints", { hints: [{ kind: "meeting", day: d, title: `${ev.app || "Meeting"} (${ev.type})`,
@@ -391,7 +447,7 @@ async function presenceTick() {
   const active = !screenLocked && powerMonitor.getSystemIdleTime() < cfg.idleLimitSeconds;
   if (!active) return;
   if (isTeamMode()) {
-    if (!cfg.deviceToken) return;
+    if (!deviceTokenMem) return;
     const day = new Date();
     const d = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
     const hm = `${String(day.getHours()).padStart(2, "0")}:${String(day.getMinutes()).padStart(2, "0")}`;
@@ -515,7 +571,9 @@ ipcMain.on("mini:openMain", (_e, view) => createMain(view));
 ipcMain.on("mini:changed", () => refreshStatus());
 ipcMain.handle("cfg:get", () => {
   const c = { ...cfg };
-  if (c.deviceToken) c.deviceToken = c.deviceToken.slice(0, 8) + "…"; // Klartext nicht in die UI spiegeln
+  delete c.deviceToken;
+  c.hasDeviceToken = !!deviceTokenMem;
+  if (deviceTokenMem) c.deviceTokenHint = deviceTokenMem.slice(0, 8) + "…";
   return c;
 });
 ipcMain.handle("cfg:setTeam", (_e, { mode, serverUrl, deviceToken, allowHttpTeam }) => {
@@ -529,17 +587,15 @@ ipcMain.handle("cfg:setTeam", (_e, { mode, serverUrl, deviceToken, allowHttpTeam
     cfg.serverUrl = u;
   }
   if (typeof deviceToken === "string") {
-    const t = deviceToken.trim();
-    if (t === "" || /^zpdev_[A-Za-z0-9_-]{20,180}$/.test(t)) cfg.deviceToken = t;
-    else return { ok: false, error: "deviceToken ungültig (erwartet zpdev_…)" };
+    if (!setDeviceToken(deviceToken.trim())) return { ok: false, error: "deviceToken ungültig (erwartet zpdev_…)" };
   }
   if (cfg.mode === "team" && cfg.serverUrl && !teamUrlOk(cfg.serverUrl)) {
     cfg.mode = "local";
     return { ok: false, error: "Ungültige serverUrl – Modus zurück auf local" };
   }
   saveCfg();
-  log("cfg team", cfg.mode, cfg.serverUrl ? "url=set" : "url=empty", cfg.deviceToken ? "token=set" : "token=empty");
-  return { ok: true, mode: cfg.mode };
+  log("cfg team", cfg.mode, cfg.serverUrl ? "url=set" : "url=empty", deviceTokenMem ? "token=set" : "token=empty");
+  return { ok: true, mode: cfg.mode, hasDeviceToken: !!deviceTokenMem };
 });
 
 // ── Start ────────────────────────────────────────────────────────
@@ -549,8 +605,11 @@ app.on("before-quit", () => { quitting = true; });
 app.on("window-all-closed", e => e.preventDefault());
 
 app.whenReady().then(async () => {
+  // Geräte-Token: OS-Credential-Store (safeStorage), nie Klartext in desktop.json
+  migrateDeviceTokenFromCfg();
+  loadDeviceTokenFromDisk();
   // Lokal: App-Schlüssel (X-ZP-Token). Team: Geräte-Token (X-ZP-Device-Token) an den Go-Server – nie Admin.
-  const tokenFile = path.join(HOME, ".zeitprotokoll", "app-token");
+  const tokenFile = path.join(CFG_DIR, "app-token");
   let appTok = null; const readTok = () => { try { appTok = fs.readFileSync(tokenFile, "utf8").trim(); } catch (_) { appTok = null; } return appTok; };
   // Token nur an API-Pfade hängen – nie an JS/CSS/Fonts (weniger Log-/HAR-Exposition)
   const filterUrls = ["http://127.0.0.1:3747/api/*", "http://localhost:3747/api/*"];
@@ -561,7 +620,7 @@ app.whenReady().then(async () => {
     } catch (_) {}
   }
   session.defaultSession.webRequest.onBeforeSendHeaders({ urls: filterUrls }, (d, cb) => {
-    if (isTeamMode() && cfg.deviceToken) d.requestHeaders["X-ZP-Device-Token"] = cfg.deviceToken;
+    if (isTeamMode() && deviceTokenMem) d.requestHeaders["X-ZP-Device-Token"] = deviceTokenMem;
     else { const t = appTok || readTok(); if (t) d.requestHeaders["X-ZP-Token"] = t; }
     cb({ requestHeaders: d.requestHeaders });
   });

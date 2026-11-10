@@ -89,7 +89,8 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 ## Client-Sicherheit (Review + Härtung)
 - Medium behoben: Device-Token nur an `/api/*` (webRequest); Team-`serverUrl` nur `https` (localhost-HTTP mit `allowHttpTeam`); `desktop.json` Mode `0600`.
 - Server: Hints-Ingest per Geräte-Token rate-limitiert (60/min), max. 50 Hints, Payload ≤ 4 KiB; Admin/Breakglass weiter ausgeschlossen.
-- Offen bleibt: Token im Schlüsselbund, Tray-UI für URL/Token, Timer über Device-Routen.
+- Token-Ablage: Client `safeStorage` (Keychain/DPAPI) in `device-token.bin`, nie Klartext in `desktop.json`; Server HMAC-SHA256 mit `ZP_SECRET_KEY` (`v1:`), Legacy-SHA256 wird bei Nutzung migriert.
+- Offen bleibt: Tray-UI für URL/Token, Timer über Device-Routen.
 
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik, SMTP); gefundene Fehler beheben.
