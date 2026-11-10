@@ -59,9 +59,14 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - Geräte-Token + Client-Hinweise: Migration 021 `client_hints` / `device_tokens.kind`, `devices.go`, UI `zp-devices.jsx`.
 - Tests: `go test ./internal/app` grün (inkl. Hilfstests Monatfenster / Leave-Regel / Token-Hash).
 
+## Weiterbau (Plane-Workspaces / Admin-Auth / Rekey)
+- Migration 023 `plane_workspaces`; Admin-CRUD, Nutzer-Profil je Host; Quellen/Scan über mehrere Workspaces; Primär-Spiegel in `server_config`.
+- `/admin`: LDAP/OIDC-Maske (`admin_auth.go`) inkl. LDAP-Test; Secrets nie in GET.
+- `server rekey` (`RekeySecrets` + CLI); DB-Rollen `deploy/postgres/roles.sql`.
+- Exchange/Multi-Mail bewusst zurückgestellt.
+
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik, SMTP); gefundene Fehler beheben.
-2. Exchange-OAuth/Graph.
-3. Mehrere Plane-Workspaces; Exporte.
-4. Web-Maske LDAP/OIDC; DB-Rollen; `govulncheck`.
-5. Sicherheits-Audit fortsetzen; Client-Anbindung und Mac-Härtung; Cloud-Varianten.
+2. Exchange-OAuth/Graph und mehrere Mail-Konten.
+3. Exporte (Lohn/Kunden).
+4. `govulncheck` regelmäßig; Sicherheits-Audit fortsetzen; Client-Anbindung und Mac-Härtung; Cloud-Varianten.

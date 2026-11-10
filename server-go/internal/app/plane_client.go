@@ -29,6 +29,7 @@ import (
 
 type planeCfg struct {
 	Base, Key, WS, Mode, MeID string
+	ID                        int64 // plane_workspaces.id (0 = Legacy/Primär ohne Zeile)
 }
 
 func (c planeCfg) ok() bool { return c.Base != "" && c.Key != "" && c.WS != "" }
@@ -78,6 +79,9 @@ func normWS(v string) string {
 }
 
 func (a *App) planeCfg(ctx context.Context, uid int64) (planeCfg, error) {
+	if w, ok := a.primaryPlaneWorkspace(ctx); ok {
+		return a.planeCfgFor(ctx, uid, w)
+	}
 	st, err := a.userSettings(ctx, uid)
 	if err != nil {
 		return planeCfg{}, err
@@ -97,6 +101,33 @@ func (a *App) planeCfg(ctx context.Context, uid int64) (planeCfg, error) {
 		Mode: mode,
 		MeID: st["plane_me_id"],
 	}, nil
+}
+
+// planeCfgs: alle eingeschalteten Workspaces mit Schlüssel (für Scan/Sync über mehrere).
+func (a *App) planeCfgs(ctx context.Context, uid int64) ([]planeCfg, error) {
+	list, err := a.PlaneWorkspaces(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []planeCfg
+	for _, w := range list {
+		if !w.Enabled {
+			continue
+		}
+		c, err := a.planeCfgFor(ctx, uid, w)
+		if err != nil {
+			return nil, err
+		}
+		if c.ok() {
+			out = append(out, c)
+		}
+	}
+	if len(out) == 0 {
+		if c, err := a.planeCfg(ctx, uid); err == nil && c.ok() {
+			out = append(out, c)
+		}
+	}
+	return out, nil
 }
 
 /* ── Bremse ─────────────────────────────────────────────────────── */

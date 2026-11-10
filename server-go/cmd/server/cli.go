@@ -41,6 +41,8 @@ Aufruf:  server [Befehl]
                                      module_tempo 1/0 schaltet Jira/Tempo ein/aus, module_suggest 1/0 die Ticket-Vorschläge
   user set-suggest <benutzer> <on|off>   Ticket-Vorschläge für eine Person erlauben/sperren
   jira list|add|set|remove …         Jira-Instanzen verwalten (server jira für Hilfe)
+  rekey --from-env|--from-file --to-env|--to-file [--yes]
+                                     verschlüsselte Werte auf einen neuen Schlüssel umstellen
   migrate                            Datenbank-Migrationen ausführen
   help                               diese Hilfe
 
@@ -128,6 +130,8 @@ func runCLI(args []string) int {
 			a = &app.App{DB: pool, Log: log, Key: make([]byte, 32)}
 		}
 		return cmdConfig(ctx, a, pool, args[1:])
+	case "rekey":
+		return cmdRekey(ctx, pool, cfg, args[1:])
 	}
 	fmt.Fprintf(os.Stderr, "Unbekannter Befehl %q\n\n%s", args[0], usage)
 	return 2
@@ -167,7 +171,8 @@ func cmdStatus(ctx context.Context, pool *pgxpool.Pool, cfg config.Config) int {
 	fmt.Println("Migrationen:    ", one(ctx, pool, `SELECT COUNT(*) FROM schema_migrations`), "angewendet,", len(db.MigrationNames()), "im Programm")
 	fmt.Println("Eingerichtet:   ", one(ctx, pool, `SELECT COALESCE((SELECT value FROM server_config WHERE key='setup_done'),'nein')`))
 	fmt.Println("Anmeldung:      ", one(ctx, pool, `SELECT COALESCE((SELECT value FROM server_config WHERE key='auth_mode'),'-')`))
-	fmt.Println("Plane:          ", one(ctx, pool, `SELECT COALESCE((SELECT value FROM server_config WHERE key='plane_base_url'),'-')`), "/", one(ctx, pool, `SELECT COALESCE((SELECT value FROM server_config WHERE key='plane_workspace'),'-')`))
+	fmt.Println("Plane:          ", one(ctx, pool, `SELECT COALESCE((SELECT value FROM server_config WHERE key='plane_base_url'),'-')`), "/", one(ctx, pool, `SELECT COALESCE((SELECT value FROM server_config WHERE key='plane_workspace'),'-')`),
+		"(Workspaces:", one(ctx, pool, `SELECT COUNT(*) FROM plane_workspaces`), "ein:", one(ctx, pool, `SELECT COUNT(*) FROM plane_workspaces WHERE enabled`)+")")
 	fmt.Println("Benutzer:       ", one(ctx, pool, `SELECT COUNT(*) FROM users`), "(gesperrt:", one(ctx, pool, `SELECT COUNT(*) FROM users WHERE disabled`)+")")
 	fmt.Println("Projekte:       ", one(ctx, pool, `SELECT COUNT(*) FROM projects`))
 	fmt.Println("Zeiteinträge:   ", one(ctx, pool, `SELECT COUNT(*) FROM time_entries`))

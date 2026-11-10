@@ -111,7 +111,9 @@ func (a *App) tempoSetup(ctx context.Context, uid int64) (*tempoSetup, map[strin
 	if st["tempo_plane_mode"] == "ticket" {
 		p.PlaneMode = "ticket"
 	}
-	if pb, ws := strings.TrimRight(a.conf(ctx, "plane_base_url"), "/"), normWS(a.conf(ctx, "plane_workspace")); pb != "" && ws != "" {
+	if w, ok := a.primaryPlaneWorkspace(ctx); ok {
+		p.PlaneURL = strings.TrimRight(w.BaseURL, "/") + "/" + normWS(w.Workspace)
+	} else if pb, ws := strings.TrimRight(a.conf(ctx, "plane_base_url"), "/"), normWS(a.conf(ctx, "plane_workspace")); pb != "" && ws != "" {
 		p.PlaneURL = pb + "/" + ws
 	}
 	personSince := st["tempo_push_since"]

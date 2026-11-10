@@ -95,9 +95,13 @@
   </section>
 
   <section id="t-config" class="hidden">
-    <div class="row"><label>Plane-Adresse <input id="c-base" size="36" placeholder="https://plane.example.com"></label>
-    <label>Workspace <input id="c-ws" size="16"></label>
-    <button class="act" onclick="saveConfig()">Speichern</button></div>
+    <h3>Plane-Workspaces</h3>
+    <p class="mut">Mehrere Workspaces möglich (wie Jira-Instanzen). Der API-Schlüssel gilt je Person und Plane-Adresse; Workspaces auf demselben Host teilen ihn. Primär-Workspace (erste eingeschaltete Zeile) steuert Tempo-Links.</p>
+    <table><thead><tr><th>Name</th><th>Adresse</th><th>Workspace</th><th>Ein</th><th>Schlüssel</th><th>Quellen</th><th></th></tr></thead><tbody id="pw-list"></tbody></table>
+    <div class="row"><label>Name <input id="pw-name" size="14" maxlength="60"></label>
+    <label>Adresse <input id="pw-url" size="32" placeholder="https://plane.example.com"></label>
+    <label>Workspace <input id="pw-ws" size="14" placeholder="slug"></label>
+    <button class="act" onclick="addPlaneWS()">Anlegen</button></div>
     <h3>Jira / Tempo (Modul)</h3>
     <div class="row"><label><input type="checkbox" id="c-tempo"> Modul Jira/Tempo einschalten</label>
     <label><input type="checkbox" id="c-suggest"> Vorschläge (Regeln/Textabgleich: Tickets, To-dos, Nachtragen, „Jetzt vermutlich“, Assistent) für alle erlauben</label>
@@ -127,7 +131,37 @@
     <label>Anzeigename <input id="c-mname" size="16" placeholder="Zeitprotokoll"></label>
     <button class="act" onclick="saveMail()">Speichern</button></div>
     <p class="mut" id="c-mail-hint">Abschaltbar. Inhalt ohne Zeiten (Monatsname, Aktion). Ereignisse: Nachfrist, geschlossen, abgelehnt, Nachtrag, Einreichung an Personal. Exchange-OAuth folgt später. Öffentliche Adresse für den Link: ZP_PUBLIC_URL.</p>
-    <p class="mut">Anmeldung (Testmodus/OIDC) ändert man auf <a href="/setup">/setup</a> mit dem Einrichtungs-Token aus dem Server-Log.</p>
+    <h3>Anmeldung LDAP / AD</h3>
+    <p class="mut">Modus „ldap“ wird unter <a href="/setup">/setup</a> gesetzt. Hier die Verzeichnis-Einstellungen (CLI: <code>server ldap</code>). Passwort leer = unverändert.</p>
+    <div class="row"><label>URL <input id="l-url" size="28" placeholder="ldaps://dc.example.local:636"></label>
+    <label><input type="checkbox" id="l-starttls"> StartTLS</label>
+    <label><input type="checkbox" id="l-nested"> verschachtelte Gruppen (AD)</label></div>
+    <div class="row"><label>Base-DN <input id="l-base" size="28"></label>
+    <label>Filter <input id="l-filter" size="36"></label></div>
+    <div class="row"><label>Bind-DN <input id="l-bind" size="28"></label>
+    <label>Bind-Passwort <input id="l-bindpw" type="password" size="16" autocomplete="new-password" placeholder="leer = unverändert"></label>
+    <label>Bind-Vorlage <input id="l-bindtpl" size="20" placeholder="{username}@firma.local"></label></div>
+    <div class="row"><label>Gruppe Nutzer <input id="l-guser" size="22"></label>
+    <label>Teamleitung <input id="l-glead" size="22"></label>
+    <label>Admin <input id="l-gadmin" size="22"></label>
+    <label>Personal <input id="l-ghr" size="22"></label></div>
+    <div class="row"><label>Team-Präfix <input id="l-tprefix" size="12" placeholder="zp-team-"></label>
+    <label>Team-Base-DN <input id="l-tbase" size="28"></label>
+    <button class="act" onclick="saveLDAP()">LDAP speichern</button>
+    <button onclick="testLDAP()">Testen…</button></div>
+    <h3>Anmeldung OIDC (authentik / Keycloak / Entra)</h3>
+    <p class="mut" id="o-cb">Rücksprung-Adresse: ZP_PUBLIC_URL + /api/auth/oidc/callback</p>
+    <div class="row"><label>Issuer <input id="o-issuer" size="40" placeholder="https://auth.example.com/application/o/zeitprotokoll/"></label>
+    <label>Client-ID <input id="o-cid" size="18"></label>
+    <label>Client-Secret <input id="o-secret" type="password" size="16" autocomplete="new-password" placeholder="leer = unverändert"></label></div>
+    <div class="row"><label>Groups-Claim <input id="o-gclaim" size="12"></label>
+    <label>Gruppe Nutzer <input id="o-guser" size="18"></label>
+    <label>Teamleitung <input id="o-glead" size="18"></label>
+    <label>Admin <input id="o-gadmin" size="18"></label>
+    <label>Personal <input id="o-ghr" size="18"></label>
+    <label>Team-Präfix <input id="o-tprefix" size="12"></label>
+    <button class="act" onclick="saveOIDC()">OIDC speichern</button></div>
+    <p class="mut">Auth-Modus (local/ldap/oidc) ändert man auf <a href="/setup">/setup</a> mit dem Einrichtungs-Token.</p>
     <p class="mut" id="c-auth"></p>
   </section>
 </main>
@@ -359,20 +393,90 @@ async function saveApproval() {
   try { await api('PUT', '/admin/config', { approval_mode: $('c-amode').value, month_grace_workdays: $('c-grace').value, approval_submit_workday: $('c-asub').value, approval_decide_workday: $('c-adec').value }); msg('Gespeichert.'); } catch (e) { msg(e.message, true); }
 }
 
+let planeList = [];
+async function loadPlaneWS() {
+  planeList = await api('GET', '/admin/plane-workspaces');
+  $('pw-list').innerHTML = planeList.map(i => `<tr>
+    <td>${esc(i.name)}</td><td class="mut">${esc(i.base_url)}</td><td>${esc(i.workspace)}</td>
+    <td><input type="checkbox" ${i.enabled?'checked':''} onchange="togPlaneWS(${i.id},this.checked)"></td>
+    <td>${i.tokens||0}</td><td>${i.refs||0}</td>
+    <td><button onclick="editPlaneWS(${i.id})">Ändern</button> <button onclick="delPlaneWS(${i.id})">Löschen</button></td></tr>`).join('') || '<tr><td colspan="7" class="mut">Noch kein Workspace – unten anlegen (oder Setup).</td></tr>';
+}
+async function addPlaneWS() {
+  try {
+    await api('POST', '/admin/plane-workspaces', { name: $('pw-name').value, base_url: $('pw-url').value, workspace: $('pw-ws').value, enabled: true });
+    $('pw-name').value=''; $('pw-url').value=''; $('pw-ws').value=''; msg('Workspace angelegt.'); loadPlaneWS();
+  } catch (e) { msg(e.message, true); }
+}
+async function togPlaneWS(id, on) {
+  try { await api('PUT', '/admin/plane-workspaces/'+id, { enabled: on }); msg(on?'Eingeschaltet.':'Ausgeschaltet.'); loadPlaneWS(); } catch (e) { msg(e.message, true); loadPlaneWS(); }
+}
+async function editPlaneWS(id) {
+  const i = planeList.find(x => x.id === id); if (!i) return;
+  const name = prompt('Name', i.name); if (name === null) return;
+  const url = prompt('Adresse', i.base_url); if (url === null) return;
+  const ws = prompt('Workspace-Kennung', i.workspace); if (ws === null) return;
+  try { const r = await api('PUT', '/admin/plane-workspaces/'+id, { name, base_url: url, workspace: ws }); msg('Gespeichert.'+(r.tokens_cleared?' '+r.tokens_cleared+' Schlüssel gelöscht.':'')); loadPlaneWS(); } catch (e) { msg(e.message, true); }
+}
+async function delPlaneWS(id) {
+  const i = planeList.find(x => x.id === id); if (!i) return;
+  if (!confirm('Workspace „'+i.name+'“ löschen?')) return;
+  try { await api('DELETE', '/admin/plane-workspaces/'+id); msg('Gelöscht.'); loadPlaneWS(); } catch (e) { msg(e.message, true); }
+}
+async function loadLDAP() {
+  const l = await api('GET', '/admin/ldap');
+  $('l-url').value = l.ldap_url||''; $('l-starttls').checked = l.ldap_starttls==='1'; $('l-nested').checked = l.ldap_nested==='1';
+  $('l-base').value = l.ldap_base_dn||''; $('l-filter').value = l.ldap_filter||'';
+  $('l-bind').value = l.ldap_bind_dn||''; $('l-bindpw').value = ''; $('l-bindtpl').value = l.ldap_bind_template||'';
+  $('l-guser').value = l.ldap_group_user||''; $('l-glead').value = l.ldap_group_lead||''; $('l-gadmin').value = l.ldap_group_admin||''; $('l-ghr').value = l.ldap_group_hr||'';
+  $('l-tprefix').value = l.ldap_team_prefix||''; $('l-tbase').value = l.ldap_team_base||'';
+}
+async function saveLDAP() {
+  const body = {
+    ldap_url: $('l-url').value, ldap_starttls: $('l-starttls').checked?'1':'0', ldap_nested: $('l-nested').checked?'1':'0',
+    ldap_base_dn: $('l-base').value, ldap_filter: $('l-filter').value,
+    ldap_bind_dn: $('l-bind').value, ldap_bind_template: $('l-bindtpl').value,
+    ldap_group_user: $('l-guser').value, ldap_group_lead: $('l-glead').value, ldap_group_admin: $('l-gadmin').value, ldap_group_hr: $('l-ghr').value,
+    ldap_team_prefix: $('l-tprefix').value, ldap_team_base: $('l-tbase').value,
+  };
+  if ($('l-bindpw').value) body.ldap_bind_password = $('l-bindpw').value;
+  try { await api('PUT', '/admin/ldap', body); msg('LDAP gespeichert.'); $('l-bindpw').value=''; loadLDAP(); } catch (e) { msg(e.message, true); }
+}
+async function testLDAP() {
+  const username = prompt('Benutzername zum Test (Passwort danach):'); if (!username) return;
+  const password = prompt('Passwort (wird nur zum Verzeichnis gesendet, nicht gespeichert):'); if (password===null) return;
+  try {
+    const r = await api('POST', '/admin/ldap/test', { username, password });
+    msg(r.ok ? ('OK: '+(r.name||username)+' · Rolle '+(r.role||'–')+' · '+r.groups+' Gruppen') : ('Fehler: '+r.error), !r.ok);
+  } catch (e) { msg(e.message, true); }
+}
+async function loadOIDC() {
+  const o = await api('GET', '/admin/oidc');
+  $('o-issuer').value = o.oidc_issuer||''; $('o-cid').value = o.oidc_client_id||''; $('o-secret').value = '';
+  $('o-gclaim').value = o.oidc_groups_claim||'groups';
+  $('o-guser').value = o.oidc_group_user||''; $('o-glead').value = o.oidc_group_lead||''; $('o-gadmin').value = o.oidc_group_admin||''; $('o-ghr').value = o.oidc_group_hr||'';
+  $('o-tprefix').value = o.oidc_team_prefix||'';
+  $('o-cb').textContent = 'Rücksprung: ' + (o.callback_url||'(ZP_PUBLIC_URL setzen)') + (o.oidc_client_secret_set?' · Secret gespeichert':' · noch kein Secret');
+}
+async function saveOIDC() {
+  const body = {
+    oidc_issuer: $('o-issuer').value, oidc_client_id: $('o-cid').value, oidc_groups_claim: $('o-gclaim').value,
+    oidc_group_user: $('o-guser').value, oidc_group_lead: $('o-glead').value, oidc_group_admin: $('o-gadmin').value, oidc_group_hr: $('o-ghr').value,
+    oidc_team_prefix: $('o-tprefix').value,
+  };
+  if ($('o-secret').value) body.oidc_client_secret = $('o-secret').value;
+  try { await api('PUT', '/admin/oidc', body); msg('OIDC gespeichert.'); $('o-secret').value=''; loadOIDC(); } catch (e) { msg(e.message, true); }
+}
 async function loadConfig() {
   const c = await api('GET', '/admin/config');
-  $('c-tempo').checked = c.module_tempo === '1'; $('c-suggest').checked = c.module_suggest !== '0'; loadJira();
+  $('c-tempo').checked = c.module_tempo === '1'; $('c-suggest').checked = c.module_suggest !== '0'; loadJira(); loadPlaneWS(); loadLDAP(); loadOIDC();
   $('c-amode').value = c.approval_mode || 'hr'; $('c-grace').value = c.month_grace_workdays || '1'; $('c-asub').value = c.approval_submit_workday || '3'; $('c-adec').value = c.approval_decide_workday || '5';
-  $('c-base').value = c.plane_base_url || ''; $('c-ws').value = c.plane_workspace || '';
   $('c-mail').checked = c.mail_enabled === '1'; $('c-mhost').value = c.mail_smtp_host || ''; $('c-mport').value = c.mail_smtp_port || '587';
   $('c-mtls').value = c.mail_smtp_tls || 'starttls'; $('c-muser').value = c.mail_smtp_user || ''; $('c-mpass').value = '';
   $('c-mfrom').value = c.mail_from || ''; $('c-mname').value = c.mail_from_name || '';
   $('c-mail-hint').textContent = (c.mail_smtp_password_set ? 'SMTP-Passwort ist gespeichert (verschlüsselt). ' : 'Noch kein SMTP-Passwort. ') +
-    'Abschaltbar. Inhalt ohne Zeiten. Ereignisse: Nachfrist, geschlossen, abgelehnt, Nachtrag, Einreichung an Personal. Exchange-OAuth folgt. Link: ZP_PUBLIC_URL.';
+    'Abschaltbar. Inhalt ohne Zeiten. Multi-Postfach/Exchange folgt später. Link: ZP_PUBLIC_URL.';
   $('c-auth').textContent = 'Anmeldung: ' + (c.auth_mode || '–') + (c.oidc_issuer ? ' · Issuer ' + c.oidc_issuer : '');
-}
-async function saveConfig() {
-  try { await api('PUT', '/admin/config', { plane_base_url: $('c-base').value, plane_workspace: $('c-ws').value }); msg('Gespeichert.'); } catch (e) { msg(e.message, true); }
 }
 async function saveMail() {
   const body = {

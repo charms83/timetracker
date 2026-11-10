@@ -19,7 +19,7 @@ Besseres Tempo für Plane: ein zentraler Server (Go, PostgreSQL, OpenShift) füh
 | Mehrbenutzer | jede Abfrage filtert `user_id`; Zeiten als TEXT im Node-Format, Zeitzone `ZP_TZ` | fertig |
 | Oberfläche | Browser-first: alte React-Oberfläche läuft im „Servermodus“ am Go-Server (`/`), Administration `/admin`, Anmeldung `/login`, Profil `/profile` | Mitarbeiter-Bereich gebaut (im Browser noch nicht abgenommen); Teamleiter/Personal-Bildschirme **offen**; Admin: kein LDAP/OIDC-Formular |
 | Betrieb | Befehlszeile `server …`, Selbsttest beim Start und alle 6 h, Logs, Audit mit Hash-Kette | fertig |
-| Container/OpenShift/Linux | Containerfile, OpenShift-Manifeste, Linux-Paket mit systemd-Installer (`scripts/package.sh`), lokaler Test `scripts/dev.sh` | gebaut, noch nicht auf OpenShift/Linux gelaufen; getrennte DB-Rollen, `govulncheck` **offen** |
+| Container/OpenShift/Linux | Containerfile, OpenShift-Manifeste, Linux-Paket mit systemd-Installer (`scripts/package.sh`), lokaler Test `scripts/dev.sh` | gebaut, noch nicht auf OpenShift/Linux gelaufen; DB-Rollen-Skript + `server rekey` da; `govulncheck` bei Releases |
 | Konfiguration | Umgebung (`ZP_*`) plus `server_config` in der DB | fertig |
 
 ## 3. Anmeldung und Konten
@@ -77,7 +77,7 @@ Stand 10.11.2026 (Entscheidungen §16). Rollenklarstellung: **Technischer Admin 
 **Benachrichtigungen:** In-App-Hinweise und E-Mail über `notifyApproval` (SMTP, abschaltbar in `/admin`, Migration 020; Ereignisse closing_soon, closed, rejected, nachtrag, pending; Inhalt ohne Zeiten; Entprellung in `notify_sent`). Exchange-OAuth/Graph offen. Für Jira/Tempo-Buchungen bleibt der Tempo-Stundenzettel-Status maßgeblich.
 
 ## 7. Plane (Modul, nicht abschaltbar)
-**Mehrere Plane-Workspaces (Entscheidung 10.11.):** Der Administrator legt mehrere Plane-Workspaces fest (Name, Adresse, Workspace-Kennung, ein/aus; änderbar, mehrere Einträge – wie die Jira-Instanzen). Heute gibt es nur einen (`plane_base_url` + `plane_workspace` in der Servereinrichtung). Folgen: Quellen/Projekte, Sync, Tickets, Import und Buchung arbeiten je Workspace; der API-Schlüssel gilt je Person und Plane-Adresse (Workspaces auf demselben Server teilen ihn). Status: **offen, nächster Baustein nach Schritt 2**.
+**Mehrere Plane-Workspaces (Entscheidung 10.11.):** Der Administrator legt mehrere Plane-Workspaces fest (Name, Adresse, Workspace-Kennung, ein/aus; änderbar, mehrere Einträge – wie die Jira-Instanzen). Migration 023 + Admin `/admin`, Nutzer `/profile` (Schlüssel je Host). Quellen/Scan über eingeschaltete Workspaces; Primär-Workspace spiegelt `plane_base_url`/`plane_workspace` für Tempo-Links. Status: **gebaut, Abnahme offen**.
 
 Persönlicher API-Schlüssel je Person (verschlüsselt, an Host gebunden), Adresse/Workspace für alle. Bleibt so (keine Plane-App/OAuth).
 | Funktion | Status |
@@ -137,7 +137,7 @@ Offene REST-API mit Token, Module/Plugins einzeln abschaltbar (Konzept). Status 
 
 ## 11. Sicherheit und ISO 27001
 Gebaut und zweimal bzw. dreimal von Opus geprüft: Sitzungen (gehasht), CSRF (Origin/Fetch-Metadata), Host-Prüfung, Rate-Limits, Login-Sperren ohne Benutzer-Aufzählung, Secrets mit AAD, Audit mit Hash-Kette und Schutz-Trigger, Notfallzugang nur Betrieb, Pflichtprüfungen in Produktion (Schlüssel ≥32 Zeichen, kein `none`). Doku: `docs/Sicherheit-Server-ISO27001.md`.
-Offen: getrennte DB-Rollen, `govulncheck`, Backup/Wiederherstellung und Aufbewahrungsfristen (mit Buchhaltung/Datenschutz), Betriebsvereinbarung, Einwilligung/Transparenz bei Anwesenheit und Kalender, Penetrationstest vor Pilot.
+Offen: `govulncheck` regelmäßig, Backup/Wiederherstellung und Aufbewahrungsfristen (mit Buchhaltung/Datenschutz), Betriebsvereinbarung, Einwilligung/Transparenz bei Anwesenheit und Kalender, Penetrationstest vor Pilot. DB-Rollen-Skript und `server rekey` sind vorbereitet.
 
 ## 12. Clients (erst nach Kern, Jira/Tempo, Container)
 | Stufe | Inhalt | Status |
@@ -163,7 +163,7 @@ Pilot: Vorschlag 3 Personen (Betrieb und Entwicklung), 1 Monat – **Entscheidun
 7. Offene Fragen aus Abschnitt 6 und 13 dort eintragen.
 
 ## 15. Nächste Schritte (aktuell)
-1. Abnahme Browser + echte Systeme. 2. Exchange-OAuth/Graph. 3. Mehrere Plane-Workspaces, Exporte. 4. Web-Maske LDAP/OIDC, DB-Rollen, `govulncheck`. 5. Client-Anbindung und Mac-Härtung. 6. Cloud-Varianten (nachrangig). Nachtragen-UI, SMTP, Tempo-Rücksync, Urlaubsantrag, Geräte-Token/Client-Hinweise und gemeinsame Mehr-Pod-Zähler sind gebaut (Abnahme offen).
+1. Abnahme Browser + echte Systeme. 2. Exchange-OAuth/Graph + Multi-Mail. 3. Exporte. 4. Client-Anbindung und Mac-Härtung. 5. Cloud-Varianten (nachrangig). Plane-Workspaces, LDAP/OIDC-Webmaske, DB-Rollen-Skript und `server rekey` sind gebaut (Abnahme offen).
 
 ## 16. Entscheidungen zu Freigabe, Teams, Erinnerungen, Urlaub (10.11.2026)
 Antworten des Nutzers auf die acht Fragen des Systemvergleichs:

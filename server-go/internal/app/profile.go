@@ -17,9 +17,17 @@ func secretAAD(uid int64, kind string) []byte { return []byte(fmt.Sprintf("u%d|%
 // lässt sich ein alter Schlüssel nicht mehr entschlüsseln – er kann nie an einen anderen Host gehen, auch nicht im Zeitfenster des Wechsels.
 func (a *App) secretAADFor(ctx context.Context, uid int64, kind string) []byte {
 	if kind == "plane_key" {
-		return []byte(fmt.Sprintf("u%d|%s|%s", uid, kind, planeScope(a.conf(ctx, "plane_base_url"))))
+		base := a.conf(ctx, "plane_base_url")
+		if w, ok := a.primaryPlaneWorkspace(ctx); ok {
+			base = w.BaseURL
+		}
+		return []byte(fmt.Sprintf("u%d|%s|%s", uid, kind, planeScope(base)))
 	}
 	return secretAAD(uid, kind)
+}
+
+func (a *App) planeKeyAAD(uid int64, baseURL string) []byte {
+	return []byte(fmt.Sprintf("u%d|plane_key|%s", uid, planeScope(baseURL)))
 }
 
 // planeScope: kleingeschrieben Schema://Host(:Port) einer Adresse
@@ -84,19 +92,39 @@ func (a *App) secretPut(w http.ResponseWriter, r *http.Request, u User) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "instance": inst.ID})
 		return
 	}
-	blob, err := crypto.SealAAD(a.Key, []byte(v), a.secretAADFor(r.Context(), u.ID, kind))
+	ctx := r.Context()
+	scope := int64(0)
+	aad := a.secretAADFor(ctx, u.ID, kind)
+	if wsRaw := r.URL.Query().Get("workspace"); wsRaw != "" {
+		wsID := int64(asFloat(wsRaw))
+		if wsID <= 0 {
+			badRequest(w, "workspace ungültig")
+			return
+		}
+		ws, err := a.planeWorkspaceByID(ctx, wsID)
+		if err != nil {
+			badRequest(w, "workspace ungültig")
+			return
+		}
+		prim, _ := a.primaryPlaneWorkspace(ctx)
+		aad = a.planeKeyAAD(u.ID, ws.BaseURL)
+		if prim.ID != ws.ID && planeScope(prim.BaseURL) != planeScope(ws.BaseURL) {
+			scope = ws.ID // anderer Host: eigener Scope
+		}
+	}
+	blob, err := crypto.SealAAD(a.Key, []byte(v), aad)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	if _, err := a.DB.Exec(r.Context(), `INSERT INTO user_secrets(user_id,kind,ciphertext) VALUES($1,$2,$3)
-		ON CONFLICT (user_id,kind,scope) DO UPDATE SET ciphertext=EXCLUDED.ciphertext, updated_at=now()`, u.ID, kind, blob); err != nil {
+	if _, err := a.DB.Exec(ctx, `INSERT INTO user_secrets(user_id,kind,scope,ciphertext) VALUES($1,$2,$3,$4)
+		ON CONFLICT (user_id,kind,scope) DO UPDATE SET ciphertext=EXCLUDED.ciphertext, updated_at=now()`, u.ID, kind, scope, blob); err != nil {
 		a.fail(w, err)
 		return
 	}
-	a.clearPlaneMe(r.Context(), u.ID, kind)
-	a.audit(r.Context(), u.ID, "secret.set", kind)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	a.clearPlaneMe(ctx, u.ID, kind)
+	a.audit(ctx, u.ID, "secret.set", kind)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "workspace_scope": scope})
 }
 
 func (a *App) secretDelete(w http.ResponseWriter, r *http.Request, u User) {
@@ -119,13 +147,31 @@ func (a *App) secretDelete(w http.ResponseWriter, r *http.Request, u User) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "instance": inst.ID})
 		return
 	}
-	if _, err := a.DB.Exec(r.Context(), `DELETE FROM user_secrets WHERE user_id=$1 AND kind=$2 AND scope=0`, u.ID, kind); err != nil {
+	ctx := r.Context()
+	scope := int64(0)
+	if wsRaw := r.URL.Query().Get("workspace"); wsRaw != "" {
+		wsID := int64(asFloat(wsRaw))
+		if wsID <= 0 {
+			badRequest(w, "workspace ungültig")
+			return
+		}
+		ws, err := a.planeWorkspaceByID(ctx, wsID)
+		if err != nil {
+			badRequest(w, "workspace ungültig")
+			return
+		}
+		prim, _ := a.primaryPlaneWorkspace(ctx)
+		if prim.ID != ws.ID && planeScope(prim.BaseURL) != planeScope(ws.BaseURL) {
+			scope = ws.ID
+		}
+	}
+	if _, err := a.DB.Exec(ctx, `DELETE FROM user_secrets WHERE user_id=$1 AND kind=$2 AND scope=$3`, u.ID, kind, scope); err != nil {
 		a.fail(w, err)
 		return
 	}
-	a.clearPlaneMe(r.Context(), u.ID, kind)
-	a.audit(r.Context(), u.ID, "secret.delete", kind)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	a.clearPlaneMe(ctx, u.ID, kind)
+	a.audit(ctx, u.ID, "secret.delete", kind)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "workspace_scope": scope})
 }
 
 // Secret liefert den entschlüsselten Wert für interne Aufrufe (Plane/Jira/Tempo); leer, wenn nicht gesetzt.

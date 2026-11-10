@@ -9,7 +9,7 @@
 | Migration beim Start | gesichert: eine Datenbank-Sperre lässt nur einen Pod migrieren, die anderen warten (neu) |
 | Doppelbuchung Plane/Tempo | gesichert: Lauf je Person unter Datenbank-Sperre, Ansprüche (`pending:`) nur nach 10 min freigegeben (neu) |
 | „Datenbank neuer als Programm“ | Programm startet nicht (neu) – schützt vor Start eines alten Images nach einem Update |
-| Anmelde-Sperren, Anfragebegrenzung, Plane-/Jira-Bremse je Person | **im Speicher je Pod** → bei N Pods N-fach großzügiger; Plane-Limit (45/min je Person) kann dann überschritten werden. **Offen:** gemeinsamer Zähler in der Datenbank, bis dahin 1 Replika oder Router-Affinität |
+| Anmelde-Sperren, Anfragebegrenzung, Plane-/Jira-Bremse je Person | gemeinsame Zähler in der DB (Migration 022 `rate_events`/`rate_blocks`); Abnahme mit 2+ Replikas noch offen |
 | Hintergrundläufe (Selbsttest, Wächter, LDAP-Nachprüfung, Tempo-Zeitplan) | laufen je Pod, sind idempotent bzw. gesperrt; erzeugen aber N-fache Last |
 Fazit: Hochverfügbarkeit über 2+ Pods erst nach dem gemeinsamen Zähler; für Ausfallschutz reicht im Pilot ein schneller Neustart (Probes, 1 Replika).
 
@@ -33,7 +33,27 @@ Ohne gleichen Schlüssel: Tokens neu eintragen (`server check --force` löscht u
 - Ein älteres Programm startet auf einer neueren Datenbank nicht (Meldung nennt die unbekannte Migration).
 - Migrationsdateien, die schon auf einer echten Datenbank gelaufen sind, werden nie mehr geändert, nur durch neue ergänzt. (Bisher unbetroffen: Migrationen ab 010 liefen noch nirgends.)
 
-## 5. Offen
-- Gemeinsame Zähler in der Datenbank (Anmelde-Sperre, Anfragebegrenzung, Plane/Jira-Bremse) für echten Mehr-Pod-Betrieb.
-- Befehl `server rekey` (alle verschlüsselten Werte von altem auf neuen Schlüssel umstellen), damit auch ein Test mit Schlüsseldatei verlustfrei auf `ZP_SECRET_KEY` umziehen kann.
-- Getrennte Datenbank-Rollen (Betrieb/Migration), regelmäßige Sicherung, Wiederherstellungstest.
+## 5. Schlüssel umstellen (`server rekey`)
+Wenn der Test mit Schlüsseldatei (`data/secret.key`) lief und Produktion `ZP_SECRET_KEY` nutzen soll (oder der Schlüssel rotiert wird):
+
+```bash
+# Neuer Schlüssel in der Umgebung, Alter aus Datei:
+ZP_SECRET_KEY_NEW='…mind. 32 Zeichen…' server rekey --from-file --to-env --yes
+# Danach ZP_SECRET_KEY dauerhaft auf den neuen Wert setzen und die alte Schlüsseldatei entfernen.
+```
+
+Quelle und Ziel: genau eines von `--from-env`/`--from-file` und eines von `--to-env`/`--to-file`. Ohne `--yes` nur Prüfung. Umschlüsselt: `user_secrets` (Plane/Jira), LDAP-Bind-Passwort, OIDC-Client-Secret, SMTP-Passwort.
+
+## 6. Getrennte Datenbank-Rollen
+Skript: `deploy/postgres/roles.sql` (manuell als DB-Admin). Zwei Logins:
+
+| Rolle | Zweck |
+|---|---|
+| `zeitprotokoll_owner` | besitzt Schema, führt Migrationen aus |
+| `zeitprotokoll` | Laufzeit: SELECT/INSERT/UPDATE/DELETE, kein DDL |
+
+Passwörter im Skript (`CHANGEME_*`) sofort ändern. `DATABASE_URL` des Servers mit `zeitprotokoll`; Migrationen einmalig oder beim Deploy mit Owner-URL. Danach `ALTER DEFAULT PRIVILEGES` aus dem Skript, damit neue Tabellen dem App-User gehören.
+
+## 7. Offen
+- Regelmäßige Sicherung und Wiederherstellungstest.
+- Abnahme Mehr-Pod (gemeinsame Zähler sind gebaut, Betrieb noch nicht gegen 2+ Replikas geprüft).

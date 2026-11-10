@@ -29,14 +29,15 @@ Monatsschluss nach einem Werktag, Nachtragen nur Teamleitung/Personal, Teams aus
 - Urlaubsantrag mit Genehmigung Teamleitung / Vertretung Personal (Migration 021 `leave_requests`, UI Abwesenheiten + Team/Personal).
 - Geräte-Token + Client-Hinweise (Migration 021 `client_hints`, `device_tokens.kind`, UI Einstellungen › Erkennung; Ingest `POST /api/client/hints`).
 - Tempo-Abwesenheitsvorschläge nach Abgleich (`is_absence` + `absence_hints`); gemeinsame Zähler Mehr-Pod (Migration 022 `rate_events`/`rate_blocks` für Login/Plane/Jira).
+- Mehrere Plane-Workspaces (Migration 023, Admin `/admin`, Nutzer `/profile` je Host-Schlüssel, Scan über alle eingeschalteten).
+- Web-Maske LDAP/OIDC in `/admin` (neben CLI); `server rekey`; DB-Rollen-Skript `deploy/postgres/roles.sql`.
 
 ## Offen (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, OIDC, SMTP).
-2. Exchange-OAuth/Graph für E-Mail.
-3. Mehrere Plane-Workspaces (Admin legt fest), Exporte (Lohn/Kunden; später entschieden).
-4. Getrennte Datenbank-Rollen; `server rekey`.
-5. Client: Mac-App spricht den Server an (nur lokale Erkennung: SSH, Meetings, Anwesenheit), Härtung, später Tray/Windows.
-6. Jira Cloud / Tempo Cloud / Plane Cloud (nachrangig).
+2. Exchange-OAuth/Graph und mehrere Mail-Konten (später).
+3. Exporte (Lohn/Kunden; später entschieden).
+4. Client: Mac-App spricht den Server an (nur lokale Erkennung: SSH, Meetings, Anwesenheit), Härtung, später Tray/Windows.
+5. Jira Cloud / Tempo Cloud / Plane Cloud (nachrangig).
 
 ## Entscheidungen (Kurzfassung, Details in der Spezifikation)
 Go + PostgreSQL; Plane per persönlichem Token; Jira Data Center + Cloud, Tempo nur als Brücke, Jira-Instanzen vom Admin; Server zuerst, Client danach; Freigabe ausschließlich Personal; Monatsschluss automatisch nach 1 Werktag, danach nachtragen nur Teamleitung/Personal; Tracken ohne Ticket erlaubt, Ticket-Vorschlag light und abschaltbar; technischer Admin sieht keine Zeiten; kein Import aus dem lokalen Tracker, Historie nur aus Tempo und Plane.

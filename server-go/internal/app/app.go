@@ -163,6 +163,7 @@ func (a *App) Routes(mux *http.ServeMux) {
 	a.routesReports(mux)
 	a.routesHolidays(mux)
 	a.routesPlane(mux)
+	a.routesPlaneWorkspaces(mux)
 	a.routesTempo(mux)
 	a.routesTempoSync(mux)
 	a.routesJiraInstances(mux)

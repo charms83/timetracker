@@ -49,6 +49,7 @@ func (a *App) routesAdmin(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/admin/emergency/close-month", a.adminOnly(a.emergencyCloseMonth))
 	mux.HandleFunc("GET /api/admin/config", a.adminOnly(a.adminConfigGet))
 	mux.HandleFunc("PUT /api/admin/config", a.adminOnly(a.adminConfigPut))
+	a.routesAdminAuth(mux)
 }
 
 func (a *App) adminStatus(w http.ResponseWriter, r *http.Request, u User) {
@@ -70,13 +71,13 @@ func (a *App) adminStatus(w http.ResponseWriter, r *http.Request, u User) {
 		rows.Close()
 	}
 	since := time.Now().Add(-24 * time.Hour).UTC().Format(isoMillis)
-	c := a.conf(ctx, "plane_base_url")
+	_, planeOK := a.primaryPlaneWorkspace(ctx)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version": serverVersion, "go": runtime.Version(), "started": a.Started.UTC().Format(time.RFC3339),
 		"uptime_seconds": int64(time.Since(a.Started).Seconds()), "timezone": a.Loc.String(),
 		"database": map[string]any{"ok": dbOK, "migrations": migs},
 		"setup": map[string]any{"done": a.conf(ctx, "setup_done") == "1", "auth_mode": a.conf(ctx, "auth_mode"),
-			"allow_http": a.AllowHTTP, "plane_configured": c != "" && a.conf(ctx, "plane_workspace") != ""},
+			"allow_http": a.AllowHTTP, "plane_configured": planeOK},
 		"counts": map[string]any{
 			"users": count(`SELECT COUNT(*) FROM users`), "users_disabled": count(`SELECT COUNT(*) FROM users WHERE disabled`),
 			"projects": count(`SELECT COUNT(*) FROM projects`), "time_entries": count(`SELECT COUNT(*) FROM time_entries`),
@@ -282,7 +283,16 @@ func (a *App) applyAdminConfig(ctx context.Context, key, val string) error {
 	switch key {
 	case "plane_base_url":
 		_, err := a.setPlaneBase(ctx, val)
+		if err == nil {
+			a.mirrorPlaneConfigToWorkspace(ctx)
+		}
 		return err
+	case "plane_workspace":
+		if err := a.setConf(ctx, key, val); err != nil {
+			return err
+		}
+		a.mirrorPlaneConfigToWorkspace(ctx)
+		return nil
 	}
 	if contains(mailConfigKeys, key) {
 		return a.applyMailConfig(ctx, key, val)
