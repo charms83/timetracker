@@ -258,10 +258,18 @@ func (a *App) auth(h func(http.ResponseWriter, *http.Request, User)) http.Handle
 				return
 			}
 			h(w, r, u)
-		default: // local und oidc: Anmeldung per Sitzung (oidc: Anmeldung über authentik folgt; bis dahin nur der scharfe Notfallzugang)
+		default: // local/oidc: Sitzungs-Cookie ODER Geräte-/API-Token (Bearer zpdev_…); Admin nie per Token
+			if u, _, ok := a.deviceUser(r); ok {
+				if deviceTokenForbidden(r.Pattern) {
+					writeJSON(w, http.StatusForbidden, map[string]any{"error": "Dieses API-Token darf keine Admin-/Auth-Routen aufrufen", "code": "token_scope"})
+					return
+				}
+				h(w, r, u)
+				return
+			}
 			u, ok := a.sessionUser(r)
 			if !ok {
-				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "login_required"})
+				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "login_required", "hint": "Cookie zp_session oder Authorization: Bearer zpdev_…"})
 				return
 			}
 			if u.Role == "breakglass" && !emergencyAllowed[r.Pattern] { // Notfallzugang: nur Betrieb, nie Zeitdaten
@@ -283,6 +291,22 @@ func (a *App) auth(h func(http.ResponseWriter, *http.Request, User)) http.Handle
 			h(w, r, u)
 		}
 	}
+}
+
+// deviceTokenForbidden: API-/Geräte-Token erreichen nie Admin und keine Passwort-/Logout-Routen.
+func deviceTokenForbidden(pattern string) bool {
+	_, path, ok := strings.Cut(pattern, " ")
+	if !ok {
+		return true
+	}
+	if strings.HasPrefix(path, "/api/admin/") {
+		return true
+	}
+	switch path {
+	case "/api/auth/password", "/api/auth/logout", "/api/auth/login":
+		return true
+	}
+	return false
 }
 
 // timeAccount: Konto, das Zeiten erfasst. Technischer Admin (role=admin) und Notfallzugang erfassen nie Zeiten –

@@ -32,6 +32,15 @@ func TestSecurityHeaders(t *testing.T) {
 	}
 }
 
+func TestDeviceTokenForbiddenRoutes(t *testing.T) {
+	if !deviceTokenForbidden("GET /api/admin/status") || !deviceTokenForbidden("POST /api/auth/password") {
+		t.Fatal("Admin/Auth müssen für Token gesperrt sein")
+	}
+	if deviceTokenForbidden("GET /api/me") || deviceTokenForbidden("GET /api/time-entries") {
+		t.Fatal("normale API muss mit Token erlaubt sein")
+	}
+}
+
 func TestHSTSWhenPublicHTTPS(t *testing.T) {
 	a := &App{PublicURL: "https://zeit.example.com"}
 	h := a.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))

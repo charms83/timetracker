@@ -94,7 +94,8 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - Verbindung gehärtet: Client lehnt TLS-Fehler ab, blockiert HTTP-Downgrade, optional Cert-Pin; Server `__Host-zp_session` + Session-HMAC, Betrieb braucht `ZP_PUBLIC_URL=https://`.
 - Usability: Cert-Pin nur wenn gesetzt (Firmen-CA bleibt nutzbar); Notifications erlaubt; Alltag = URL setzen + anmelden.
 - Server-Update: Version per ldflags; `GET /api/admin/update` + Admin-Tab; `install.sh --upgrade` mit Backup; CLI `version`; Doku `Betrieb-Update.md` (kein In-App-Upload).
-- Offen bleibt: Tray-UI für Server-URL, Timer im Mini über Session; Update auf echtem Linux/OpenShift abnehmen.
+- REST-API: `auth()` akzeptiert Bearer/`X-ZP-Device-Token`; kind `api` (Migration 027); UI + `docs/REST-API.md`; Admin weiter nur per Sitzung.
+- Offen bleibt: Tray-UI für Server-URL, Timer im Mini; Update/REST gegen echte Systeme abnehmen.
 
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik, SMTP); gefundene Fehler beheben.

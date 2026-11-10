@@ -14,9 +14,9 @@ import (
 	"time"
 )
 
-/* Geräte-Token (Mac-Client, Browser-Add-on, Minimal-Client) + Annahme-Schnittstelle für Client-Hinweise.
-   Klartext nur einmal bei Erstellung an den Nutzer; in der DB nur HMAC mit ZP_SECRET_KEY (nie Klartext).
-   Nie für Admin-Funktionen. Client-Auth: Authorization: Bearer zpdev_<token> oder X-ZP-Device-Token. */
+/* Geräte-/API-Token (Mac, Add-on, curl, REST) + Annahme-Schnittstelle für Client-Hinweise.
+   Klartext nur einmal bei Erstellung; in der DB nur HMAC mit ZP_SECRET_KEY.
+   Nie für Admin. REST: Authorization: Bearer zpdev_… auf allen a.auth()-Routen (außer /api/admin/*). */
 
 const deviceTokenPrefix = "zpdev_"
 const deviceTokenHMACPrefix = "v1:" // Kennzeichnung gepfefferter Hashes (Migration von reinem SHA-256)
@@ -72,9 +72,9 @@ func (a *App) devicesCreate(w http.ResponseWriter, r *http.Request, u User) {
 		kind = "mac"
 	}
 	switch kind {
-	case "mac", "addon", "minimal", "other":
+	case "mac", "addon", "minimal", "api", "other":
 	default:
-		badRequest(w, "kind: mac, addon, minimal oder other")
+		badRequest(w, "kind: mac, addon, minimal, api oder other")
 		return
 	}
 	label := truncRunes(strings.TrimSpace(asStr(in["label"])), 80)
@@ -98,7 +98,12 @@ func (a *App) devicesCreate(w http.ResponseWriter, r *http.Request, u User) {
 	a.audit(ctx, u.ID, "device.create", fmt.Sprintf("#%d %s (%s)", id, label, kind))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id": id, "label": label, "kind": kind, "token": raw,
-		"hint": "Token nur einmal sichtbar – für Add-on/curl. Mac-Client: Login im Fenster (Server-Sitzung). Server speichert nur einen Hash. Nie für Admin.",
+		"hint": "Token nur einmal sichtbar. REST: Authorization: Bearer <token>. Nie für /api/admin. Server speichert nur Hash.",
+		"usage": map[string]string{
+			"header":  "Authorization: Bearer <token>",
+			"alt":     "X-ZP-Device-Token: <token>",
+			"example": "curl -sH 'Authorization: Bearer zpdev_…' https://zeit.example/api/me",
+		},
 	})
 }
 
