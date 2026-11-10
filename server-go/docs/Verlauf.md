@@ -48,6 +48,9 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - „Admin“ bei der Urlaubs-Vertretung = Personal (so angenommen)?
 - Exporte (Lohn/Kunden) und Urlaubsantrag-Details; E-Mail-Technik (SMTP/Exchange).
 
+## Modularer Installer
+- `server-go/install/zp-install`: Module inkl. **docker**, Profile `linux-server` / `docker` / `openshift`; Menü mit Auswahldialogen. `deploy/docker/` (Compose + Dockerfile), `deploy/BETRIEBSARTEN.md` (Binary empfohlen, Docker schnell, OpenShift Cluster). Kein Ansible.
+
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, später Jira/Tempo, LDAP, authentik); gefundene Fehler beheben.
 2. Oberfläche: Nachtragen-Dialog, „geschlossen“-Anzeige, neue Hinweistexte.

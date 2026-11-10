@@ -1,4 +1,11 @@
-# Betrieb auf OpenShift
+# Betrieb (ohne Ansible)
+
+Kurzvergleich und Empfehlung: **[BETRIEBSARTEN.md](BETRIEBSARTEN.md)**  
+→ Binary+systemd (sicher/einfach) · Docker Compose (schnell) · OpenShift (Cluster).
+
+---
+
+# OpenShift
 
 1. **Datenbank:** PostgreSQL (eigene VM oder vorhandener Server), eigener Benutzer `zeitprotokoll` mit Rechten nur auf die eigene Datenbank; Verbindung mit `sslmode=verify-full`. Getrennte Rollen (Betrieb/Migration) sind noch offen.
 2. **Image bauen:** `cd server-go && podman build -t <registry>/example/zeitprotokoll-server:<tag> -f Containerfile .` und pushen. Tag fest vergeben.
@@ -13,5 +20,11 @@ Dateisystem ist schreibgeschützt, Prozess ohne Root und ohne Rechte; es gibt ke
 
 Test, Umzug auf den Server und Cluster: siehe `docs/Betrieb-Migration.md`.
 
-## Linux ohne OpenShift
-`scripts/package.sh` baut das Paket, `deploy/linux/install.sh` installiert es als systemd-Dienst (siehe `docs/Stand-und-Plan.md`).
+## Linux Binary (ohne OpenShift)
+`scripts/package.sh` baut das Paket (Binary amd64/arm64, web/, stiller + modularer Installer).
+
+- **Stiller Installer:** `./install.sh` / `--upgrade` / `--uninstall` (`deploy/linux/install.sh`)
+- **Modularer Installer:** `sudo ./install/zp-install` – Profile `linux-server`, `docker`, `upgrade`, `openshift`. Siehe `install/README.md`.
+
+## Docker Compose
+`deploy/docker/` – App + PostgreSQL, `.env` aus Vorlage, `docker compose up -d --build`. Oder: `./install/zp-install --profile docker`.

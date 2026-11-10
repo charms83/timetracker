@@ -1,0 +1,59 @@
+# Zeitprotokoll-Server – Docker Compose (ohne Ansible)
+# Start:  cp .env.example .env  # ausfüllen
+#         docker compose up -d --build
+# Prüfen: curl -fsS http://127.0.0.1:8080/healthz
+#
+# Sicherheit: nur Loopback freigeben oder davor Reverse-Proxy mit TLS.
+# ZP_SECRET_KEY und DB-Passwort nur in .env (nie committen).
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-zeitprotokoll}
+      POSTGRES_USER: ${POSTGRES_USER:-zeitprotokoll}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD in .env setzen}
+    volumes:
+      - zp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [zp]
+
+  app:
+    build:
+      context: ../../..
+      dockerfile: server-go/deploy/docker/Dockerfile
+    image: zeitprotokoll-server:local
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-zeitprotokoll}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-zeitprotokoll}?sslmode=disable
+      ZP_SECRET_KEY: ${ZP_SECRET_KEY:?ZP_SECRET_KEY in .env setzen (mind. 32 Zeichen)}
+      ZP_PUBLIC_URL: ${ZP_PUBLIC_URL:-http://127.0.0.1:8080}
+      ZP_ADDR: ":8080"
+      ZP_TZ: ${ZP_TZ:-Europe/Berlin}
+      ZP_PRODUCTION: "1"
+      ZP_ALLOW_HTTP: ${ZP_ALLOW_HTTP:-1}
+      ZP_STATIC_DIR: /usr/share/zeitprotokoll/web
+    ports:
+      - "${ZP_BIND:-127.0.0.1:8080}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    networks: [zp]
+
+volumes:
+  zp_pgdata:
+
+networks:
+  zp:
+    driver: bridge

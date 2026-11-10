@@ -11,3 +11,6 @@ web/
 .claude-memory/
 **/.claude-memory/
 dist/
+# erlaubt Vorlagen
+!.env.example
+!**/.env.example

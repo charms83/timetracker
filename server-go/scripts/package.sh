@@ -11,8 +11,21 @@ for A in amd64 arm64; do
   CGO_ENABLED=0 GOOS=linux GOARCH=$A go build -trimpath -ldflags "-s -w" -o "$OUT/zeitprotokoll-server-linux-$A" ./cmd/server
 done
 cp deploy/linux/install.sh deploy/linux/zeitprotokoll.service deploy/linux/zeitprotokoll.env.example "$OUT/"
+# Modularer Installer (Auswahldialoge) – parallel zum stillen install.sh
+mkdir -p "$OUT/install"
+cp -R install/lib install/modules install/profiles install/zp-install install/README.md "$OUT/install/"
+chmod +x "$OUT/install/zp-install" "$OUT/install/selftest.sh" 2>/dev/null || chmod +x "$OUT/install/zp-install"
+mkdir -p "$OUT/deploy"
+cp -R deploy/docker deploy/linux "$OUT/deploy/" 2>/dev/null || true
+cp deploy/BETRIEBSARTEN.md deploy/README.md "$OUT/deploy/" 2>/dev/null || true
 [[ -d web ]] && cp -R web "$OUT/web"
 cp docs/Betrieb-Migration.md "$OUT/"
+printf '%s\n' \
+  "Betriebsarten: deploy/BETRIEBSARTEN.md" \
+  "Binary (empfohlen): sudo ./install.sh  oder  sudo ./install/zp-install --profile linux-server" \
+  "Docker Compose:     cd deploy/docker && cp .env.example .env && docker compose up -d --build" \
+  "OpenShift:          siehe deploy/README.md" \
+  > "$OUT/INSTALL.txt"
 ( cd dist && tar czf "zeitprotokoll-server-$V.tar.gz" "zeitprotokoll-server-$V" && shasum -a 256 "zeitprotokoll-server-$V.tar.gz" > "zeitprotokoll-server-$V.tar.gz.sha256" )
 rm -rf "$OUT"
 echo "Fertig: dist/zeitprotokoll-server-$V.tar.gz"

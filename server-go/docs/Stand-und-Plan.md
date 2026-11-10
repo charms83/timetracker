@@ -8,14 +8,14 @@ Das Zeitprotokoll (Einzelplatz: Mac, Browser-Oberfläche, Add-on, bucht nach Pla
 ## Aufbau
 - **Lokaler Tracker** (Node.js, React/Vite, Electron, Browser-Add-on): läuft unverändert weiter.
 - **Team-Server** `server-go/` (Go, PostgreSQL, eine Programmdatei): Mehrbenutzer, Sitzungen, Rollen, Freigabe, Plane/Jira/Tempo. Liefert dieselbe React-Oberfläche aus (`scripts/build-web.sh`), im „Servermodus“ angepasst.
-- **Betrieb:** lokal `scripts/dev.sh` (Postgres über Homebrew, Test auf Port 8090), Linux-Paket `scripts/package.sh` + `deploy/linux/install.sh` (systemd), OpenShift `Containerfile` + `deploy/openshift/`. Umzug/Cluster: `Betrieb-Migration.md`.
+- **Betrieb (ohne Ansible):** lokal `scripts/dev.sh`; **Binary+systemd** (empfohlen) `install/zp-install --profile linux-server` / `deploy/linux/`; **Docker Compose** `deploy/docker/` / `--profile docker`; **OpenShift** `deploy/openshift/`. Überblick: `deploy/BETRIEBSARTEN.md`. Umzug: `Betrieb-Migration.md`.
 
 ## Fertig (Go-Server)
 Anmeldung: lokale Konten (Einzelbetrieb), Notfallzugang (nur Betrieb, nie Zeiten), LDAP/AD, OIDC (authentik/Keycloak/Entra). Rollen kombinierbar, Teams, Sichtbarkeit je Rolle. Monatsfreigabe mit Sperre in der Datenbank. Plane: Buchung als Summe je Ticket, Quellen, Tickets, Import (auf Anforderung). Jira Data Center + Tempo: mehrere Instanzen, Push, Ticket-Vorschlag (Light), Übergangs-Ticket. Arbeitsalltag: To-do, Arbeitstag, Monatsende/Lücken, Assistent (regelbasiert), alles abschaltbar (Vorschläge in vier Stufen). Admin-Oberfläche, Befehlszeile (`server help`), Selbsttest, Audit mit Hash-Kette. Sicherheit: mehrere unabhängige Reviews je Baustein, siehe `Sicherheit-Server-ISO27001.md`.
 
 ## Schnellstart und Auslieferung
 - **Testen auf dem Mac:** `scripts/dev.sh` (Postgres per Homebrew, eigene Datenbank `zeitprotokoll_dev`, Schlüssel in `~/.zeitprotokoll-dev-key`, Port 8090); Befehle gegen dieselbe Datenbank: `scripts/dev.sh status|check|user …|team …|ldap …|oidc …`. Oberfläche bauen: `scripts/build-web.sh` (nach `server-go/web`, berührt `frontend/dist` des lokalen Trackers nicht). Erste Einrichtung unter `/setup` (Token steht im Log), Anmeldung `/login`; Administrator landet in `/admin`, Mitarbeiter in der Oberfläche `/`.
-- **Linux (systemd):** `scripts/package.sh` baut `dist/zeitprotokoll-server-<version>.tar.gz` (amd64/arm64, mit Oberfläche); darin `install.sh` (Erstinstallation, `--upgrade`, `--uninstall [--purge]`), Dienstdatei mit Härtung, Konfigurationsvorlage. Nur syntaktisch geprüft, nicht auf einem Linux-Rechner gelaufen.
+- **Linux (systemd):** `scripts/package.sh` baut `dist/zeitprotokoll-server-<version>.tar.gz` (amd64/arm64, mit Oberfläche); darin stiller `install.sh` und modularer `install/zp-install` (Auswahldialoge, Profile, Module: check/postgres/binary/web/config/systemd/verify/openshift; `--dry-run`/`--root`). Dienstdatei mit Härtung, Konfigurationsvorlage. Nur syntaktisch/Dry-Run geprüft, nicht auf einem Linux-Rechner gelaufen.
 - **OpenShift:** `Containerfile`, `deploy/openshift/` (Deployment, Route, Netzwerkregeln …). Nicht gebaut/angewendet.
 - **Bereinigter Export für GitLab:** `export-sanitized.sh` im Projektwurzelordner (enthält die echten Namen, nicht im Export); der Stand im GitLab-Projekt ist eine Momentaufnahme vom 10.11. und muss nach größeren Änderungen neu erzeugt werden.
 
