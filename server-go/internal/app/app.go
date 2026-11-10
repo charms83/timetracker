@@ -181,8 +181,9 @@ func (a *App) Routes(mux *http.ServeMux) {
 	a.routesOIDC(mux)
 	a.routesApproval(mux)
 	a.routesLeave(mux)    // Urlaubsantrag (Genehmigung Teamleitung, Vertretung Personal)
-	a.routesDevices(mux)  // Geräte-Token + Client-Hinweise (Mac/Add-on)
-	a.routesNachtrag(mux) // Nachtragen nach Monatsschluss (Teamleitung/Personal)
+	a.routesDevices(mux)      // Geräte-Token + Client-Hinweise (Mac/Add-on) – nicht Abrechnung
+	a.routesIntegrations(mux) // Abrechnungsprogramme: zpint_… + /api/integrations/payroll
+	a.routesNachtrag(mux)     // Nachtragen nach Monatsschluss (Teamleitung/Personal)
 	a.routesProfilePage(mux)
 	a.routesTeams(mux)
 	a.routesLocalUsers(mux)
@@ -258,18 +259,10 @@ func (a *App) auth(h func(http.ResponseWriter, *http.Request, User)) http.Handle
 				return
 			}
 			h(w, r, u)
-		default: // local/oidc: Sitzungs-Cookie ODER Geräte-/API-Token (Bearer zpdev_…); Admin nie per Token
-			if u, _, ok := a.deviceUser(r); ok {
-				if deviceTokenForbidden(r.Pattern) {
-					writeJSON(w, http.StatusForbidden, map[string]any{"error": "Dieses API-Token darf keine Admin-/Auth-Routen aufrufen", "code": "token_scope"})
-					return
-				}
-				h(w, r, u)
-				return
-			}
+		default: // local/oidc: Sitzungs-Cookie. Abrechnungs-/Integrations-API: eigener Bearer zpint_… (siehe integrations.go).
 			u, ok := a.sessionUser(r)
 			if !ok {
-				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "login_required", "hint": "Cookie zp_session oder Authorization: Bearer zpdev_…"})
+				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "login_required"})
 				return
 			}
 			if u.Role == "breakglass" && !emergencyAllowed[r.Pattern] { // Notfallzugang: nur Betrieb, nie Zeitdaten
@@ -291,22 +284,6 @@ func (a *App) auth(h func(http.ResponseWriter, *http.Request, User)) http.Handle
 			h(w, r, u)
 		}
 	}
-}
-
-// deviceTokenForbidden: API-/Geräte-Token erreichen nie Admin und keine Passwort-/Logout-Routen.
-func deviceTokenForbidden(pattern string) bool {
-	_, path, ok := strings.Cut(pattern, " ")
-	if !ok {
-		return true
-	}
-	if strings.HasPrefix(path, "/api/admin/") {
-		return true
-	}
-	switch path {
-	case "/api/auth/password", "/api/auth/logout", "/api/auth/login":
-		return true
-	}
-	return false
 }
 
 // timeAccount: Konto, das Zeiten erfasst. Technischer Admin (role=admin) und Notfallzugang erfassen nie Zeiten –

@@ -98,6 +98,16 @@
     <div id="update-body"></div>
   </section>
 
+  <section id="t-integrations" class="hidden">
+    <p class="mut">Token für <b>Abrechnungsprogramme</b> (Lohn u. a.) – nicht für Mitarbeiter-Clients. Header <code>Authorization: Bearer zpint_…</code>. Scope <code>payroll</code>: Monatssummen und Buchungen freigegebener Monate.</p>
+    <div class="row">
+      <input id="int-label" placeholder="Bezeichnung (z. B. DATEV-Export)" size="28">
+      <button class="act" onclick="createIntegration()">Token anlegen</button>
+    </div>
+    <div id="int-fresh"></div>
+    <table><thead><tr><th>ID</th><th>Name</th><th>Scopes</th><th>Angelegt</th><th>Zuletzt</th><th></th></tr></thead><tbody id="int-rows"></tbody></table>
+  </section>
+
   <section id="t-config" class="hidden">
     <h3>Plane-Workspaces</h3>
     <p class="mut"><b>Kein Plane-Token für die Administration.</b> Du trägst nur ein, was die Organisation nutzt: Anzeigename, Plane-Adresse und Workspace-Kennung aus der Browser-URL (z.&nbsp;B. <code>https://plane.example.com/example/…</code> → Kennung <code>example</code>) – analog zu Jira-Instanzen. Jede Person trägt danach ihren persönlichen API-Schlüssel selbst ein und schaltet die Workspaces für sich ein. Schlüssel gelten je Plane-Adresse (gleicher Host = geteilt). Primär-Workspace (erste eingeschaltete Zeile) steuert Tempo-Links. Die Spalte „Schlüssel“ zählt nur, wie viele Personen schon einen Schlüssel für diesen Eintrag haben – du siehst und brauchst keine Tokens.</p>
@@ -171,7 +181,7 @@
 </main>
 <script>
 const $ = id => document.getElementById(id);
-const TABS = [['status','Status'],['update','Update'],['check','Selbsttest'],['logs','Logs'],['users','Benutzer'],['teams','Teams'],['config','Einstellungen']];
+const TABS = [['status','Status'],['update','Update'],['integrations','Abrechnung-API'],['check','Selbsttest'],['logs','Logs'],['users','Benutzer'],['teams','Teams'],['config','Einstellungen']];
 let cur = 'status', liveTimer = null, lastId = 0;
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -197,6 +207,7 @@ async function show(k) {
   try {
     if (k === 'status') await loadStatus();
     if (k === 'update') await loadUpdate();
+    if (k === 'integrations') await loadIntegrations();
     if (k === 'check') await runCheck(false, true);
     if (k === 'logs') { lastId = 0; await loadLogs(true); }
     if (k === 'users') await loadUsers();
@@ -243,6 +254,33 @@ async function loadUpdate() {
       ${steps(u.openshift.steps)}
     </div>
     <p class="mut" style="margin-top:12px">Nach dem Update: Tab Selbsttest → „Neu prüfen“. CLI: <code>zeitprotokoll-server version</code> / <code>status</code>.</p>`;
+}
+
+async function loadIntegrations() {
+  const rows = await api('GET', '/admin/integrations');
+  $('int-rows').innerHTML = (rows||[]).filter(x => x.active !== false && !x.revoked_at).map(x => `<tr>
+    <td>${x.id}</td><td>${esc(x.label)}</td><td><code>${esc((x.scopes||[]).join(', '))}</code></td>
+    <td class="mut">${esc(String(x.created_at||'').slice(0,19))}</td>
+    <td class="mut">${esc(x.last_used ? String(x.last_used).slice(0,19) : '–')}</td>
+    <td><a href="#" onclick="revokeIntegration(${x.id});return false">Widerrufen</a></td>
+  </tr>`).join('') || '<tr><td colspan="6" class="mut">Noch kein Token – für das Abrechnungsprogramm eines anlegen.</td></tr>';
+}
+async function createIntegration() {
+  try {
+    const j = await api('POST', '/admin/integrations', { label: $('int-label').value || undefined, scopes: ['payroll'] });
+    $('int-label').value = '';
+    $('int-fresh').innerHTML = `<div class="pwbox"><b>Token einmalig – jetzt kopieren</b><br><code>${esc(j.token)}</code><br>
+      <span class="mut">${esc(j.hint||'')}</span><br>
+      <code style="font-size:12px">curl -sH 'Authorization: Bearer …' '…/api/integrations/payroll?month=2026-11'</code>
+      <a href="#" onclick="$('int-fresh').innerHTML='';return false"> schließen</a></div>`;
+    msg('Token angelegt.');
+  } catch (e) { msg(e.message, true); }
+  loadIntegrations();
+}
+async function revokeIntegration(id) {
+  if (!confirm('Token widerrufen? Das Abrechnungsprogramm verliert den Zugang.')) return;
+  try { await api('DELETE', '/admin/integrations/' + id); msg('Widerrufen.'); } catch (e) { msg(e.message, true); }
+  loadIntegrations();
 }
 
 async function runCheck(fix, cached) {

@@ -1,54 +1,55 @@
-# REST-API-Zugang
+# API für Abrechnungsprogramme
 
-Der Team-Server spricht JSON unter `/api/…`. Zugang für Skripte und Integrationen: **persönliches API-Token** (kein Passwort, kein Admin).
+Die offene API ist für **Lohn-/Abrechnungsprogramme** und ähnliche Integrationen – **nicht** für den Mitarbeiter-Alltag (der läuft per Browser-Login).
 
-## Token anlegen
+Geräte-Token (`zpdev_…`) bleiben nur für Mac-Client/Add-on (Hinweise). Abrechnung nutzt eigene Tokens (`zpint_…`).
 
-1. Im Browser anmelden → **Einstellungen › Erkennung** (Geräte-/API-Token)
-2. Art **API / REST** wählen, Token anlegen, Klartext **einmal** kopieren
-3. Widerruf jederzeit in derselben Liste
+## Token anlegen (Administrator)
 
-Server speichert nur einen HMAC-Hash. Token gelten nur für Konten mit Zeiterfassung – nie für Admin/`/api/admin/*`.
+1. `/admin` → Tab **Abrechnung-API**
+2. Bezeichnung setzen → Token anlegen → Klartext **einmal** kopieren
+3. Im Abrechnungsprogramm als Bearer-Token hinterlegen
+4. Bei Verlust: widerrufen und neu anlegen
+
+Server speichert nur HMAC. Scope derzeit: `payroll`.
 
 ## Authentifizierung
 
 ```http
-Authorization: Bearer zpdev_…
+Authorization: Bearer zpint_…
 ```
 
-oder
+Kein `Origin`-Header (curl/Skript). HTTPS in Betrieb.
 
-```http
-X-ZP-Device-Token: zpdev_…
-```
+## Endpunkte (Lohn)
 
-Browser-UI nutzt alternativ das Sitzungs-Cookie (`__Host-zp_session` / `zp_session`). Curl/Skripte: **kein** `Origin`-Header senden (CSRF-Schutz).
-
-## Schnelltest
+### Monatssummen
 
 ```bash
-export ZP_URL=https://zeit.firma.example
-export ZP_TOKEN=zpdev_…
-
-curl -sS -H "Authorization: Bearer $ZP_TOKEN" "$ZP_URL/api/me" | jq .
-curl -sS -H "Authorization: Bearer $ZP_TOKEN" "$ZP_URL/api/health"
+curl -sS -H "Authorization: Bearer $ZPINT" \
+  "$ZP_URL/api/integrations/payroll?month=2026-11"
 ```
 
-## Typische Aufrufe (eigene Daten)
+Standard: nur Personen mit Status **approved** oder **closed**.  
+Vollständigkeit prüfen: `?month=2026-11&all=1`.
 
-| Methode | Pfad | Zweck |
-|---|---|---|
-| GET | `/api/me` | Wer bin ich |
-| GET | `/api/time-entries?from=2026-11-01&to=2026-11-30` | Buchungen |
-| POST | `/api/time-entries` | Buchung anlegen |
-| GET | `/api/projects` | Projekte |
-| GET | `/api/assistant/tasks` | Assistent-Aufgaben |
-| POST | `/api/client/hints` | Client-Hinweise (auch ohne Session) |
+Antwort je Person u. a.: `id`, `name`, `email`, `status`, `soll_h`, `ist_h`, `saldo_h`, `konto_h`.
 
-Alle `a.auth()`-Routen akzeptieren das Token. **Nicht** erreichbar per Token: `/api/admin/*`, Passwort ändern, Logout/Login.
+### Einzelbuchungen einer Person
 
-## Grenzen
+```bash
+curl -sS -H "Authorization: Bearer $ZPINT" \
+  "$ZP_URL/api/integrations/payroll/entries?month=2026-11&user_id=42"
+```
 
-- Rate-Limit je IP; Body max. ~64 KiB
-- HTTPS in Betrieb (`ZP_PUBLIC_URL=https://…`)
-- Token wie ein Passwort behandeln; bei Verlust widerrufen und neu anlegen
+Wenn der Monat nicht freigegeben ist → `409` mit `code: month_not_ready` (außer `?all=1`).
+
+## Was noch fehlt (bewusst offen)
+
+- Kunden-Export (Scope `customers`)
+- „exportiert“-Markierung / Sperre (Spez §16.7 – Format mit Buchhaltung klären)
+- feste CSV/DATEV-Dateiformate
+
+## Admin-API
+
+Token-Verwaltung nur per Admin-Sitzung: `GET/POST/DELETE /api/admin/integrations`.

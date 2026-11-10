@@ -32,7 +32,7 @@ Besseres Tempo für Plane: ein zentraler Server (Go, PostgreSQL, OpenShift) füh
 | OIDC (authentik, Keycloak, Entra) | PKCE, state/nonce, Rücksprung aus `ZP_PUBLIC_URL`, Kennung (iss,sub), OIDC-Sitzung 8 h / Admin 4 h | fertig, nicht gegen echtes authentik getestet |
 | Verknüpfung bestehender Konten | `ldap link` / `oidc link <name> <sub>`, einmalig, 24 h | fertig |
 | Web-Maske LDAP/OIDC | Einrichtung in `/admin` statt per Befehl | gebaut (`admin_auth.go`), Abnahme gegen echtes Verzeichnis offen |
-| Geräte-/API-Token (REST, Add-on, curl) | `Authorization: Bearer zpdev_…` auf Mitarbeiter-API; HMAC; kind `api`; nie `/api/admin`; Mac-App: Session | gebaut (021/027 + auth), Doku `REST-API.md` |
+| Integrations-API (Abrechnung) | Admin-Token `zpint_…`, Scope `payroll`; Monatssummen/Buchungen freigegebener Monate; Geräte-Token nur Client-Hinweise | gebaut (028), Doku `REST-API.md`; Kunden-Export/`exportiert`-Sperre offen |
 | Eigenes Profil (Plane-Schlüssel, Jira-Token je Instanz, Vorschläge, Passwort) | in der Oberfläche (Servermodus) und als einfache Seite `/profile`; Administration kann Zugangsdaten löschen, nie lesen | fertig |
 | E-Mail-Versand | Erinnerungen per SMTP (`notifyApproval`, Migration 020); Exchange-OAuth/Graph | SMTP gebaut; Exchange/Multi-Mail **offen** |
 | Nachprüfung OIDC im IdP | Sperrung wirkt erst bei neuer Anmeldung; Behelf `server user logout` | Entscheidung nötig |
@@ -133,7 +133,7 @@ Alles, was lokales Wissen vom Rechner braucht, gehört **nur** in den Client; de
 Die Server-Seite kennt für Client-Signale nur eine **allgemeine Annahme-Schnittstelle** (Vorschläge und Anwesenheit mit Art `ssh|meeting|calendar|presence`, nie Rohdaten, nie automatisch gebucht). Jede Art ist einzeln abschaltbar: für alle (Admin), je Person (Admin) und für sich (Person), wie der Ticket-Vorschlag. In der Oberfläche trägt jede Funktion ihre Mindeststufe („braucht Client“); ohne passenden Client wird sie nicht versteckt, sondern mit Hinweis markiert. Im Server-Code gibt es keine SSH-/Meeting-Erkennung.
 
 ## 10. Offene API und Plugins
-Offene REST-API mit persönlichem Token (`zpdev_…`, Art `api`): Status **gebaut** (siehe `REST-API.md`). Module/Plugins einzeln abschaltbar weiter Konzept. Admin-Funktionen sind nie über Token erreichbar (Festlegung).
+Offene API für **Abrechnungsprogramme**: Integrations-Token `zpint_…` (Admin), Scope `payroll` – Status **gebaut** (`REST-API.md`). Nicht für Mitarbeiter-Clients. Kunden-Export und „exportiert“-Sperre offen. Module/Plugins weiter Konzept.
 
 ## 11. Sicherheit und ISO 27001
 Gebaut und zweimal bzw. dreimal von Opus geprüft: Sitzungen (gehasht), CSRF (Origin/Fetch-Metadata), Host-Prüfung, Rate-Limits, Login-Sperren ohne Benutzer-Aufzählung, Secrets mit AAD, Audit mit Hash-Kette und Schutz-Trigger, Notfallzugang nur Betrieb, Pflichtprüfungen in Produktion (Schlüssel ≥32 Zeichen, kein `none`). Doku: `docs/Sicherheit-Server-ISO27001.md`.

@@ -14,9 +14,8 @@ import (
 	"time"
 )
 
-/* Geräte-/API-Token (Mac, Add-on, curl, REST) + Annahme-Schnittstelle für Client-Hinweise.
-   Klartext nur einmal bei Erstellung; in der DB nur HMAC mit ZP_SECRET_KEY.
-   Nie für Admin. REST: Authorization: Bearer zpdev_… auf allen a.auth()-Routen (außer /api/admin/*). */
+/* Geräte-Token (Mac, Add-on, curl) + Annahme-Schnittstelle für Client-Hinweise.
+   Klartext nur einmal; DB nur HMAC. Nie Admin. Abrechnung: eigene Integrations-Token (integrations.go). */
 
 const deviceTokenPrefix = "zpdev_"
 const deviceTokenHMACPrefix = "v1:" // Kennzeichnung gepfefferter Hashes (Migration von reinem SHA-256)
@@ -72,7 +71,7 @@ func (a *App) devicesCreate(w http.ResponseWriter, r *http.Request, u User) {
 		kind = "mac"
 	}
 	switch kind {
-	case "mac", "addon", "minimal", "api", "other":
+	case "mac", "addon", "minimal", "api", "other": // api = Altbestand; Abrechnung nutzt zpint_…
 	default:
 		badRequest(w, "kind: mac, addon, minimal, api oder other")
 		return
@@ -98,12 +97,7 @@ func (a *App) devicesCreate(w http.ResponseWriter, r *http.Request, u User) {
 	a.audit(ctx, u.ID, "device.create", fmt.Sprintf("#%d %s (%s)", id, label, kind))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id": id, "label": label, "kind": kind, "token": raw,
-		"hint": "Token nur einmal sichtbar. REST: Authorization: Bearer <token>. Nie für /api/admin. Server speichert nur Hash.",
-		"usage": map[string]string{
-			"header":  "Authorization: Bearer <token>",
-			"alt":     "X-ZP-Device-Token: <token>",
-			"example": "curl -sH 'Authorization: Bearer zpdev_…' https://zeit.example/api/me",
-		},
+		"hint": "Token nur einmal sichtbar – für Client/Add-on. Abrechnung: /admin › Abrechnung-API. Server speichert nur Hash.",
 	})
 }
 
