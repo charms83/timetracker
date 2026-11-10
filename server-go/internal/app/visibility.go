@@ -75,7 +75,8 @@ func (a *App) asTarget(h func(http.ResponseWriter, *http.Request, User)) func(ht
 			return
 		}
 		t := User{ID: id, Role: "user", Kind: "viewed"}
-		if err := a.DB.QueryRow(r.Context(), `SELECT email, name FROM users WHERE id=$1 AND role<>'breakglass'`, id).Scan(&t.Email, &t.Name); err != nil {
+		// Keine Zeitdaten-Ansicht für Admin-/Notfallkonten (auch nicht „leer“)
+		if err := a.DB.QueryRow(r.Context(), `SELECT email, name FROM users WHERE id=$1 AND role<>'breakglass' AND role<>'admin'`, id).Scan(&t.Email, &t.Name); err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": "nicht gefunden"})
 			return
 		}

@@ -111,7 +111,7 @@ Eine Anmeldung, aber getrennte Oberflächen – jede Person sieht nur, was zu ih
 | **Administration** | technischer Admin (getrenntes Konto) | Konten, Teams, Einstellungen, Jira-Instanzen, Plane-Workspaces, LDAP/OIDC, Logs, Selbsttest, Notfallzugang – **keine Zeiten** | `/admin` | gebaut; Abnahme offen |
 | **Mitarbeiter** | alle, die Zeiten erfassen | Zeitprotokoll wie lokal: Heute, Woche, To-dos, Kalender, Abwesenheiten, Auswertung, Übertragen, persönliche Einstellungen, Monat einreichen, Urlaubsantrag | `/` (Servermodus) | gebaut; Abnahme offen |
 | **Teamleiter** | Leitung eines Teams (`is_lead`) | Team-Übersicht, Personen-Detail, Nachtragen, Urlaub genehmigen – **kein** Monats-Freigeben (nur Personal) | `/` › `#team` | gebaut; Abnahme offen |
-| **Personal** | Personal/GL (`is_hr`) | alle Personen, freigeben/ablehnen/wiedereröffnen, Nachtragen, Urlaub-Vertretung | `/` › `#personal` | gebaut; Exporte Lohn/Kunden **offen**; Abnahme offen |
+| **Personal** | Personal/GL (`is_hr`) | alle Personen, freigeben/ablehnen/wiedereröffnen, Nachtragen, Urlaub-Vertretung, CSV-Auswertung/Protokoll | `/` › `#personal` | gebaut; Lohn-/Kunden-Export mit Sperre **offen**; Abnahme offen |
 Fachrollen sind kombinierbar (Nav zeigt Zusatzbereiche). Technischer Admin = kein Mischkonto, nur `/admin`. Admin-Dinge stehen nie in der Mitarbeiter-Oberfläche.
 
 ### Oberfläche

@@ -77,6 +77,10 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - **Bugbot** (Branch-Review): behoben – LDAP-Rollenwechsel beendet Sitzungen immer; Urlaub `days` nur serverseitig; Ablehnen-Prompt Abbrechen; Mobile-Nav = Desktop-Filter; `loadMe` leitet nach Admin um.
 - Spez-Statuszeilen (Oberfläche, LDAP-Webmaske, Team/Personal, SMTP) nachgezogen.
 
+## Weiterbau (Auswertung Team/Personal, kein Lohn-Export)
+- CSV der Monatsübersicht (Team + Personal) und Buchungen je Person – Auswertung, **ohne** „exportiert“-Sperre (Spez §16.7 weiter offen).
+- Personen-Detail: Buchungsprotokoll via `GET /api/audit?user=` (asTarget); Admin-Konten nicht per `?user=` einsehbar.
+
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik, SMTP); gefundene Fehler beheben.
 2. Exchange-OAuth/Graph und mehrere Mail-Konten.

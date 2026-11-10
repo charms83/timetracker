@@ -4,9 +4,9 @@
    Abgefragt wird nur beim Öffnen, bei Filter-/Monatswechsel und über „Aktualisieren“.
 ═══════════════════════════════════════════════════════════════════ */
 import { useState, useEffect, useCallback } from "react";
-import { UserCog, Check, X, RotateCcw, Search } from "lucide-react";
+import { UserCog, Check, X, RotateCcw, Search, Download } from "lucide-react";
 import { call, Box, inpS, btn, useServerMode } from "./zp-ui.jsx";
-import { MonthNav, RefreshBtn, PeopleTable, PersonDetail, ReasonDialog, Empty, Err, STATUS, prevMonth, monthLabel, friendly, when } from "./zp-people.jsx";
+import { MonthNav, RefreshBtn, PeopleTable, PersonDetail, ReasonDialog, Empty, Err, STATUS, prevMonth, monthLabel, friendly, when, peopleOverviewCsv } from "./zp-people.jsx";
 import { LeavePendingPanel } from "./zp-leave.jsx";
 
 const LIMIT = 50;
@@ -113,8 +113,10 @@ export default function PersonalView() {
 
       <div style={{ margin: "12px 0" }}><LeavePendingPanel /></div>
 
-      <Box title="Alle Personen" sub="Monatsübersicht mit Status, Salden und Hinweisen; Klick auf eine Zeile öffnet die Details."
-        right={<MonthNav month={month} onChange={filt(setMonth)} />}>
+      <Box title="Alle Personen" sub="Monatsübersicht mit Status, Salden und Hinweisen; Klick auf eine Zeile öffnet die Details. CSV = aktuelle Auswahl (kein Lohn-Export)."
+        right={<div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button style={sBtn} disabled={!people?.length} onClick={() => peopleOverviewCsv(people, month, "personal")} title="Übersicht als CSV"><Download size={13} /> CSV</button>
+          <MonthNav month={month} onChange={filt(setMonth)} /></div>}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
           <select style={{ ...inpS, width: "auto" }} value={team} onChange={e => filt(setTeam)(e.target.value)} aria-label="Team">
             <option value="">Alle Teams</option><option value="none">Ohne Team</option>{teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>

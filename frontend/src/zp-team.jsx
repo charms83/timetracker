@@ -3,9 +3,9 @@
    Personen-Detail. Teamleitung gibt NICHT frei (nur Personal) – nur lesend.
 ═══════════════════════════════════════════════════════════════════ */
 import { useState, useEffect, useCallback } from "react";
-import { Users, ShieldCheck } from "lucide-react";
-import { call, Box, inpS, useServerMode } from "./zp-ui.jsx";
-import { MonthNav, RefreshBtn, PeopleTable, PersonDetail, Note, Empty, Err, prevMonth, friendly } from "./zp-people.jsx";
+import { Users, ShieldCheck, Download } from "lucide-react";
+import { call, Box, inpS, btn, useServerMode } from "./zp-ui.jsx";
+import { MonthNav, RefreshBtn, PeopleTable, PersonDetail, Note, Empty, Err, prevMonth, friendly, peopleOverviewCsv } from "./zp-people.jsx";
 import { LeavePendingPanel } from "./zp-leave.jsx";
 
 export default function TeamView() {
@@ -45,10 +45,11 @@ export default function TeamView() {
       </div>
       <Note icon={<ShieldCheck size={15} />}>Freigabe durch Personal – Teamleitung sieht Monate, Salden und Buchungen, gibt aber nicht frei. Urlaubsanträge entscheidet die Teamleitung (unten).</Note>
       <div style={{ marginBottom: 12 }}><LeavePendingPanel /></div>
-      <Box title="Teammitglieder" sub="Soll bis heute, Ist, Saldo und Konto aus der Zeiterfassung der Personen; Klick auf eine Zeile öffnet die Details."
+      <Box title="Teammitglieder" sub="Soll bis heute, Ist, Saldo und Konto; Klick öffnet Details. CSV = aktuelle Übersicht (kein Lohn-Export)."
         right={<div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {teams.length > 1 && <select style={{ ...inpS, width: "auto" }} value={team} onChange={e => setTeam(e.target.value)} aria-label="Team filtern">
             <option value="">Alle Teams</option>{teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>}
+          <button style={{ ...btn(false), padding: "4px 10px", fontSize: 12 }} disabled={!people?.length} onClick={() => peopleOverviewCsv(people, month, "team")} title="Übersicht als CSV"><Download size={13} /> CSV</button>
           <MonthNav month={month} onChange={setMonth} /><RefreshBtn onClick={refresh} busy={busy} /></div>}>
         {noTeam ? <Empty>Dir ist noch kein Team zugeordnet.</Empty>
           : !data ? <div style={{ color: "var(--text3)", fontSize: 12 }}>Lade…</div>
