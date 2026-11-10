@@ -8,4 +8,7 @@ contextBridge.exposeInMainWorld("zp", {
   onReminder: cb => ipcRenderer.on("reminder", (_, r) => cb(r)),
   onRefresh:  cb => ipcRenderer.on("refresh", () => cb()),
   browserTickets: () => ipcRenderer.invoke("browser:tickets"),
+  // Team-Server: API über Main (Session-Cookie); lokal: Mini ruft 127.0.0.1 selbst
+  api: (method, path, body) => ipcRenderer.invoke("api:call", { method, path, body }),
+  cfg: () => ipcRenderer.invoke("cfg:get"),
 });

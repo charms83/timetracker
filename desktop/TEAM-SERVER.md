@@ -43,8 +43,12 @@ Zurück zum Einzelplatz: `"mode": "local"`.
 - Sitzung: `__Host-zp_session` + HMAC in der DB
 - HSTS aktiv
 
+## Mini / Tray (Stand)
+
+- Schnellfenster (Mini) spricht den Team-Server über die Electron-Session an (gleiche Login-Sitzung wie das Hauptfenster) – kein extra Geräte-Token.
+- Tray zeigt Modus/Server-Host und öffnet Einstellungen.
+
 ## Noch offen
 
-- Tray-UI für die Server-URL
-- Timer im Mini-Fenster über dieselbe Session
 - Add-on auf Server-URL
+- Server-URL im Tray editieren (heute nur Anzeige + Einstellungen öffnen)

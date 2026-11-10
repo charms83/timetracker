@@ -2195,7 +2195,10 @@ function EinstellungenView() {
   const [sub,     setSub]     = useState(() => OLD[h1] ? h1 : (location.hash.split("/")[2] || ""));
   const connRaw = ["plane","jira","tempo","tempocsvimport"].includes(sub) ? sub : "jira";
   const conn = !sm ? connRaw : jiraMod===false ? "plane" : connRaw==="tempocsvimport" ? "jira" : connRaw;
-  const wt = sm ? "system" : (["audit","server","system","integrity","update","logs"].includes(sub) ? sub : "server");
+  // Servermodus: User prüft eigene Daten selbst (Überschneidungen); Technik bleibt /admin. Assistent nicht vermischen.
+  const wt = sm
+    ? (["integrity", "system"].includes(sub) ? sub : "system")
+    : (["audit", "server", "system", "integrity", "update", "logs"].includes(sub) ? sub : "server");
   const [settings,setSettings]= useState(null);
   const [local,   setLocal]   = useState({});
   const [saved,   setSaved]   = useState(false);
@@ -2266,6 +2269,8 @@ function EinstellungenView() {
         {pill(conn!=="plane","Jira & Tempo",()=>go("verbindungen","jira"))}{pill(conn==="plane","Plane",()=>go("verbindungen","plane"))}</div>}
       {tab==="wartung" && !sm && <div style={{display:"flex",gap:4,margin:"-6px 0 12px",borderBottom:"1px solid var(--line)",flexWrap:"wrap"}}>
         {[["server","Server & Sicherung"],["audit","Änderungsprotokoll"],["integrity","Datenkonsistenz"],["update","Update"],["logs","System-Log"],["system","Allgemein"]].map(([k,l])=>pill(wt===k,l,()=>go("wartung",k)))}</div>}
+      {tab==="wartung" && sm && <div style={{display:"flex",gap:4,margin:"-6px 0 12px",borderBottom:"1px solid var(--line)",flexWrap:"wrap"}}>
+        {[["integrity","Daten prüfen"],["system","Allgemein"]].map(([k,l])=>pill(wt===k,l,()=>go("wartung",k)))}</div>}
 
       {tab==="verbindungen" && conn==="plane" && <PlaneSettingsTab/>}
       {tab==="verbindungen" && conn!=="plane" && <JiraTempoSettings initial={conn==="tempo"?"tempo":conn==="tempocsvimport"?"csv":"jira"}/>}
@@ -2337,8 +2342,8 @@ function EinstellungenView() {
       {/* ── Tempo CSV Import ── */}
 
 
-      {/* ── Datenkonsistenz ── */}
-      {tab==="wartung" && !sm && wt==="integrity" && <IntegrityTab/>}
+      {/* ── Daten prüfen (eigene Buchungen; Servermodus + lokal) ── */}
+      {tab==="wartung" && wt==="integrity" && <IntegrityTab/>}
 
 
       {/* ── System Log ── */}
@@ -2476,6 +2481,10 @@ function IntegrityTab() {
 
   return (
     <div>
+      <p style={{fontSize:12.5,color:"var(--text2)",margin:"0 0 12px",lineHeight:1.45}}>
+        Prüft <b>deine</b> Buchungen (Überschneidungen, fehlendes Ende, …). Nicht die Admin-Selbsttests.
+        Offene Überschneidungen siehst und löst du auch direkt unter Heute („Doppelt gebucht?“).
+      </p>
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
         <Btn onClick={check} disabled={loading}><RotateCcw size={14}/> {loading?"Prüfe…":"Konsistenz prüfen"}</Btn>
         {data&&<span style={{color:"var(--text3)",fontSize:11}}>Geprüft: {new Date(data.checkedAt).toLocaleTimeString("de-DE")}</span>}
@@ -2504,7 +2513,7 @@ function IntegrityTab() {
                 <span style={{color:"var(--text3)",fontSize:10,marginRight:8}}>{TYPE_LABEL[issue.type]||issue.type}</span>
                 <span style={{color:"var(--text)",fontSize:12}}>{issue.message}</span>
               </div>
-              {issue.type==="overlap"&&<a href="#assistent" style={{fontSize:11,color:"var(--accent)",flexShrink:0}}>lösen ›</a>}
+              {issue.type==="overlap"&&<a href="#" style={{fontSize:11,color:"var(--accent)",flexShrink:0}} title="Unter Heute: Doppelt gebucht?">Heute ›</a>}
               <span style={{color:"var(--text3)",fontSize:11,flexShrink:0}}>{issue.date}</span>
             </div>
           ))}

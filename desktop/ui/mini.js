@@ -1,12 +1,21 @@
 "use strict";
-/* Zeitprotokoll – Schnellfenster */
+/* Zeitprotokoll – Schnellfenster (lokal Node :3747 oder Team-Server über Main/Session) */
 window.addEventListener("error", e => console.error("JS-Fehler:", e.message, e.filename + ":" + e.lineno));
-const API = "http://127.0.0.1:3747/api";
+const LOCAL_API = "http://127.0.0.1:3747/api";
 const $ = id => document.getElementById(id);
 const bridge = window.zp || { quit(){}, hide(){}, openMain(){ window.open("http://127.0.0.1:3747/"); }, changed(){}, onReminder(){}, onRefresh(){} };
 
-const api = (m, p, b) => fetch(API + p, { method: m, headers: { "Content-Type": "application/json" }, body: b ? JSON.stringify(b) : undefined })
-  .then(async r => { const j = await r.json().catch(() => null); return r.ok ? j : (j && j.error ? { error: j.error } : null); }).catch(() => null);
+const api = async (m, p, b) => {
+  // Team-Modus: Main sendet mit Session-Cookie (kein CORS/Origin-Problem)
+  if (typeof bridge.api === "function") {
+    try {
+      const j = await bridge.api(m, p, b);
+      return j && j.error && Object.keys(j).length === 1 ? j : j;
+    } catch (_) { return null; }
+  }
+  return fetch(LOCAL_API + p, { method: m, headers: { "Content-Type": "application/json" }, body: b ? JSON.stringify(b) : undefined })
+    .then(async r => { const j = await r.json().catch(() => null); return r.ok ? j : (j && j.error ? { error: j.error } : null); }).catch(() => null);
+};
 
 // ── Helfer ──────────────────────────────────────────────────────
 const pad = n => String(n).padStart(2, "0");
@@ -68,7 +77,7 @@ async function load() {
 // ── Darstellung ─────────────────────────────────────────────────
 function renderOffline() {
   $("app").style.display = "none";
-  $("list").innerHTML = `<div class="offline"><b>Server nicht erreichbar.</b><br>Das Programm versucht ihn zu starten …<br><br><button class="chip" onclick="load()">Erneut versuchen</button></div>`;
+  $("list").innerHTML = `<div class="offline"><b>Server nicht erreichbar.</b><br>Team-Modus: zuerst im Hauptfenster anmelden.<br>Lokal: der Dienst startet automatisch …<br><br><button class="chip" onclick="load()">Erneut versuchen</button></div>`;
   $("bPause").disabled = $("bStop").disabled = true;
 }
 
@@ -83,19 +92,21 @@ function render() {
   now.className = "now" + (t.active ? " running" : pz.active ? " paused" : "");
   if (t.active) {
     now.style.setProperty("--bar", color(t.project?.id));
-    now.innerHTML = `<div class="info"><div class="p">${t.task ? esc(tLabel(t.task.jira_ticket, t.task.title)) + (t.project ? ` <span class="tag" style="--c:${color(t.project?.id)}">${esc(t.project.name)}</span>` : "") : esc(t.project?.name || "Ohne Projekt")}</div>
-      <div class="s">${esc([t.activity, t.comment || "läuft seit " + hm(t.start_time)].filter(Boolean).join(" · "))}</div></div><div class="clock" id="clock"></div>`;
+    const bare = !t.task && !t.project;
+    now.innerHTML = `<div class="info"><div class="p">${t.task ? esc(tLabel(t.task.jira_ticket, t.task.title)) + (t.project ? ` <span class="tag" style="--c:${color(t.project?.id)}">${esc(t.project.name)}</span>` : "") : esc(t.project?.name || "Ohne Ticket")}</div>
+      <div class="s">${esc([t.activity, t.comment, bare ? "Ticket später" : null, "seit " + hm(t.start_time)].filter(Boolean).join(" · "))}</div></div><div class="clock" id="clock"></div>`;
   } else if (pz.active) {
     now.innerHTML = `<div class="info"><div class="p">Pause</div><div class="s">seit ${hm(pz.start_time)}</div></div><div class="clock" id="clock"></div>`;
   } else {
-    now.innerHTML = `<div class="info"><div class="p" style="color:var(--text2)">Kein Timer aktiv</div><div class="s">Work-Item wählen und Start drücken</div></div>`;
+    now.innerHTML = `<div class="info"><div class="p" style="color:var(--text2)">Kein Timer aktiv</div><div class="s">Start – mit oder ohne Ticket</div></div>`;
   }
   tick();
 
   // Projekt-Auswahl
-  const opts = `<option value="">Projekt wählen …</option>` + S.projects.map(p => `<option value="${p.id}">${esc(projLabel(p))}</option>`).join("") + `<option value="__new__">+ Neues Projekt …</option>`;
+  const opts = `<option value="">– ohne Projekt –</option>` + S.projects.map(p => `<option value="${p.id}">${esc(projLabel(p))}</option>`).join("") + `<option value="__new__">+ Neues Projekt …</option>`;
   for (const id of ["qProject", "mProject"]) { const el = $(id), v = el.value; el.innerHTML = opts; el.value = v; }
-  if (!$("qProject").value) $("qProject").value = store.get("lastProject", "") || "";
+  // lastProject nur vorschlagen, nicht erzwingen – leer = Start ohne Ticket bleibt möglich
+  if (!$("qProject").value && store.get("lastProject", "")) $("qProject").value = store.get("lastProject", "");
   updateTicketList($("qProject").value);
 
   // Chips
@@ -266,13 +277,14 @@ async function loadActivities() {
 // ── Aktionen ────────────────────────────────────────────────────
 async function startWith({ project_id, task_id, ticket, comment, activity, start_time }) {
   if (activity === undefined) activity = $("qActivity").value || null;
-  if (!project_id) { $("qProject").focus(); return; }
-  if (!task_id && ticket) task_id = await resolveTask(project_id, ticket);
+  // Projekt/Ticket optional (wie Web/Server): Timer läuft auch ohne, Zuweisung später
+  project_id = project_id || ($("qProject") && $("qProject").value ? +$("qProject").value : null) || null;
+  if (!task_id && ticket && project_id) task_id = await resolveTask(project_id, ticket);
   if (S.pause.active) await api("POST", "/pause/stop");
-  const r = await api("POST", "/timer/start", { project_id, task_id: task_id || null, comment: comment || null, activity: activity || null, start_time: start_time || undefined });
-  if (!r || r.error) { alert(r?.error || "Start fehlgeschlagen – läuft der Zeitprotokoll-Server?"); return; }
+  const r = await api("POST", "/timer/start", { project_id: project_id || null, task_id: task_id || null, comment: comment || null, activity: activity || null, start_time: start_time || undefined });
+  if (!r || r.error) { alert(r?.error || "Start fehlgeschlagen – anmelden am Team-Server bzw. lokaler Dienst?"); return; }
   store.set("lastActivity", activity || "");
-  store.set("lastProject", String(project_id));
+  if (project_id) store.set("lastProject", String(project_id));
   $("qTicket").value = ""; $("qComment").value = "";
   hideReminder(); bridge.changed(); await load();
 }

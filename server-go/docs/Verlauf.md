@@ -96,7 +96,8 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - Server-Update: Version per ldflags; `GET /api/admin/update` + Admin-Tab; `install.sh --upgrade` mit Backup; CLI `version`; Doku `Betrieb-Update.md` (kein In-App-Upload).
 - Abrechnungs-API: Integrations-Token `zpint_…` (Admin, Migration 028), `GET /api/integrations/projects` (+ entries) für Stunden auf Projekten/Tickets, plus Lohn (`/payroll`); Geräte-Token wieder nur Client-Hinweise; Doku/UI korrigiert.
 - Tracken ohne Ticket: Timer ohne Projekt/Ticket starten, später zuweisen (`POST /api/timer/assign`); Dauerbuchung wie Tempo (nur Stunden) → Server legt Uhrzeit in freie Lücke (`time_precise=false`).
-- Offen bleibt: „exportiert“-Sperre/Formate; Tray-UI; echte Systemtests.
+- User „Daten prüfen“ auch im Servermodus (Einstellungen › Allgemein); Überschneidungen bleiben unter Heute – Assistent nicht vermischt. Mini/Tray: Team-Server-Session für Timer.
+- Offen bleibt: „exportiert“-Sperre/Formate; Add-on Server-URL; echte Systemtests.
 
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik, SMTP); gefundene Fehler beheben.

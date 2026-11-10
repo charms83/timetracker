@@ -387,13 +387,18 @@ async function refreshStatus() {
   const t = status.timer;
   const label = t.active ? `${t.project?.name || "–"}${t.task ? " · " + (t.task.jira_ticket || t.task.title) : ""}` : (status.pause.active ? "Pause läuft" : "Kein Timer aktiv");
   tray.setToolTip("Zeitprotokoll – " + label);
+  const teamLabel = isTeamMode()
+    ? (`Team-Server · ${(cfg.serverUrl || "").replace(/^https?:\/\//, "").replace(/\/$/, "") || "–"}`)
+    : "Einzelplatz (lokal)";
   tray.setContextMenu(Menu.buildFromTemplate([
     { label, enabled: false },
+    { label: teamLabel, enabled: false },
     { type: "separator" },
     { label: "Schnellfenster zeigen", accelerator: "CommandOrControl+Alt+Z", click: () => setExpanded(true, pendingReason) },
     { label: cfg.mainInBrowser ? "Zeitprotokoll im Browser öffnen" : "Hauptfenster öffnen", click: () => createMain() },
     ...(cfg.mainInBrowser ? [] : [{ label: "Im Browser öffnen", click: () => shell.openExternal(baseUrls().web) }]),
     { label: "Stundenzettel (Woche/Monat)", click: () => createMain("stundenzettel") },
+    { label: "Einstellungen (Verbindungen)", click: () => createMain("einstellungen") },
     { label: "Browser-Add-ons einrichten …", click: async () => { const r = await installAllAddons(); if (!r.length) new Notification({ title: "Zeitprotokoll", body: "Alle Browser sind schon verbunden (Safari erkennt der Tracker selbst)." }).show(); } },
     { type: "separator" },
     ...(t.active ? [
@@ -624,6 +629,11 @@ ipcMain.on("mini:hide", () => setExpanded(false));
 ipcMain.on("mini:quit", () => { quitting = true; app.quit(); });
 ipcMain.on("mini:openMain", (_e, view) => createMain(view));
 ipcMain.on("mini:changed", () => refreshStatus());
+// Mini/Tray: gleiche API wie Main (Team = Session-Cookie, lokal = Node :3747)
+ipcMain.handle("api:call", async (_e, { method, path, body }) => {
+  if (!method || typeof path !== "string" || !path.startsWith("/")) return { error: "ungültiger API-Aufruf" };
+  return api(String(method).toUpperCase(), path, body);
+});
 ipcMain.handle("cfg:get", async () => {
   const c = { ...cfg };
   delete c.deviceToken;
