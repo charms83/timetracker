@@ -16,11 +16,9 @@ import (
    Verhalten wie backend/server.js; je Benutzer getrennt. Das Arbeitstag-Konzept (work_days) entfällt,
    Pausen hängen daher nie an einem Arbeitstag. */
 
-const serverVersion = "go-0.1"
-
 func (a *App) routesTagwerk(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "version": serverVersion})
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "version": ServerVersion()})
 	})
 	mux.HandleFunc("GET /api/plan/tasks", a.auth(a.planList))
 	mux.HandleFunc("GET /api/plan/today", a.auth(a.planToday))

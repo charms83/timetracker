@@ -94,6 +94,10 @@
     <div id="hr-list"></div>
   </section>
 
+  <section id="t-update" class="hidden">
+    <div id="update-body"></div>
+  </section>
+
   <section id="t-config" class="hidden">
     <h3>Plane-Workspaces</h3>
     <p class="mut"><b>Kein Plane-Token für die Administration.</b> Du trägst nur ein, was die Organisation nutzt: Anzeigename, Plane-Adresse und Workspace-Kennung aus der Browser-URL (z.&nbsp;B. <code>https://plane.example.com/example/…</code> → Kennung <code>example</code>) – analog zu Jira-Instanzen. Jede Person trägt danach ihren persönlichen API-Schlüssel selbst ein und schaltet die Workspaces für sich ein. Schlüssel gelten je Plane-Adresse (gleicher Host = geteilt). Primär-Workspace (erste eingeschaltete Zeile) steuert Tempo-Links. Die Spalte „Schlüssel“ zählt nur, wie viele Personen schon einen Schlüssel für diesen Eintrag haben – du siehst und brauchst keine Tokens.</p>
@@ -167,7 +171,7 @@
 </main>
 <script>
 const $ = id => document.getElementById(id);
-const TABS = [['status','Status'],['check','Selbsttest'],['logs','Logs'],['users','Benutzer'],['teams','Teams'],['config','Einstellungen']];
+const TABS = [['status','Status'],['update','Update'],['check','Selbsttest'],['logs','Logs'],['users','Benutzer'],['teams','Teams'],['config','Einstellungen']];
 let cur = 'status', liveTimer = null, lastId = 0;
 
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -192,6 +196,7 @@ async function show(k) {
   clearInterval(liveTimer); liveTimer = null;
   try {
     if (k === 'status') await loadStatus();
+    if (k === 'update') await loadUpdate();
     if (k === 'check') await runCheck(false, true);
     if (k === 'logs') { lastId = 0; await loadLogs(true); }
     if (k === 'users') await loadUsers();
@@ -204,8 +209,9 @@ async function loadStatus() {
   const s = await api('GET', '/admin/status');
   const c = s.counts, d = s.database, su = s.setup;
   const card = (t, v, sub) => `<div class="card"><span class="mut">${t}</span><b>${esc(v)}</b><span class="mut">${esc(sub||'')}</span></div>`;
+  const verSub = [s.commit, s.built, s.go].filter(Boolean).join(' · ');
   $('t-status').innerHTML = `<div class="grid">
-    ${card('Version', s.version, s.go)}
+    ${card('Version', s.version, verSub)}
     ${card('Laufzeit', fmtUp(s.uptime_seconds), 'seit ' + s.started)}
     ${card('Datenbank', d.ok ? 'in Ordnung' : 'FEHLER', d.migrations.length + ' Migrationen')}
     ${card('Anmeldung', su.auth_mode || 'nicht eingerichtet', su.done ? 'eingerichtet' : 'Einrichtung offen')}
@@ -213,7 +219,30 @@ async function loadStatus() {
     ${card('Benutzer', c.users, c.users_disabled + ' gesperrt')}
     ${card('Zeiteinträge', c.time_entries, c.projects + ' Projekte')}
     ${card('Fehler / Warnungen (24 h)', c.errors_24h + ' / ' + c.warnings_24h, 'Plane-Löschungen offen: ' + c.plane_pending_deletions)}
-  </div>`;
+  </div>
+  <p class="mut" style="margin-top:12px">Programm aktualisieren: Tab <b>Update</b> (Installer / Image – kein Datei-Upload).</p>`;
+}
+
+async function loadUpdate() {
+  const u = await api('GET', '/admin/update');
+  const steps = (arr) => `<ol>${(arr||[]).map(s => `<li>${esc(s)}</li>`).join('')}</ol>`;
+  $('update-body').innerHTML = `
+    <div class="grid" style="margin-bottom:14px">
+      <div class="card"><span class="mut">Laufende Version</span><b>${esc(u.version)}</b><span class="mut">${esc([u.commit,u.built].filter(Boolean).join(' · '))}</span></div>
+      <div class="card"><span class="mut">Migrationen</span><b>${esc(u.migrations)}</b><span class="mut">letzte: ${esc(u.last_migration||'–')}</span></div>
+      <div class="card"><span class="mut">In-App-Upload</span><b>nein</b><span class="mut">bewusst – Sicherheit</span></div>
+    </div>
+    <p class="notice">${esc(u.hint||'')}</p>
+    <div class="card" style="margin-bottom:12px">
+      <b style="font-size:14px">${esc(u.linux.title)}</b>
+      ${steps(u.linux.steps)}
+      <p>Befehl: <code>${esc(u.linux.command)}</code></p>
+    </div>
+    <div class="card">
+      <b style="font-size:14px">${esc(u.openshift.title)}</b>
+      ${steps(u.openshift.steps)}
+    </div>
+    <p class="mut" style="margin-top:12px">Nach dem Update: Tab Selbsttest → „Neu prüfen“. CLI: <code>zeitprotokoll-server version</code> / <code>status</code>.</p>`;
 }
 
 async function runCheck(fix, cached) {

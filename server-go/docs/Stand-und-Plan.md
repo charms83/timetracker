@@ -15,7 +15,7 @@ Anmeldung: lokale Konten (Einzelbetrieb), Notfallzugang (nur Betrieb, nie Zeiten
 
 ## Schnellstart und Auslieferung
 - **Testen auf dem Mac:** `scripts/dev.sh` (Postgres per Homebrew, eigene Datenbank `zeitprotokoll_dev`, Schlüssel in `~/.zeitprotokoll-dev-key`, Port 8090); Befehle gegen dieselbe Datenbank: `scripts/dev.sh status|check|user …|team …|ldap …|oidc …`. Oberfläche bauen: `scripts/build-web.sh` (nach `server-go/web`, berührt `frontend/dist` des lokalen Trackers nicht). Erste Einrichtung unter `/setup` (Token steht im Log), Anmeldung `/login`; Administrator landet in `/admin`, Mitarbeiter in der Oberfläche `/`.
-- **Linux (systemd):** `scripts/package.sh` baut `dist/zeitprotokoll-server-<version>.tar.gz` (amd64/arm64, mit Oberfläche); darin `install.sh` (Erstinstallation, `--upgrade`, `--uninstall [--purge]`), Dienstdatei mit Härtung, Konfigurationsvorlage. Nur syntaktisch geprüft, nicht auf einem Linux-Rechner gelaufen.
+- **Linux (systemd):** `scripts/package.sh` baut `dist/zeitprotokoll-server-<version>.tar.gz` (amd64/arm64, Version per ldflags, mit Oberfläche); darin `install.sh` (Erstinstallation, `--upgrade` mit Binary-Backup, `--uninstall [--purge]`). Admin-Tab **Update** + `docs/Betrieb-Update.md`. Noch nicht auf einem Linux-Rechner gelaufen.
 - **OpenShift:** `Containerfile`, `deploy/openshift/` (Deployment, Route, Netzwerkregeln …). Nicht gebaut/angewendet.
 - **Bereinigter Export für GitLab:** `export-sanitized.sh` im Projektwurzelordner (enthält die echten Namen, nicht im Export); der Stand im GitLab-Projekt ist eine Momentaufnahme vom 10.11. und muss nach größeren Änderungen neu erzeugt werden.
 

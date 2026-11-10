@@ -49,6 +49,7 @@ func (a *App) routesAdmin(mux *http.ServeMux) {
 		_, _ = w.Write(adminHTML)
 	})
 	mux.HandleFunc("GET /api/admin/status", a.adminOnly(a.adminStatus))
+	mux.HandleFunc("GET /api/admin/update", a.adminOnly(a.adminUpdateInfo))
 	mux.HandleFunc("GET /api/admin/selfcheck", a.adminOnly(a.adminSelfcheck))
 	mux.HandleFunc("POST /api/admin/selfcheck", a.adminOnly(a.adminSelfcheck))
 	mux.HandleFunc("GET /api/admin/logs", a.adminOnly(a.adminLogs))
@@ -82,7 +83,8 @@ func (a *App) adminStatus(w http.ResponseWriter, r *http.Request, u User) {
 	since := time.Now().Add(-24 * time.Hour).UTC().Format(isoMillis)
 	_, planeOK := a.primaryPlaneWorkspace(ctx)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"version": serverVersion, "go": runtime.Version(), "started": a.Started.UTC().Format(time.RFC3339),
+		"version": ServerVersion(), "commit": Commit, "built": Built, "go": runtime.Version(),
+		"started": a.Started.UTC().Format(time.RFC3339),
 		"uptime_seconds": int64(time.Since(a.Started).Seconds()), "timezone": a.Loc.String(),
 		"database": map[string]any{"ok": dbOK, "migrations": migs},
 		"setup": map[string]any{"done": a.conf(ctx, "setup_done") == "1", "auth_mode": a.conf(ctx, "auth_mode"),
@@ -94,6 +96,50 @@ func (a *App) adminStatus(w http.ResponseWriter, r *http.Request, u User) {
 			"errors_24h":              count(`SELECT COUNT(*) FROM system_logs WHERE level='error' AND timestamp >= $1`, since),
 			"warnings_24h":            count(`SELECT COUNT(*) FROM system_logs WHERE level='warn' AND timestamp >= $1`, since),
 		},
+	})
+}
+
+// adminUpdateInfo: wie man den Server aktualisiert (kein Upload – bewusst sicher).
+func (a *App) adminUpdateInfo(w http.ResponseWriter, r *http.Request, u User) {
+	ctx := r.Context()
+	var migs []string
+	if rows, err := a.DB.Query(ctx, `SELECT name FROM schema_migrations ORDER BY name`); err == nil {
+		for rows.Next() {
+			var n string
+			if rows.Scan(&n) == nil {
+				migs = append(migs, n)
+			}
+		}
+		rows.Close()
+	}
+	last := ""
+	if len(migs) > 0 {
+		last = migs[len(migs)-1]
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"version": ServerVersion(), "commit": Commit, "built": Built, "go": runtime.Version(),
+		"started": a.Started.UTC().Format(time.RFC3339),
+		"migrations": len(migs), "last_migration": last,
+		"in_app_upload": false, // kein .tar.gz-Upload – Binary nur über Installer/Image
+		"linux": map[string]any{
+			"title": "Linux (systemd)",
+			"steps": []string{
+				"Vorher: Datenbank sichern (pg_dump).",
+				"Paket bauen bzw. von der Ablage holen: zeitprotokoll-server-<version>.tar.gz (+ .sha256 prüfen).",
+				"Entpacken und als root: ./install.sh --upgrade",
+				"Prüfen: zeitprotokoll-server status   bzw. hier Selbsttest.",
+			},
+			"command": "./install.sh --upgrade",
+		},
+		"openshift": map[string]any{
+			"title": "OpenShift / Container",
+			"steps": []string{
+				"Neues Image bauen und in die Registry schieben.",
+				"Deployment-Image-Tag aktualisieren (Rollout).",
+				"Migrationen laufen beim Start; bei Fehler: „Datenbank neuer als Programm“ → passendes Image.",
+			},
+		},
+		"hint": "Es gibt kein In-App-Upload von Programmdateien (Sicherheit). Updates laufen über Installer oder Image.",
 	})
 }
 

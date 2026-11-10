@@ -25,6 +25,7 @@ Aufruf:  server [Befehl]
   oidc show|set|set-secret|link …    authentik/OIDC-Anmeldung einrichten (siehe: server oidc)
   ldap show|set|test|link …          LDAP/AD-Anmeldung einrichten (siehe: server ldap)
   status                             Zustand: Version, Datenbank, Anmeldung, Zähler
+  version                            Programmversion (ohne Datenbank)
   check [--fix] [--force]            Selbsttest; --fix zieht Migrationen nach und räumt auf,
                                      --force löscht außerdem nicht lesbare Zugangsdaten
   logs [-n 100] [--level warn|error|info] [--category plane] [-q Text] [-f]
@@ -52,6 +53,16 @@ Umgebung: DATABASE_URL (Pflicht), ZP_SECRET_KEY, ZP_TZ. Auf OpenShift:  oc exec 
 func runCLI(args []string) int {
 	if args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
 		fmt.Print(usage)
+		return 0
+	}
+	if args[0] == "version" || args[0] == "--version" || args[0] == "-V" {
+		fmt.Println(app.ServerVersion())
+		if app.Commit != "" {
+			fmt.Println("commit:", app.Commit)
+		}
+		if app.Built != "" {
+			fmt.Println("built:", app.Built)
+		}
 		return 0
 	}
 	cfg, err := config.Load()
@@ -167,6 +178,14 @@ func one(ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) strin
 }
 
 func cmdStatus(ctx context.Context, pool *pgxpool.Pool, cfg config.Config) int {
+	prog := app.ServerVersion()
+	if app.Commit != "" {
+		prog += " (" + app.Commit + ")"
+	}
+	fmt.Println("Programm:       ", prog)
+	if app.Built != "" {
+		fmt.Println("Gebaut:         ", app.Built)
+	}
 	fmt.Println("Datenbank:      ", strings.SplitN(one(ctx, pool, `SELECT version()`), " on ", 2)[0])
 	fmt.Println("Migrationen:    ", one(ctx, pool, `SELECT COUNT(*) FROM schema_migrations`), "angewendet,", len(db.MigrationNames()), "im Programm")
 	fmt.Println("Eingerichtet:   ", one(ctx, pool, `SELECT COALESCE((SELECT value FROM server_config WHERE key='setup_done'),'nein')`))

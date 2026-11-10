@@ -19,7 +19,7 @@ Besseres Tempo für Plane: ein zentraler Server (Go, PostgreSQL, OpenShift) füh
 | Mehrbenutzer | jede Abfrage filtert `user_id`; Zeiten als TEXT im Node-Format, Zeitzone `ZP_TZ` | fertig |
 | Oberfläche | Browser-first: React im Servermodus am Go-Server (`/`), Administration `/admin`, Anmeldung `/login`, Profil `/profile`; Team/Personal als Hash-Views `#team`/`#personal` | Rollen-Gates gebaut; Browser-Abnahme offen; Personal-Exporte offen |
 | Betrieb | Befehlszeile `server …`, Selbsttest beim Start und alle 6 h, Logs, Audit mit Hash-Kette | fertig |
-| Container/OpenShift/Linux | Containerfile, OpenShift-Manifeste, Linux-Paket mit systemd-Installer (`scripts/package.sh`), lokaler Test `scripts/dev.sh` | gebaut, noch nicht auf OpenShift/Linux gelaufen; DB-Rollen-Skript + `server rekey` da; `govulncheck` bei Releases |
+| Container/OpenShift/Linux | Containerfile, OpenShift-Manifeste, Linux-Paket (`package.sh` + `install.sh --upgrade`), Admin-Tab Update, `Betrieb-Update.md` | gebaut, noch nicht auf OpenShift/Linux gelaufen; kein In-App-Binary-Upload (bewusst) |
 | Konfiguration | Umgebung (`ZP_*`) plus `server_config` in der DB | fertig |
 
 ## 3. Anmeldung und Konten
