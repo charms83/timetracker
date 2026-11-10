@@ -1,4 +1,4 @@
-/* Geräte-Token für Mac-Client / Add-on (Servermodus). Klartext nur einmal nach dem Anlegen. */
+/* Geräte-Token optional (Add-on/curl). Mac-Client braucht normal nur Login-Sitzung auf dem Server. */
 import { useState, useEffect, useCallback } from "react";
 import { Smartphone, Plus, Trash2, Copy, Check } from "lucide-react";
 import { call, Box, lab, inpS, btn, useServerMode } from "./zp-ui.jsx";
@@ -40,7 +40,7 @@ export function DevicesPanel() {
   const revoked = Array.isArray(list) ? list.filter(d => d.revoked_at) : [];
 
   return (
-    <Box title="Geräte-Token" sub="Für Mac-Client und Add-on. Gehasht gespeichert, widerrufbar – nie für Administration.">
+    <Box title="Geräte-Token" sub="Optional für Add-on oder curl. Der Mac-Client meldet sich im Fenster an – Sitzung liegt auf dem Server. Token nur gehasht, widerrufbar, nie für Administration.">
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
         <div style={{ flex: "1 1 140px" }}><label style={lab}>Bezeichnung</label>
           <input style={inpS} value={label} onChange={e => setLabel(e.target.value)} placeholder="z. B. MacBook Dienst" /></div>
@@ -50,7 +50,7 @@ export function DevicesPanel() {
       </div>
       {fresh?.token && (
         <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 8, background: "var(--accent-soft)", border: "1px solid var(--line)", fontSize: 12.5 }}>
-          <b>Einmalig sichtbar:</b> im Mac-Client hinterlegen (System-Schlüsselbund) – der Server speichert nur einen Hash.
+          <b>Einmalig sichtbar:</b> nur für Add-on/Skripte. Mac-App: einfach anmelden, kein Token nötig. Server speichert nur einen Hash.
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
             <code style={{ flex: 1, wordBreak: "break-all", fontSize: 11 }}>{fresh.token}</code>
             <button style={btn(false)} onClick={copy}>{copied ? <Check size={13} /> : <Copy size={13} />} {copied ? "Kopiert" : "Kopieren"}</button>

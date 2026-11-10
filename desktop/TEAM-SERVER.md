@@ -4,7 +4,7 @@ Der Desktop-Client (`desktop/`) kann im Modus **team** mit dem Go-Server arbeite
 
 ## Einrichtung
 
-In `~/.zeitprotokoll/desktop.json` (oder per IPC `cfg:setTeam`) nur Modus und URL:
+In `~/.zeitprotokoll/desktop.json` (oder per IPC `cfg:setTeam`):
 
 ```json
 {
@@ -14,35 +14,38 @@ In `~/.zeitprotokoll/desktop.json` (oder per IPC `cfg:setTeam`) nur Modus und UR
 }
 ```
 
-Das **Geräte-Token** gehört **nicht** in `desktop.json`. Es liegt verschlüsselt in
-`~/.zeitprotokoll/device-token.bin` (Electron `safeStorage` → macOS-Schlüsselbund / Windows DPAPI).
-Auf dem Server steht nur ein **HMAC-Hash** (mit `ZP_SECRET_KEY`), nie der Klartext.
+1. `mode` auf `team`, `serverUrl` auf die öffentliche **https**-Adresse setzen.
+2. Client starten → **Zeitprotokoll öffnen** (öffnet die Server-Oberfläche im App-Fenster).
+3. **Einmal anmelden** (LDAP/OIDC/lokal) – der Server legt eine Sitzung an (`zp_session`-Cookie, HttpOnly).
+4. Fertig: Daten abrufen und buchen wie im Browser. Anwesenheit/Meetings gehen als `POST /api/client/hints` mit derselben Sitzung.
 
-1. Im Browser am Team-Server anmelden → **Einstellungen › Erkennung** → Geräte-Token (`kind: mac`) erzeugen.
-2. Token **einmal** kopieren und per `cfg:setTeam({ deviceToken: "zpdev_…" })` setzen (oder künftige Tray-UI).
-3. `mode` auf `team`, `serverUrl` auf die öffentliche **https**-Adresse setzen.
-4. Client neu starten. Hauptfenster öffnet die Server-Oberfläche; Anwesenheit/Meetings gehen als `POST /api/client/hints`.
+**Kein Geräte-Token nötig.** Die Anmeldung liegt auf dem Server; der Client speichert kein Passwort und kein Token für den Normalbetrieb.
 
-Alte Installationen: stand der Token noch in `desktop.json`, wandert er beim Start automatisch in den Credential-Store und wird aus der JSON entfernt.
+Zurück zum Einzelplatz: `"mode": "local"`.
 
-Zurück zum Einzelplatz: `"mode": "local"` (Node auf Port 3747 wie bisher).
+Dev: `allowHttpTeam: true` erlaubt `http://localhost` / `127.0.0.1`.
 
-Dev: `allowHttpTeam: true` erlaubt `http://localhost` bzw. `http://127.0.0.1` – sonst wird Team-Modus mit HTTP abgelehnt.
+## Was speichert wer?
+
+| Was | Wo |
+|---|---|
+| Sitzung (Login) | **Server** (Tabelle `sessions`, Hash); Client nur HttpOnly-Cookie in der Electron-Session |
+| Passwort / OIDC | **Server** / IdP – nie im Client |
+| Geräte-Token | **optional**, nur Add-on/curl/Skript ohne Browser-Login; Server nur HMAC |
+
+## Optionales Geräte-Token
+
+Nur für Browser-Add-on, curl oder Headless ohne Login-Fenster: unter **Einstellungen › Erkennung** anlegen. Der Mac-Client braucht das nicht, wenn man sich im Fenster anmeldet.
 
 ## Sicherheit
 
-- **Server:** Klartext nur einmal in der Create-Antwort; DB speichert `v1:`+HMAC-SHA256(`ZP_SECRET_KEY`). Alte SHA-256-Hashes werden bei Nutzung einmalig umgestellt. Nie Admin/Breakglass.
-- **Client:** Token nur im System-Credential-Store (`safeStorage`), nicht in `desktop.json`; `cfg:get` liefert höchstens `zpdev_ab…`.
-- Header nur an `/api/*` (nicht an JS/CSS/Fonts).
-- `serverUrl` muss `https://` sein (Ausnahme localhost mit `allowHttpTeam`).
-- `desktop.json` Mode `0600`; Token-Datei Mode `0600`.
-- Header: `X-ZP-Device-Token` bzw. `Authorization: Bearer zpdev_…`.
-- Electron-Renderer gegen Remote: Schreibzugriffe mit `Origin: null` lehnt der Go-Server ab – API-Aufrufe laufen im Main-Prozess (`fetch` ohne Origin).
-- Server: Ingest mit Geräte-Token max. 60/min je Gerät, max. 50 Hinweise/Aufruf, Payload ≤ 4 KiB; Body ohnehin ≤ 64 KiB.
-- Meetings/SSH/Kalender bleiben lokal erkannt; der Server speichert nur Hinweise, keine stillen Buchungen.
+- Team-UI immer im Electron-Fenster (nicht Systembrowser), damit die Sitzung in der App bleibt.
+- API aus dem Main-Prozess: `session.fetch` mit Cookie, ohne `Origin` (CSRF-Schutz).
+- `serverUrl` nur `https://` (localhost-HTTP mit `allowHttpTeam`).
+- Geräte-Token falls gesetzt: `safeStorage`, nicht in `desktop.json`.
 
 ## Noch offen
 
-- UI im Schnellfenster zum Setzen von URL/Token
-- Timer/Pause im Team-Modus über Session-Cookie oder erweiterte Device-Routen
-- Add-on auf Server-URL umstellen
+- Tray-UI zum Setzen der Server-URL
+- Timer/Pause im Mini-Fenster über dieselbe Session
+- Add-on auf Server-URL (dann optional Geräte-Token)

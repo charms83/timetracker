@@ -30,12 +30,12 @@ const DEFAULTS = {
   showAtLogin: true,
   miniBounds: null,
   mainInBrowser: true,    // v6.30: „Zeitprotokoll öffnen“ öffnet den Standard-Browser statt eines eigenen großen Fensters
-  // Team-Server (Go): mode "team" + serverUrl; Geräte-Token nur im System-Credential-Store
+  // Team-Server (Go): mode "team" + serverUrl; Auth = Login → Server-Sitzung (Cookie)
   mode: "local",          // "local" | "team"
   serverUrl: "",          // nur https://… (http nur localhost mit allowHttpTeam)
   allowHttpTeam: false,   // Dev: http://localhost bzw. 127.0.0.1 erlauben
 };
-/** Geräte-Token nur im Speicher; Persistenz über safeStorage (Server speichert nur Hash). */
+/** Optionaler Geräte-Token (Add-on); Normalfall Team = Session-Cookie. Persistenz safeStorage. */
 let deviceTokenMem = "";
 function deviceTokenOk(t) {
   return typeof t === "string" && (t === "" || /^zpdev_[A-Za-z0-9_-]{20,180}$/.test(t));
@@ -133,14 +133,36 @@ let status = { timer: { active: false }, pause: { active: false } };
 let quitting = false;
 
 // ── API-Helfer ───────────────────────────────────────────────────
+/** Team: Sitzungs-Cookie aus dem Login-Fenster (Server speichert die Session). Kein Geräte-Token nötig.
+ *  Optionaler Geräte-Token nur für Add-on/curl ohne Browser-Login. */
 async function api(method, p, body) {
   try {
     const { api: base } = baseUrls();
     const headers = { "Content-Type": "application/json", Accept: "application/json" };
-    if (isTeamMode() && deviceTokenMem) headers["X-ZP-Device-Token"] = deviceTokenMem;
-    const r = await fetch(base + p, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    const url = base + p;
+    const init = { method, headers, body: body ? JSON.stringify(body) : undefined };
+    let r;
+    if (isTeamMode()) {
+      // Cookies der Electron-Session mitsenden; kein Origin (sonst CSRF-Schutz)
+      if (deviceTokenMem) headers["X-ZP-Device-Token"] = deviceTokenMem; // optional
+      const doFetch = typeof session.defaultSession.fetch === "function"
+        ? session.defaultSession.fetch.bind(session.defaultSession)
+        : fetch;
+      r = await doFetch(url, init);
+    } else {
+      r = await fetch(url, init);
+    }
     return await r.json();
   } catch (_) { return null; }
+}
+/** Ob für den Team-Server eine zp_session-Cookie existiert (nach Login im Fenster). */
+async function hasTeamSession() {
+  if (!isTeamMode()) return false;
+  try {
+    const origin = new URL(cfg.serverUrl).origin;
+    const cookies = await session.defaultSession.cookies.get({ url: origin, name: "zp_session" });
+    return cookies.some(c => !!c.value);
+  } catch (_) { return false; }
 }
 
 // ── Server sicherstellen (nur lokaler Node; Team-Modus: Go-Server muss erreichbar sein) ──
@@ -280,7 +302,9 @@ function showMini(reason) {
 function createMain(view, forceWindow) {
   const { web: WEB } = baseUrls();
   const target = WEB + (typeof view === "string" && view ? "#" + view : "");
-  if (cfg.mainInBrowser && !forceWindow) { shell.openExternal(target); return; }
+  // Team: immer im Electron-Fenster anmelden – Sitzungs-Cookie bleibt in der App (Server hält die Session).
+  // Lokal: wahlweise Systembrowser.
+  if (cfg.mainInBrowser && !forceWindow && !isTeamMode()) { shell.openExternal(target); return; }
   if (main && !main.isDestroyed()) {
     if (typeof view === "string" && view) main.webContents.executeJavaScript(`location.hash = ${JSON.stringify(view)}`).catch(() => {});
     main.show(); main.focus(); app.focus({ steal: true }); return;
@@ -402,7 +426,8 @@ async function onMeetingEvent(ev) {
   log("meeting", ev.type, ev.app);
   // Team-Server: Meeting nur als Hinweis ablegen (keine Buchung); lokale Meeting-API gibt es dort nicht
   if (isTeamMode()) {
-    if (!deviceTokenMem) return;
+    // Sitzung vom Login im Fenster reicht; Geräte-Token nur Fallback
+    if (!(await hasTeamSession()) && !deviceTokenMem) return;
     const day = new Date();
     const d = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
     await api("POST", "/client/hints", { hints: [{ kind: "meeting", day: d, title: `${ev.app || "Meeting"} (${ev.type})`,
@@ -447,7 +472,7 @@ async function presenceTick() {
   const active = !screenLocked && powerMonitor.getSystemIdleTime() < cfg.idleLimitSeconds;
   if (!active) return;
   if (isTeamMode()) {
-    if (!deviceTokenMem) return;
+    if (!(await hasTeamSession()) && !deviceTokenMem) return;
     const day = new Date();
     const d = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
     const hm = `${String(day.getHours()).padStart(2, "0")}:${String(day.getMinutes()).padStart(2, "0")}`;
@@ -569,10 +594,11 @@ ipcMain.on("mini:hide", () => setExpanded(false));
 ipcMain.on("mini:quit", () => { quitting = true; app.quit(); });
 ipcMain.on("mini:openMain", (_e, view) => createMain(view));
 ipcMain.on("mini:changed", () => refreshStatus());
-ipcMain.handle("cfg:get", () => {
+ipcMain.handle("cfg:get", async () => {
   const c = { ...cfg };
   delete c.deviceToken;
-  c.hasDeviceToken = !!deviceTokenMem;
+  c.hasDeviceToken = !!deviceTokenMem; // optional, nicht nötig für normalen Team-Betrieb
+  c.hasTeamSession = await hasTeamSession();
   if (deviceTokenMem) c.deviceTokenHint = deviceTokenMem.slice(0, 8) + "…";
   return c;
 });
@@ -586,6 +612,7 @@ ipcMain.handle("cfg:setTeam", (_e, { mode, serverUrl, deviceToken, allowHttpTeam
     }
     cfg.serverUrl = u;
   }
+  // deviceToken optional (Add-on/ohne Login); Normalfall = Anmelden im Fenster, Session auf dem Server
   if (typeof deviceToken === "string") {
     if (!setDeviceToken(deviceToken.trim())) return { ok: false, error: "deviceToken ungültig (erwartet zpdev_…)" };
   }
@@ -594,7 +621,7 @@ ipcMain.handle("cfg:setTeam", (_e, { mode, serverUrl, deviceToken, allowHttpTeam
     return { ok: false, error: "Ungültige serverUrl – Modus zurück auf local" };
   }
   saveCfg();
-  log("cfg team", cfg.mode, cfg.serverUrl ? "url=set" : "url=empty", deviceTokenMem ? "token=set" : "token=empty");
+  log("cfg team", cfg.mode, cfg.serverUrl ? "url=set" : "url=empty", deviceTokenMem ? "token=optional" : "auth=session");
   return { ok: true, mode: cfg.mode, hasDeviceToken: !!deviceTokenMem };
 });
 
@@ -605,25 +632,20 @@ app.on("before-quit", () => { quitting = true; });
 app.on("window-all-closed", e => e.preventDefault());
 
 app.whenReady().then(async () => {
-  // Geräte-Token: OS-Credential-Store (safeStorage), nie Klartext in desktop.json
+  // Optionaler Geräte-Token (Legacy/Add-on): aus alter Config migrieren; Team-Normalfall = Login-Session
   migrateDeviceTokenFromCfg();
   loadDeviceTokenFromDisk();
-  // Lokal: App-Schlüssel (X-ZP-Token). Team: Geräte-Token (X-ZP-Device-Token) an den Go-Server – nie Admin.
+  // Lokal: App-Schlüssel (X-ZP-Token). Team: Sitzungs-Cookie zp_session (Server) – kein Header nötig.
   const tokenFile = path.join(CFG_DIR, "app-token");
   let appTok = null; const readTok = () => { try { appTok = fs.readFileSync(tokenFile, "utf8").trim(); } catch (_) { appTok = null; } return appTok; };
-  // Token nur an API-Pfade hängen – nie an JS/CSS/Fonts (weniger Log-/HAR-Exposition)
-  const filterUrls = ["http://127.0.0.1:3747/api/*", "http://localhost:3747/api/*"];
-  if (isTeamMode()) {
-    try {
-      const u = new URL(cfg.serverUrl);
-      filterUrls.push(`${u.protocol}//${u.host}/api/*`);
-    } catch (_) {}
-  }
-  session.defaultSession.webRequest.onBeforeSendHeaders({ urls: filterUrls }, (d, cb) => {
-    if (isTeamMode() && deviceTokenMem) d.requestHeaders["X-ZP-Device-Token"] = deviceTokenMem;
-    else { const t = appTok || readTok(); if (t) d.requestHeaders["X-ZP-Token"] = t; }
-    cb({ requestHeaders: d.requestHeaders });
-  });
+  // Nur lokaler Node braucht X-ZP-Token; Team-Server nutzt HttpOnly-Cookie nach Login
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ["http://127.0.0.1:3747/api/*", "http://localhost:3747/api/*"] },
+    (d, cb) => {
+      const t = appTok || readTok();
+      if (t) d.requestHeaders["X-ZP-Token"] = t;
+      cb({ requestHeaders: d.requestHeaders });
+    });
   // Bestehende insecure Config: Team ohne https → warnen und deaktivieren
   if (cfg.mode === "team" && cfg.serverUrl && !teamUrlOk(cfg.serverUrl)) {
     log("team mode disabled: serverUrl muss https sein");

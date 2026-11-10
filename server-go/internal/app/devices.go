@@ -98,7 +98,7 @@ func (a *App) devicesCreate(w http.ResponseWriter, r *http.Request, u User) {
 	a.audit(ctx, u.ID, "device.create", fmt.Sprintf("#%d %s (%s)", id, label, kind))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id": id, "label": label, "kind": kind, "token": raw,
-		"hint": "Token nur einmal sichtbar – lokal im System-Credential-Store hinterlegen. Server speichert nur einen Hash. Admin-Funktionen sind damit nicht erreichbar.",
+		"hint": "Token nur einmal sichtbar – für Add-on/curl. Mac-Client: Login im Fenster (Server-Sitzung). Server speichert nur einen Hash. Nie für Admin.",
 	})
 }
 
