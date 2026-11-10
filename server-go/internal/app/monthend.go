@@ -17,14 +17,18 @@ import (
    Das ist NICHT der Monatsabschluss (month_closings, konto.go) und NICHT die Freigabe (approval.go).
    Verbindung zur Monatsfreigabe: Tage in eingereichten/freigegebenen Monaten werden nicht zum Nachtragen angeboten
    (dort ist nichts mehr änderbar), „passt so“ ist dort gesperrt (409 month_locked); die Antwort nennt den Freigabestand.
-   Bewusst anders: keine Werte „am Mac von–bis“ (Anwesenheit bleibt im Client). */
+   „am Mac von–bis“ aus presence_min / dayOverview (wie Node), sobald der Mac Anwesenheit meldet. */
 
 type missDay struct {
-	Date     string  `json:"date"`
-	TargetH  float64 `json:"target_h"`
-	BookedH  float64 `json:"booked_h"`
-	MissingH float64 `json:"missing_h"`
-	OK       bool    `json:"ok"`
+	Date     string   `json:"date"`
+	TargetH  float64  `json:"target_h"`
+	BookedH  float64  `json:"booked_h"`
+	MissingH float64  `json:"missing_h"`
+	OK       bool     `json:"ok"`
+	MacFrom  *string  `json:"mac_from"`
+	MacTo    *string  `json:"mac_to"`
+	MacH     any      `json:"mac_h"`
+	OpenH    any      `json:"open_h"`
 }
 
 type monthPrev struct {
@@ -211,6 +215,7 @@ func (a *App) monthEndStatus(ctx context.Context, uid int64, withBalance bool) (
 	if yesterday >= openFrom {
 		days = missingDays(openFrom, yesterday, targets, abs, booked, ok, locked)
 	}
+	a.enrichMacDays(ctx, uid, days)
 	res := &monthEnd{Month: today[:7], MonthName: monthsDE[t.Month()-1], WorkdaysLeft: len(left), Remind: len(left) >= 1 && len(left) <= 5,
 		Days: days, OpenDays: openOnly(days), Approval: a.approvalOf(ctx, uid, today[:7]), LockedMonths: []string{}}
 	if len(left) > 0 {
@@ -237,12 +242,37 @@ func (a *App) monthEndStatus(ctx context.Context, uid int64, withBalance bool) (
 	}
 	if pEnd := addDays(monthStart, -1); passed <= 3 && pEnd >= since {
 		pd := openOnly(missingDays(maxStr(prevStart, since), pEnd, targets, abs, booked, ok, locked))
+		a.enrichMacDays(ctx, uid, pd)
 		if len(pd) > 0 {
 			pt, _ := parseDay(prevStart)
 			res.Prev = &monthPrev{Month: prevStart[:7], MonthName: monthsDE[pt.Month()-1], Days: pd, MissingH: sumMissing(pd), Approval: a.approvalOf(ctx, uid, prevStart[:7])}
 		}
 	}
 	return res, nil
+}
+
+// enrichMacDays: „am Mac von–bis“ und offene Lücken aus dayOverview (wie macOf in monthend.js)
+func (a *App) enrichMacDays(ctx context.Context, uid int64, days []missDay) {
+	for i := range days {
+		ov, err := a.dayOverview(ctx, uid, days[i].Date)
+		if err != nil || ov == nil {
+			continue
+		}
+		pres, _ := ov["presence"].([]span)
+		gapMin, _ := ov["gap_minutes"].(int)
+		days[i].OpenH = r2(float64(gapMin) / 60)
+		if len(pres) > 0 {
+			from, to := hhmm(pres[0].S), hhmm(pres[len(pres)-1].E)
+			days[i].MacFrom, days[i].MacTo = &from, &to
+			presMin, _ := ov["presence_minutes"].(int)
+			days[i].MacH = r2(float64(presMin) / 60)
+			continue
+		}
+		if w, ok := ov["work"].(*span); ok && w != nil {
+			from, to := hhmm(w.S), hhmm(w.E)
+			days[i].MacFrom, days[i].MacTo = &from, &to
+		}
+	}
 }
 
 func minStr(a, b string) string {

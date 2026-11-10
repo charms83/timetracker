@@ -89,9 +89,9 @@ Vorschläge („Light“, Regeln/Textabgleich, keine KI) folgen einem gemeinsame
 | `/assistant/tasks`, `/assistant/reset` | GET/POST | zp-assistant | gebaut: tempo_sync, duplicates, cleanup, tempo_noticket; selfcheck nur Admin (`/admin`) |
 | `/workday` | GET | App | gebaut |
 | `/workday/start`, `/workday/{id}`, `/workday/end`, `/workday/reopen`, `/workday/pause/start`, `/workday/pause/end` | POST/PUT | (Oberfläche nutzt sie nicht) | gebaut; Pausen ohne Arbeitstag-Bezug, Monatssperre geprüft |
-| `/month-end`, `/month-end/ok` | GET/POST | zp-gaps | gebaut (+ `approval`, `locked_months`; gesperrte Monate nicht nachtragbar; ohne „am Mac von–bis“) |
+| `/month-end`, `/month-end/ok` | GET/POST | zp-gaps | gebaut (+ `approval`, `locked_months`; `mac_from`/`mac_to`/`mac_h`/`open_h` aus Anwesenheit) |
 | `/missing-hours` | GET | zp-ui | gebaut (überspringt abgeschlossene und gesperrte Monate) |
-| `/gap-suggest`, `/gap-suggest/learn` | GET/POST | zp-gaps, zp-tempo, zp-ui | gebaut (Light: Lücken, typischer Tag, Rest; abschaltbar) |
+| `/gap-suggest`, `/gap-suggest/learn` | GET/POST | zp-gaps, zp-tempo, zp-ui | gebaut (Light: Termine/`event`, Lücken, typischer Tag, Rest; abschaltbar; SSH weiter Client) |
 | `/suggest-now` | GET | zp-ui | gebaut (Light: Gewohnheit, früher gewählt, zuletzt heute) |
 | `/absence-hints`, `/absence-hints/{key}` | GET/POST | zp-assistant | gebaut (liefert gespeicherte Hinweise; Übernahme unter Monatssperre) |
 | `/ticket-estimates`, `/ticket-estimates/{ticket}` | GET/PUT | zp-report, zp-ui | gebaut |

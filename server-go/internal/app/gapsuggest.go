@@ -455,17 +455,47 @@ func (a *App) gapItems(ctx context.Context, uid int64, date string) ([]map[strin
 	}
 	items := []map[string]any{}
 	presence, _ := ov["presence"].([]span)
+	// Termine zuerst (wie Node): freie Stücke im Termin, danach Lücken ohne Doppelung
+	events, _ := ov["events"].([]map[string]any)
+	sort.SliceStable(events, func(i, j int) bool { return events[i]["s"].(int) < events[j]["s"].(int) })
+	for _, ev := range events {
+		es, ee := ev["s"].(int), ev["e"].(int)
+		title := asStr(ev["title"])
+		seed := newCands(info)
+		if prev := a.prevMeetingEntry(ctx, uid, title, date); prev != nil {
+			seed.bump(prev, 6, "Termin früher so gebucht")
+		}
+		for _, l := range a.learned(ctx, uid, "ev:"+title, lcache) {
+			e := l.e
+			seed.bump(&e, 3*float64(min(4, l.n))/4, "früher für diesen Termin gewählt")
+		}
+		if byText := a.entryByComment(ctx, uid, title, date); byText != nil {
+			seed.bump(byText, 5, "gleicher Titel früher gebucht")
+		}
+		for _, pp := range cutIntervals([][2]int{{es, ee}}, taken, 10) {
+			taken = append(taken, pp)
+			m := seed.clone()
+			common(m, pp[0], pp[1])
+			items = append(items, map[string]any{
+				"kind": "event", "ref": ev["uid"], "key": "ev:" + title,
+				"s": pp[0], "e": pp[1], "title": title, "comment": title, "candidates": m.top(4),
+			})
+		}
+	}
+	busyEv := make([][2]int, 0, len(items))
+	for _, it := range items {
+		busyEv = append(busyEv, [2]int{it["s"].(int), it["e"].(int)})
+	}
 	gapTitle := "Zwischen Buchungen, nichts gebucht"
 	if len(presence) > 0 {
 		gapTitle = "Am Mac, nichts gebucht"
 	}
 	for _, g := range ov["gaps"].([]span) {
-		if g.E-g.S < 10 {
-			continue
+		for _, pp := range cutIntervals([][2]int{{g.S, g.E}}, busyEv, 10) {
+			m := newCands(info)
+			common(m, pp[0], pp[1])
+			items = append(items, map[string]any{"kind": "gap", "key": slotKey(date, pp[0]), "s": pp[0], "e": pp[1], "title": gapTitle, "comment": "", "candidates": m.top(4)})
 		}
-		m := newCands(info)
-		common(m, g.S, g.E)
-		items = append(items, map[string]any{"kind": "gap", "key": slotKey(date, g.S), "s": g.S, "e": g.E, "title": gapTitle, "comment": "", "candidates": m.top(4)})
 	}
 	// Rest: fehlt danach noch Zeit → typischer Tag (ohne Buchungen) bzw. Block nach der letzten Buchung
 	target := dayTargets(st)[wd]
@@ -538,6 +568,31 @@ func asInt64(v any) int64 {
 		return int64(x)
 	}
 	return 0
+}
+
+// prevMeetingEntry: letzte Buchung zu einem gleichnamigen Termin (über meeting_state)
+func (a *App) prevMeetingEntry(ctx context.Context, uid int64, title, beforeDate string) *candEntry {
+	var entryID int64
+	err := a.DB.QueryRow(ctx, `SELECT ms.entry_id FROM calendar_events c
+		JOIN meeting_state ms ON ms.user_id=c.user_id AND ms.key IN ('cal:'||c.uid, c.uid) AND ms.status='booked' AND ms.entry_id IS NOT NULL
+		WHERE c.user_id=$1 AND c.title=$2 AND c.date<$3 ORDER BY c.date DESC LIMIT 1`, uid, title, beforeDate).Scan(&entryID)
+	if err != nil || entryID == 0 {
+		return nil
+	}
+	e, err := scanCand(a.DB.QueryRow(ctx, `SELECT `+candCols+candJoin+` WHERE e.user_id=$1 AND e.id=$2`, uid, entryID))
+	if err != nil || e.ProjectID == 0 {
+		return nil
+	}
+	return &e
+}
+
+func (a *App) entryByComment(ctx context.Context, uid int64, comment, beforeDate string) *candEntry {
+	e, err := scanCand(a.DB.QueryRow(ctx, `SELECT `+candCols+candJoin+`
+		WHERE e.user_id=$1 AND e.comment=$2 AND e.date<$3 AND e.project_id IS NOT NULL ORDER BY e.date DESC, e.start_time DESC LIMIT 1`, uid, comment, beforeDate))
+	if err != nil || e.ProjectID == 0 {
+		return nil
+	}
+	return &e
 }
 
 // gapLearn: aus einem Vorschlag gebucht → Wahl merken (nur eigene Projekte/Tickets). Termin/SSH verknüpft der Client selbst.
