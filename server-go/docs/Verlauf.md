@@ -48,10 +48,14 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - „Admin“ bei der Urlaubs-Vertretung = Personal (so angenommen)?
 - Exporte (Lohn/Kunden) und Urlaubsantrag-Details; E-Mail-Technik (SMTP/Exchange).
 
+## Weiterbau (nach dem bereinigten Export)
+- Code-Review: Go-Server weitgehend fertig und getestet (Unit), Oberfläche hatte Platzhalter für Nachtragen; Tempo-Hash-Erwartungswerte waren veraltet (U+2028 in modernem `JSON.stringify`).
+- Gebaut: Nachtragen-UI in Team/Personal (`zp-people.jsx`), „geschlossen“ in Monatsfreigabe (`zp-servermode.jsx`), klarere Sperr-Hinweise (`zp-ui.jsx`), SMTP-E-Mail über `notifyApproval` (`notify_mail.go`, Migration 020, Admin-Einstellungen).
+- Tests: `go test ./…` grün (inkl. angeglichene Tempo-Hashes und Mail-Hilfstests).
+
 ## Als Nächstes (Reihenfolge)
-1. Abnahme im Browser und gegen echte Systeme (Plane, später Jira/Tempo, LDAP, authentik); gefundene Fehler beheben.
-2. Oberfläche: Nachtragen-Dialog, „geschlossen“-Anzeige, neue Hinweistexte.
-3. E-Mail-Erinnerungen (Platz `notifyApproval` vorbereitet), danach Urlaubsantrag mit Genehmigung durch die Teamleitung.
-4. Mehrere Plane-Workspaces; Tempo-Grundimport/Abgleich; Exporte.
-5. Web-Maske LDAP/OIDC; Geräte-Token und Annahme-Schnittstelle; gemeinsame Zähler; DB-Rollen; `govulncheck`.
-6. Sicherheits-Audit (Cloudflare-Skill) fortsetzen; Abnahme gegen echte Systeme; Client-Anbindung und Mac-Härtung; Cloud-Varianten.
+1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik, SMTP); gefundene Fehler beheben.
+2. Exchange-OAuth/Graph; Urlaubsantrag mit Genehmigung durch die Teamleitung (Vertretung Personal).
+3. Mehrere Plane-Workspaces; Tempo-Grundimport/Abgleich; Exporte.
+4. Web-Maske LDAP/OIDC; Geräte-Token und Annahme-Schnittstelle; gemeinsame Zähler; DB-Rollen; `govulncheck`.
+5. Sicherheits-Audit fortsetzen; Client-Anbindung und Mac-Härtung; Cloud-Varianten.

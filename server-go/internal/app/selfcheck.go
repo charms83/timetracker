@@ -29,7 +29,7 @@ type CheckReport struct {
 	Worst string      `json:"worst"`
 }
 
-var requiredTables = []string{"users", "sessions", "device_tokens", "user_secrets", "user_settings", "server_config", "audit_log", "projects", "tasks",
+var requiredTables = []string{"users", "sessions", "device_tokens", "user_secrets", "user_settings", "server_config", "audit_log", "notify_sent", "projects", "tasks",
 	"plan_tasks", "time_entries", "timer_state", "pause_state", "pauses", "daily_logs", "absences", "month_closings", "balance_corrections",
 	"system_logs", "plane_deletions", "plane_ticket_sync", "project_sources", "presence_min", "calendar_events", "meeting_state", "entry_audit", "jira_instances"}
 

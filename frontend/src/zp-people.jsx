@@ -3,8 +3,8 @@
    Monatswahl, Status-Badge, Personentabelle, Personen-Detail, Kommentar-Dialog, Fehlertexte.
 ═══════════════════════════════════════════════════════════════════ */
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { ChevronLeft, ChevronRight, ArrowLeft, RefreshCw, Info, Lock, PencilLine } from "lucide-react";
-import { call, Box, lab, btn, hm } from "./zp-ui.jsx";
+import { ChevronLeft, ChevronRight, ArrowLeft, RefreshCw, Info, Lock, PencilLine, Plus, Trash2, Pencil } from "lucide-react";
+import { call, Box, lab, btn, hm, inpS } from "./zp-ui.jsx";
 
 /* ── Monate, Zahlen, Zeit ── */
 const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
@@ -20,7 +20,17 @@ export const when = iso => { try { return new Date(iso).toLocaleString("de-DE", 
 const deDay = d => `${d.slice(8, 10)}.${d.slice(5, 7)}.`;
 const WD = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
 const ABS = { urlaub: "Urlaub", krankheit: "Krankheit", feiertag: "Feiertag", fortbildung: "Fortbildung", sonstiges: "Sonstiges" };
-const ACT = { submit: "eingereicht", withdraw: "zurückgezogen", approve: "freigegeben", reject: "abgelehnt", reopen: "wiedereröffnet" };
+const ACT = { submit: "eingereicht", withdraw: "zurückgezogen", approve: "freigegeben", reject: "abgelehnt", reopen: "wiedereröffnet", auto_close: "automatisch geschlossen", nachtrag: "nachgetragen" };
+const LOCKED = new Set(["submitted", "approved", "closed"]);
+const toLocalTime = iso => { if (!iso) return ""; try { const d = new Date(iso); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; } catch (_) { return ""; } };
+const parseDurMin = v => {
+  const t = String(v || "").trim().toLowerCase().replace(",", ".");
+  if (!t) return null;
+  let m = t.match(/^(\d+):(\d{1,2})$/); if (m) return (+m[1]) * 60 + (+m[2]);
+  m = t.match(/^(?:(\d+(?:\.\d+)?)\s*(?:h|std|stunden?)\s*)?(?:(\d+)\s*(?:m|min|minuten?)?)?$/);
+  if (!m || (m[1] == null && m[2] == null)) return NaN;
+  return Math.round((m[1] ? parseFloat(m[1]) * 60 : 0) + (m[2] ? +m[2] : 0));
+};
 
 /* ── Fehlertexte: 404 = keine Berechtigung (Server verbirgt Unberechtigtes) ── */
 export const friendly = (err, fallback = "Keine Berechtigung für diese Ansicht.") =>
@@ -228,7 +238,7 @@ export function PersonDetail({ person, month, onMonth, onBack, renderActions, on
                 <div key={e.id || i} style={{ display: "flex", gap: 10, fontSize: 12.5, padding: "3px 0", color: "var(--text2)", alignItems: "baseline", flexWrap: "wrap" }}>
                   <span style={{ minWidth: 92, fontVariantNumeric: "tabular-nums" }}>{hm(e.start_time)}–{hm(e.end_time)}</span>
                   <span style={{ color: "var(--text)", flex: "1 1 220px" }}>{entryWhat(e)}{(e.comment || e.note) ? <span style={{ color: "var(--text2)" }}> – {e.comment || e.note}</span> : null}</span>
-                  {e.entered_by_name || e.entered_by ? <span className="zp-pill changed" title="Nachgetragen"><PencilLine size={11} /> von Teamleitung nachgetragen{e.entered_by_name ? ` (${e.entered_by_name})` : ""}</span> : null}
+                  {e.entered_by_name || e.entered_by ? <span className="zp-pill changed" title="Nachgetragen"><PencilLine size={11} /> nachgetragen{e.entered_by_name ? ` (${e.entered_by_name})` : ""}</span> : null}
                   <span style={{ minWidth: 64, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmtH(entryHours(e))}</span>
                 </div>))}
             </div>))}
@@ -247,12 +257,255 @@ export function PersonDetail({ person, month, onMonth, onBack, renderActions, on
               <span style={{ minWidth: 90 }}>{h.actor || ""}</span><span style={{ flex: 1 }}>{h.comment ? `„${h.comment}“` : ""}</span></div>))}
         </Box>
 
-        {/* Platz für das Nachtragen nach Monatsschluss (Teamleitung/Personal) – Bildschirm folgt */}
-        <div data-slot="nachtragen" className="zp-card" style={{ padding: "14px 18px", display: "flex", gap: 12, alignItems: "flex-start", borderStyle: "dashed" }}>
-          <Lock size={18} style={{ flex: "none", color: "var(--text2)", marginTop: 1 }} />
-          <div><div style={{ fontWeight: 600, fontSize: 14 }}>Nachtragen – folgt</div>
-            <div style={{ color: "var(--text2)", fontSize: 12.5, marginTop: 2 }}>Buchungen nach Monatsschluss nachtragen (mit Begründung und Protokoll) ist hier noch nicht möglich.</div></div>
-        </div>
+        <NachtragenPanel person={person} month={month} status={status} entries={entries || []} absences={absences || []} onDone={reload} />
       </>)}
+    </div>);
+}
+
+/* ── Nachtragen nach Monatsschluss (Teamleitung/Personal) ──────────
+   API: POST/PUT/DELETE /api/team/{userId}/time-entries|absences mit Pflichtfeld reason (10–500).
+   Nur wenn der Monat gesperrt ist (eingereicht/freigegeben/geschlossen) und nicht die eigene Person. */
+function NachtragenPanel({ person, month, status, entries, absences, onDone }) {
+  const [mode, setMode] = useState(null); // "entry" | "absence" | {edit:e} | {del:e} | {delAbs:a}
+  const locked = LOCKED.has(status);
+  const self = !!person.self;
+
+  if (self) {
+    return (
+      <div data-slot="nachtragen" className="zp-card" style={{ padding: "14px 18px", display: "flex", gap: 12, alignItems: "flex-start" }}>
+        <Lock size={18} style={{ flex: "none", color: "var(--text2)", marginTop: 1 }} />
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>Nachtragen – nicht für dich selbst</div>
+          <div style={{ color: "var(--text2)", fontSize: 12.5, marginTop: 2, lineHeight: 1.45 }}>
+            Eigenen Monat darfst du hier nicht nachtragen. {locked
+              ? "Bitte Kollegin/Kollegen aus Teamleitung oder Personal bitten – oder Personal um Wiedereröffnen."
+              : "Solange der Monat offen ist, trägst du Zeiten in deiner eigenen Ansicht nach."}
+          </div>
+        </div>
+      </div>);
+  }
+  if (!locked) {
+    return (
+      <div data-slot="nachtragen" className="zp-card" style={{ padding: "14px 18px", display: "flex", gap: 12, alignItems: "flex-start" }}>
+        <Info size={18} style={{ flex: "none", color: "var(--accent)", marginTop: 1 }} />
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>Nachtragen – Monat noch offen</div>
+          <div style={{ color: "var(--text2)", fontSize: 12.5, marginTop: 2, lineHeight: 1.45 }}>
+            Status: {STATUS[status]?.[0] || status || "unbekannt"}. Solange der Monat nicht eingereicht, freigegeben oder geschlossen ist, trägt {person.name} selbst ein.
+            Der Nachtragsweg (mit Begründung und Protokoll) gilt erst nach der Sperre.
+          </div>
+        </div>
+      </div>);
+  }
+
+  const base = `/team/${encodeURIComponent(person.id)}`;
+  const monthEntries = entries.filter(e => (e.date || "").startsWith(month));
+  const monthAbs = absences.filter(a => (a.date_from || "").slice(0, 7) <= month && (a.date_to || a.date_from || "").slice(0, 7) >= month);
+
+  return (
+    <Box title="Nachtragen" sub={`${monthLabel(month)} ist ${STATUS[status]?.[0] || "gesperrt"} – Änderungen nur mit Begründung (10–500 Zeichen), Protokoll und Hinweis an ${person.name}.`}
+      right={<div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <button style={btn(true)} onClick={() => setMode("entry")}><Plus size={14} /> Buchung</button>
+        <button style={btn(false)} onClick={() => setMode("absence")}><Plus size={14} /> Abwesenheit</button>
+      </div>}>
+      <Note warn icon={<Lock size={15} />}>
+        Nachtragen umgeht die Monatssperre kontrolliert für diese Person. Begründung ist Pflicht und erscheint im Verlauf.
+      </Note>
+
+      <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Buchungen ändern / löschen</div>
+      {!monthEntries.length ? <Empty>Keine Buchungen – lege oben eine neue an.</Empty> : monthEntries.map(e => (
+        <div key={e.id} style={{ display: "flex", gap: 8, fontSize: 12.5, padding: "5px 0", borderTop: "1px solid var(--line)", alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ minWidth: 92, fontVariantNumeric: "tabular-nums", color: "var(--text2)" }}>{deDay(e.date)} · {hm(e.start_time)}–{hm(e.end_time)}</span>
+          <span style={{ flex: "1 1 180px" }}>{entryWhat(e)}</span>
+          <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--text2)" }}>{fmtH(entryHours(e))}</span>
+          <button className="zp-nav" title="Ändern" onClick={() => setMode({ edit: e })}><Pencil size={14} /></button>
+          <button className="zp-nav" title="Löschen" onClick={() => setMode({ del: e })}><Trash2 size={14} /></button>
+        </div>))}
+
+      <div style={{ fontSize: 12.5, fontWeight: 600, margin: "14px 0 6px" }}>Abwesenheiten löschen</div>
+      {!monthAbs.length ? <Empty>Keine Abwesenheiten in diesem Monat.</Empty> : monthAbs.map(a => (
+        <div key={a.id} style={{ display: "flex", gap: 8, fontSize: 12.5, padding: "5px 0", borderTop: "1px solid var(--line)", alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ minWidth: 110 }}>{deDay(a.date_from)}{a.date_to !== a.date_from ? `–${deDay(a.date_to)}` : ""}</span>
+          <b style={{ minWidth: 90 }}>{ABS[a.type] || a.type}</b>
+          <span style={{ flex: 1, color: "var(--text2)" }}>{a.note || ""}</span>
+          <button className="zp-nav" title="Löschen" onClick={() => setMode({ delAbs: a })}><Trash2 size={14} /></button>
+        </div>))}
+
+      {mode === "entry" && <NachtragEntryDialog person={person} month={month} base={base} onClose={() => setMode(null)} onDone={() => { setMode(null); onDone(); }} />}
+      {mode && mode.edit && <NachtragEntryDialog person={person} month={month} base={base} entry={mode.edit} onClose={() => setMode(null)} onDone={() => { setMode(null); onDone(); }} />}
+      {mode === "absence" && <NachtragAbsenceDialog person={person} month={month} base={base} onClose={() => setMode(null)} onDone={() => { setMode(null); onDone(); }} />}
+      {mode && mode.del && (
+        <ReasonDialog title="Buchung löschen" text={`${deDay(mode.del.date)} ${hm(mode.del.start_time)}–${hm(mode.del.end_time)} · ${entryWhat(mode.del)}`}
+          label="Begründung" confirmLabel="Löschen" danger min={10}
+          onClose={() => setMode(null)}
+          onSubmit={async reason => {
+            const r = await call("DELETE", `${base}/time-entries/${mode.del.id}`, { reason });
+            if (r.error) return r.error;
+            onDone(); return null;
+          }} />)}
+      {mode && mode.delAbs && (
+        <ReasonDialog title="Abwesenheit löschen" text={`${deDay(mode.delAbs.date_from)}–${deDay(mode.delAbs.date_to || mode.delAbs.date_from)} · ${ABS[mode.delAbs.type] || mode.delAbs.type}`}
+          label="Begründung" confirmLabel="Löschen" danger min={10}
+          onClose={() => setMode(null)}
+          onSubmit={async reason => {
+            const r = await call("DELETE", `${base}/absences/${mode.delAbs.id}`, { reason });
+            if (r.error) return r.error;
+            onDone(); return null;
+          }} />)}
+    </Box>);
+}
+
+function NachtragEntryDialog({ person, month, base, entry, onClose, onDone }) {
+  const isEdit = !!entry?.id;
+  const [projects, setProjects] = useState(null);
+  const [tasks, setTasks] = useState([]);
+  const [projId, setProjId] = useState(entry?.project_id ? String(entry.project_id) : "");
+  const [taskId, setTaskId] = useState(entry?.task_id ? String(entry.task_id) : "");
+  const [date, setDate] = useState(entry?.date || `${month}-01`);
+  const [start, setStart] = useState(toLocalTime(entry?.start_time) || "09:00");
+  const [end, setEnd] = useState(toLocalTime(entry?.end_time) || "10:00");
+  const [dur, setDur] = useState("");
+  const [comment, setComment] = useState(entry?.comment || "");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    call("GET", `/projects?user=${encodeURIComponent(person.id)}`).then(r => {
+      const list = Array.isArray(r) ? r : r?.projects || r?.items || [];
+      setProjects(r.error ? [] : list.filter(p => !p.closed && p.status !== "archived"));
+    });
+  }, [person.id]);
+  useEffect(() => {
+    if (!projId) { setTasks([]); return; }
+    call("GET", `/tasks?projectId=${encodeURIComponent(projId)}&user=${encodeURIComponent(person.id)}`).then(r => {
+      setTasks(Array.isArray(r) ? r : r?.items || []);
+    });
+  }, [projId, person.id]);
+
+  const durMin = parseDurMin(dur);
+  const save = async () => {
+    if (busy) return;
+    const why = reason.trim();
+    if (why.length < 10 || why.length > 500) { setErr("Begründung: 10 bis 500 Zeichen"); return; }
+    if (!date.startsWith(month)) { setErr(`Datum muss in ${monthLabel(month)} liegen`); return; }
+    if (Number.isNaN(durMin) || durMin === 0) { setErr("Dauer nicht lesbar – z. B. 1h 30, 45m, oder Start/Ende setzen"); return; }
+    setBusy(true); setErr("");
+    const startISO = new Date(`${date}T${start || "08:00"}`).toISOString();
+    const endISO = durMin > 0
+      ? new Date(new Date(startISO).getTime() + durMin * 60000).toISOString()
+      : end ? new Date(`${date}T${end}`).toISOString() : null;
+    if (!endISO || Date.parse(endISO) <= Date.parse(startISO)) { setErr("Ende muss nach dem Start liegen"); setBusy(false); return; }
+    const body = {
+      reason: why,
+      date,
+      start_time: startISO,
+      end_time: endISO,
+      duration_seconds: Math.floor((Date.parse(endISO) - Date.parse(startISO)) / 1000),
+      comment: comment.trim() || null,
+      project_id: projId ? parseInt(projId, 10) : null,
+      task_id: taskId ? parseInt(taskId, 10) : null,
+      billable: true,
+    };
+    const r = isEdit
+      ? await call("PUT", `${base}/time-entries/${entry.id}`, body)
+      : await call("POST", `${base}/time-entries`, body);
+    setBusy(false);
+    if (r.error) { setErr(r.error); return; }
+    onDone();
+  };
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label={isEdit ? "Buchung nachtragen" : "Neue Buchung nachtragen"}
+      onClick={e => e.target === e.currentTarget && !busy && onClose()}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 16 }}>
+      <div className="zp-card" style={{ width: "100%", maxWidth: 520, padding: "18px 20px", boxShadow: "0 10px 40px rgba(0,0,0,.25)", maxHeight: "90vh", overflow: "auto" }}>
+        <div style={{ fontWeight: 600, fontSize: 15 }}>{isEdit ? "Buchung ändern (Nachtrag)" : "Buchung nachtragen"}</div>
+        <div style={{ color: "var(--text2)", fontSize: 12.5, marginTop: 4, lineHeight: 1.45 }}>Für {person.name} · {monthLabel(month)}. Nur bestehende Projekte/Aufgaben der Person – keine neuen Tickets hier anlegen.</div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
+          <div><label style={lab}>Projekt</label>
+            <select style={inpS} value={projId} onChange={e => { setProjId(e.target.value); setTaskId(""); }}>
+              <option value="">– keines –</option>
+              {(projects || []).map(p => <option key={p.id} value={p.id}>{p.customer_name ? `${p.customer_name} – ` : ""}{p.name}</option>)}
+            </select></div>
+          <div><label style={lab}>Aufgabe</label>
+            <select style={inpS} value={taskId} onChange={e => setTaskId(e.target.value)} disabled={!projId}>
+              <option value="">– keine –</option>
+              {tasks.map(t => <option key={t.id} value={t.id}>{t.jira_ticket || t.title}</option>)}
+            </select></div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "0 8px" }}>
+          <div><label style={lab}>Datum</label><input style={inpS} type="date" value={date} min={`${month}-01`} max={`${month}-31`} onChange={e => setDate(e.target.value)} /></div>
+          <div><label style={lab}>Start</label><input style={inpS} type="time" value={start} onChange={e => setStart(e.target.value)} /></div>
+          <div><label style={lab}>Ende</label><input style={inpS} type="time" value={end} disabled={durMin > 0} onChange={e => setEnd(e.target.value)} /></div>
+          <div><label style={lab}>oder Dauer</label><input style={inpS} placeholder="1h 30" value={dur} onChange={e => setDur(e.target.value)} /></div>
+        </div>
+        <label style={lab}>Kommentar</label>
+        <input style={inpS} value={comment} onChange={e => setComment(e.target.value)} placeholder="Was wurde gemacht?" />
+        <label style={lab}>Begründung (Pflicht, 10–500 Zeichen)</label>
+        <textarea rows={3} style={{ width: "100%", padding: "7px 9px", resize: "vertical" }} value={reason} onChange={e => setReason(e.target.value)}
+          placeholder="z. B. Krankmeldung nachgereicht, vergessene Buchung nach Monatsende …" />
+        {err && <div style={{ color: "var(--stop)", fontSize: 12, marginTop: 6 }}>✗ {err}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
+          <button style={btn(false)} disabled={busy} onClick={onClose}>Abbrechen</button>
+          <button style={{ ...btn(true), opacity: busy ? .5 : 1 }} disabled={busy} onClick={save}>{busy ? "Sende…" : isEdit ? "Speichern" : "Nachtragen"}</button>
+        </div>
+      </div>
+    </div>);
+}
+
+function NachtragAbsenceDialog({ person, month, base, onClose, onDone }) {
+  const [dateFrom, setDateFrom] = useState(`${month}-01`);
+  const [dateTo, setDateTo] = useState(`${month}-01`);
+  const [type, setType] = useState("urlaub");
+  const [hours, setHours] = useState("");
+  const [note, setNote] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const save = async () => {
+    if (busy) return;
+    const why = reason.trim();
+    if (why.length < 10 || why.length > 500) { setErr("Begründung: 10 bis 500 Zeichen"); return; }
+    if (!dateFrom.startsWith(month) || !dateTo.startsWith(month)) { setErr(`Zeitraum muss in ${monthLabel(month)} liegen`); return; }
+    setBusy(true); setErr("");
+    const body = { reason: why, date_from: dateFrom, date_to: dateTo, type, note: note.trim() || null };
+    if (hours.trim()) body.hours = parseFloat(hours.replace(",", "."));
+    const r = await call("POST", `${base}/absences`, body);
+    setBusy(false);
+    if (r.error) { setErr(r.error); return; }
+    onDone();
+  };
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Abwesenheit nachtragen"
+      onClick={e => e.target === e.currentTarget && !busy && onClose()}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200, padding: 16 }}>
+      <div className="zp-card" style={{ width: "100%", maxWidth: 480, padding: "18px 20px", boxShadow: "0 10px 40px rgba(0,0,0,.25)" }}>
+        <div style={{ fontWeight: 600, fontSize: 15 }}>Abwesenheit nachtragen</div>
+        <div style={{ color: "var(--text2)", fontSize: 12.5, marginTop: 4 }}>Für {person.name} · {monthLabel(month)}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
+          <div><label style={lab}>Von</label><input style={inpS} type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} /></div>
+          <div><label style={lab}>Bis</label><input style={inpS} type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} /></div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 10px" }}>
+          <div><label style={lab}>Art</label>
+            <select style={inpS} value={type} onChange={e => setType(e.target.value)}>
+              {Object.entries(ABS).filter(([k]) => k !== "feiertag").map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </select></div>
+          <div><label style={lab}>Stunden/Tag (optional)</label><input style={inpS} value={hours} onChange={e => setHours(e.target.value)} placeholder="leer = ganzer Tag" /></div>
+        </div>
+        <label style={lab}>Notiz</label>
+        <input style={inpS} value={note} onChange={e => setNote(e.target.value)} />
+        <label style={lab}>Begründung (Pflicht, 10–500 Zeichen)</label>
+        <textarea rows={3} style={{ width: "100%", padding: "7px 9px", resize: "vertical" }} value={reason} onChange={e => setReason(e.target.value)} />
+        {err && <div style={{ color: "var(--stop)", fontSize: 12, marginTop: 6 }}>✗ {err}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
+          <button style={btn(false)} disabled={busy} onClick={onClose}>Abbrechen</button>
+          <button style={{ ...btn(true), opacity: busy ? .5 : 1 }} disabled={busy} onClick={save}>{busy ? "Sende…" : "Nachtragen"}</button>
+        </div>
+      </div>
     </div>);
 }

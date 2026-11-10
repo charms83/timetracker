@@ -133,7 +133,7 @@ export function useServerMode() {
 const CLIENT_ONLY_RE = /^\/(meetings\/|ssh-|pair\/|security\/(tls|trust-|untrust-)|ext\/)/;   // lokale Schnittstellen des Mac-Clients
 const MSG_CLIENT = "Diese Funktion braucht den Mac-Client.";
 const MSG_PENDING = "Diese Funktion kommt in Kürze auf dem Server.";
-const MSG_LOCKED = "Dieser Monat ist eingereicht/freigegeben und gesperrt – zum Nachtragen bitte Personal den Monat wiedereröffnen lassen.";
+const MSG_LOCKED = "Dieser Monat ist eingereicht, freigegeben oder geschlossen und gesperrt. Du selbst kannst nichts mehr ändern – Nachtragen macht die Teamleitung oder das Personal (mit Begründung). Wiedereröffnen kann nur das Personal.";
 const MISSING = new Set();   // am Server (noch) nicht vorhandene Pfade: nach dem ersten 404 keine weiteren Aufrufe
 export const newRequestKey = () => (globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`);
 // Antworten des Go-Servers vereinheitlichen (nur im Servermodus)

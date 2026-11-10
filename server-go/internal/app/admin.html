@@ -116,6 +116,17 @@
     <label>Freigabe bis Werktag <input id="c-adec" size="3"></label>
     <button class="act" onclick="saveApproval()">Speichern</button></div>
     <p class="mut">Nach Ablauf der Nachfrist schließt der Server den Monat automatisch. Danach tragen nur Teamleitung (eigenes Team) und Personal nach – mit Begründung und Protokoll. Einreichen/Freigeben bleibt als früherer Abschluss möglich.</p>
+    <h3>E-Mail-Erinnerungen (SMTP)</h3>
+    <div class="row"><label><input type="checkbox" id="c-mail"> E-Mail einschalten</label>
+    <label>Host <input id="c-mhost" size="22" placeholder="smtp.example.com"></label>
+    <label>Port <input id="c-mport" size="5" placeholder="587"></label>
+    <label>TLS <select id="c-mtls"><option value="starttls">STARTTLS</option><option value="tls">TLS</option><option value="none">ohne</option></select></label></div>
+    <div class="row"><label>Benutzer <input id="c-muser" size="18" autocomplete="off"></label>
+    <label>Passwort <input id="c-mpass" type="password" size="18" autocomplete="new-password" placeholder="leer = unverändert"></label>
+    <label>Absender <input id="c-mfrom" size="22" placeholder="zeitprotokoll@example.com"></label>
+    <label>Anzeigename <input id="c-mname" size="16" placeholder="Zeitprotokoll"></label>
+    <button class="act" onclick="saveMail()">Speichern</button></div>
+    <p class="mut" id="c-mail-hint">Abschaltbar. Inhalt ohne Zeiten (Monatsname, Aktion). Ereignisse: Nachfrist, geschlossen, abgelehnt, Nachtrag, Einreichung an Personal. Exchange-OAuth folgt später. Öffentliche Adresse für den Link: ZP_PUBLIC_URL.</p>
     <p class="mut">Anmeldung (Testmodus/OIDC) ändert man auf <a href="/setup">/setup</a> mit dem Einrichtungs-Token aus dem Server-Log.</p>
     <p class="mut" id="c-auth"></p>
   </section>
@@ -353,10 +364,25 @@ async function loadConfig() {
   $('c-tempo').checked = c.module_tempo === '1'; $('c-suggest').checked = c.module_suggest !== '0'; loadJira();
   $('c-amode').value = c.approval_mode || 'hr'; $('c-grace').value = c.month_grace_workdays || '1'; $('c-asub').value = c.approval_submit_workday || '3'; $('c-adec').value = c.approval_decide_workday || '5';
   $('c-base').value = c.plane_base_url || ''; $('c-ws').value = c.plane_workspace || '';
+  $('c-mail').checked = c.mail_enabled === '1'; $('c-mhost').value = c.mail_smtp_host || ''; $('c-mport').value = c.mail_smtp_port || '587';
+  $('c-mtls').value = c.mail_smtp_tls || 'starttls'; $('c-muser').value = c.mail_smtp_user || ''; $('c-mpass').value = '';
+  $('c-mfrom').value = c.mail_from || ''; $('c-mname').value = c.mail_from_name || '';
+  $('c-mail-hint').textContent = (c.mail_smtp_password_set ? 'SMTP-Passwort ist gespeichert (verschlüsselt). ' : 'Noch kein SMTP-Passwort. ') +
+    'Abschaltbar. Inhalt ohne Zeiten. Ereignisse: Nachfrist, geschlossen, abgelehnt, Nachtrag, Einreichung an Personal. Exchange-OAuth folgt. Link: ZP_PUBLIC_URL.';
   $('c-auth').textContent = 'Anmeldung: ' + (c.auth_mode || '–') + (c.oidc_issuer ? ' · Issuer ' + c.oidc_issuer : '');
 }
 async function saveConfig() {
   try { await api('PUT', '/admin/config', { plane_base_url: $('c-base').value, plane_workspace: $('c-ws').value }); msg('Gespeichert.'); } catch (e) { msg(e.message, true); }
+}
+async function saveMail() {
+  const body = {
+    mail_enabled: $('c-mail').checked ? '1' : '0',
+    mail_smtp_host: $('c-mhost').value, mail_smtp_port: $('c-mport').value || '587',
+    mail_smtp_tls: $('c-mtls').value, mail_smtp_user: $('c-muser').value,
+    mail_from: $('c-mfrom').value, mail_from_name: $('c-mname').value,
+  };
+  if ($('c-mpass').value) body.mail_smtp_password = $('c-mpass').value;
+  try { await api('PUT', '/admin/config', body); msg('E-Mail-Einstellungen gespeichert.'); $('c-mpass').value = ''; loadConfig(); } catch (e) { msg(e.message, true); }
 }
 
 api('GET', '/me').then(m => {

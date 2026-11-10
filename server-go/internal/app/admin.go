@@ -252,12 +252,18 @@ func (a *App) adminUserUpdate(w http.ResponseWriter, r *http.Request, u User) {
 }
 
 // Einstellungen, die der Administrator hier ändern darf (Anmeldung bleibt der Einrichtung mit Token vorbehalten)
-var adminConfigKeys = []string{"plane_base_url", "plane_workspace", "approval_mode", "approval_submit_workday", "approval_decide_workday", "month_grace_workdays", "module_tempo", "module_suggest"}
+var adminConfigKeys = []string{"plane_base_url", "plane_workspace", "approval_mode", "approval_submit_workday", "approval_decide_workday", "month_grace_workdays", "module_tempo", "module_suggest",
+	mailEnabledKey, mailHostKey, mailPortKey, mailUserKey, mailPassKey, mailTLSKey, mailFromKey, mailFromNameKey}
 
 func (a *App) adminConfigGet(w http.ResponseWriter, r *http.Request, u User) {
-	out := map[string]any{"auth_mode": a.conf(r.Context(), "auth_mode"), "oidc_issuer": a.conf(r.Context(), "oidc_issuer"), "oidc_client_id": a.conf(r.Context(), "oidc_client_id")}
+	ctx := r.Context()
+	out := map[string]any{"auth_mode": a.conf(ctx, "auth_mode"), "oidc_issuer": a.conf(ctx, "oidc_issuer"), "oidc_client_id": a.conf(ctx, "oidc_client_id")}
 	for _, k := range adminConfigKeys {
-		out[k] = a.conf(r.Context(), k)
+		if k == mailPassKey {
+			out["mail_smtp_password_set"] = a.conf(ctx, mailPassKey) != ""
+			continue // Passwort nie ausliefern
+		}
+		out[k] = a.conf(ctx, k)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -278,6 +284,9 @@ func (a *App) applyAdminConfig(ctx context.Context, key, val string) error {
 		_, err := a.setPlaneBase(ctx, val)
 		return err
 	}
+	if contains(mailConfigKeys, key) {
+		return a.applyMailConfig(ctx, key, val)
+	}
 	return a.setConf(ctx, key, val)
 }
 
@@ -286,6 +295,9 @@ func (a *App) checkAdminConfig(key, raw string) (string, error) {
 		return "", errUser("Nicht änderbar: " + key + " (erlaubt: " + strings.Join(adminConfigKeys, ", ") + ")")
 	}
 	val := strings.TrimSpace(raw)
+	if contains(mailConfigKeys, key) {
+		return a.checkMailConfig(key, val)
+	}
 	switch key {
 	case "approval_mode":
 		if val != "either" && val != "lead" && val != "hr" {

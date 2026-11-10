@@ -74,7 +74,7 @@ Stand 10.11.2026 (Entscheidungen §16). Rollenklarstellung: **Technischer Admin 
 
 **Regel 3 – Teams aus dem Verzeichnis oder lokal (`teamsync.go`):** `teams.source`/`team_members.source` = `local` | `directory`. Gruppe `<präfix><name>` = Mitglied, `<präfix><name>-lead` = Teamleitung (`ldap_team_prefix`/`oidc_team_prefix`, Standard `zp-team-`, `-` = aus; exakter Vergleich, nur direkte Gruppen; `ldap_team_base` beschränkt auf eine OU – empfohlen, da Teamleitung Einsicht und Nachtragsrecht gibt). OIDC gleicht nur beim Login ab. Abgleich beim Login (LDAP, OIDC) und in der LDAP-Nachprüfung; fehlende Teams entstehen als `directory`, nur `directory`-Mitgliedschaften werden gesetzt/entfernt. Ein gleichnamiges lokales Team wird nicht übernommen (Systemlog). Verzeichnis-Teams: Mitglieder/Leitung in `/admin` und per Befehl nicht änderbar (409), löschen nur leer.
 
-**Benachrichtigungen:** nur In-App-Hinweise; E-Mail folgt als eigener Baustein über `notifyApproval` (Ereignisse closing_soon, closed, rejected, nachtrag, pending; heute leer). Für Jira/Tempo-Buchungen bleibt der Tempo-Stundenzettel-Status maßgeblich.
+**Benachrichtigungen:** In-App-Hinweise und E-Mail über `notifyApproval` (SMTP, abschaltbar in `/admin`, Migration 020; Ereignisse closing_soon, closed, rejected, nachtrag, pending; Inhalt ohne Zeiten; Entprellung in `notify_sent`). Exchange-OAuth/Graph offen. Für Jira/Tempo-Buchungen bleibt der Tempo-Stundenzettel-Status maßgeblich.
 
 ## 7. Plane (Modul, nicht abschaltbar)
 **Mehrere Plane-Workspaces (Entscheidung 10.11.):** Der Administrator legt mehrere Plane-Workspaces fest (Name, Adresse, Workspace-Kennung, ein/aus; änderbar, mehrere Einträge – wie die Jira-Instanzen). Heute gibt es nur einen (`plane_base_url` + `plane_workspace` in der Servereinrichtung). Folgen: Quellen/Projekte, Sync, Tickets, Import und Buchung arbeiten je Workspace; der API-Schlüssel gilt je Person und Plane-Adresse (Workspaces auf demselben Server teilen ihn). Status: **offen, nächster Baustein nach Schritt 2**.
@@ -163,15 +163,15 @@ Pilot: Vorschlag 3 Personen (Betrieb und Entwicklung), 1 Monat – **Entscheidun
 7. Offene Fragen aus Abschnitt 6 und 13 dort eintragen.
 
 ## 15. Nächste Schritte (aktuell)
-1. Monatsschluss/Nachtragen/Teams aus Verzeichnis und Team-/Personal-Übersichten fertigstellen (läuft). 2. Bildschirme Teamleiter und Personal. 3. E-Mail-Erinnerungen, dann Urlaubsantrag. 4. Mehrere Plane-Workspaces, Tempo-Grundimport/Abgleich, Exporte. 5. Web-Maske LDAP/OIDC, Geräte-Token/Annahme-Schnittstelle, gemeinsame Zähler, DB-Rollen, `govulncheck`. 6. Client-Anbindung und Mac-Härtung. 7. Cloud-Varianten (nachrangig). Quer dazu: Abnahme gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik) und im Browser.
+1. Abnahme Browser + echte Systeme. 2. Exchange-OAuth/Graph, dann Urlaubsantrag. 3. Mehrere Plane-Workspaces, Tempo-Grundimport/Abgleich, Exporte. 4. Web-Maske LDAP/OIDC, Geräte-Token/Annahme-Schnittstelle, gemeinsame Zähler, DB-Rollen, `govulncheck`. 5. Client-Anbindung und Mac-Härtung. 6. Cloud-Varianten (nachrangig). Nachtragen-UI und SMTP-E-Mail sind gebaut (noch ohne Browser-/SMTP-Abnahme).
 
 ## 16. Entscheidungen zu Freigabe, Teams, Erinnerungen, Urlaub (10.11.2026)
 Antworten des Nutzers auf die acht Fragen des Systemvergleichs:
-1. **Monatsschluss:** Nach Monatsende kann die Person nur noch bis zum Ende des ersten Werktags danach nachtragen, dann ist der Monat zu (automatisch). Danach nachtragen nur Teamleitung (ihres Teams) und Personal, mit Begründung und Protokoll; der technische Admin sieht und ändert keine Zeiten. – im Server gebaut (§6), Oberfläche offen.
+1. **Monatsschluss:** Nach Monatsende kann die Person nur noch bis zum Ende des ersten Werktags danach nachtragen, dann ist der Monat zu (automatisch). Danach nachtragen nur Teamleitung (ihres Teams) und Personal, mit Begründung und Protokoll; der technische Admin sieht und ändert keine Zeiten. – Server und Oberfläche (Nachtragen-Dialog, „geschlossen“) gebaut (§6), Browser-Abnahme offen.
 2. **Freigabe-Regeln (Fristen, Modus):** Servereinstellungen in `/admin` (Standard: Frist 1 Werktag, Modus „Personal gibt frei“); Fachliches kann später zum Personal wandern – nicht entschieden.
 3. **Teams:** aus dem Verzeichnis (LDAP-/authentik-Gruppen `zp-team-<name>`, `-lead`) **oder** lokal im Admin; beides parallel, Verzeichnis-Teams nicht von Hand änderbar. – im Server gebaut (§6).
 4. **Selbstfreigabe:** Niemand gibt den eigenen Monat frei; Freigaben macht ausschließlich das Personal (gegenseitig). Einzige Person im Personal: Selbstfreigabe mit Pflicht-Kommentar und eigenem Audit.
 5. **Vertretung:** Keine eigene Vertretung; Personal gibt frei und übernimmt jede Freigabe. Teamleitung gibt nicht frei.
-6. **Erinnerungen:** In-App-Hinweise (gebaut) **und E-Mail, wenn möglich** (Technik offen: SMTP-Relay, Exchange Online per OAuth/XOAUTH2 oder Graph; abschaltbar, minimaler Inhalt ohne Zeiten). – nächster Baustein.
+6. **Erinnerungen:** In-App-Hinweise und SMTP-E-Mail (gebaut, abschaltbar, ohne Zeiten). Exchange Online per OAuth/XOAUTH2 oder Graph – offen.
 7. **Exporte (Lohn/Kunden, „exportiert“-Sperre):** kommt später, noch nicht entschieden.
 8. **Urlaub:** Urlaubsantrag **mit Genehmigung durch die Teamleitung**; Vertretung: Personal (oder Admin). Offen: Admin = Personal oder technischer Admin (Empfehlung: Personal, weil der technische Admin keine Zeitdaten sieht). – nach E-Mail-Baustein.

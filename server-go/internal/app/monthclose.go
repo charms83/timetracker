@@ -34,12 +34,7 @@ const (
 	evPending     = "pending"      // Monat eingereicht, Freigabe offen – an das Personal (laut approval_mode)
 )
 
-// notifyApproval: Stelle für Benachrichtigungen außerhalb der App (E-Mail folgt als eigener Baustein). Heute bewusst leer:
-// die In-App-Hinweise entstehen in approvalNotices aus dem Datenbestand. Der Baustein muss selbst entprellen
-// (mehrere Instanzen, Wiederholungen nach Neustart) und darf nie blockieren (Hintergrund, Zeitlimit).
-func (a *App) notifyApproval(ctx context.Context, event string, userID int64, month string) {
-	_, _, _, _ = ctx, event, userID, month
-}
+// notifyApproval: siehe notify_mail.go (E-Mail, abschaltbar; In-App-Hinweise bleiben in approvalNotices/closeNotices).
 
 // graceWorkdays: Servereinstellung month_grace_workdays (0–5, Standard 1)
 func (a *App) graceWorkdays(ctx context.Context) int {
