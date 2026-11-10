@@ -12,17 +12,22 @@ import (
 	"time"
 )
 
-/* Integrations-API für Abrechnungsprogramme (Lohn u. a.).
-   Token zpint_… nur vom Administrator; Scope payroll → /api/integrations/payroll/*.
+/* Integrations-API für Abrechnungsprogramme (Projektstunden, Lohn).
+   Token zpint_… nur vom Administrator.
+   Scopes: projects → Stunden je Projekt/Ticket; payroll → Monatssummen je Person.
    Kein Mitarbeiter-Zugang, kein /api/admin. Klartext einmal bei Erstellung. */
 
 const integrationTokenPrefix = "zpint_"
 const integrationHMACPrefix = "v1:"
 
+var allowedIntegrationScopes = map[string]bool{"projects": true, "payroll": true}
+
 func (a *App) routesIntegrations(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/admin/integrations", a.strictAdmin(a.integrationsList))
 	mux.HandleFunc("POST /api/admin/integrations", a.strictAdmin(a.integrationsCreate))
 	mux.HandleFunc("DELETE /api/admin/integrations/{id}", a.strictAdmin(a.integrationsRevoke))
+	mux.HandleFunc("GET /api/integrations/projects", a.integrationScope("projects", a.projectsMonth))
+	mux.HandleFunc("GET /api/integrations/projects/entries", a.integrationScope("projects", a.projectsEntries))
 	mux.HandleFunc("GET /api/integrations/payroll", a.integrationScope("payroll", a.payrollMonth))
 	mux.HandleFunc("GET /api/integrations/payroll/entries", a.integrationScope("payroll", a.payrollEntries))
 }
@@ -57,17 +62,20 @@ func (a *App) integrationsCreate(w http.ResponseWriter, r *http.Request, u User)
 	if label == "" {
 		label = "Abrechnung"
 	}
-	scopes := []string{"payroll"}
+	scopes := []string{"projects", "payroll"} // Standard: Projektstunden + Lohn
 	if raw, ok := in["scopes"].([]any); ok && len(raw) > 0 {
 		scopes = scopes[:0]
+		seen := map[string]bool{}
 		for _, x := range raw {
 			s := strings.ToLower(strings.TrimSpace(fmt.Sprint(x)))
-			if s == "payroll" {
-				scopes = append(scopes, s)
+			if !allowedIntegrationScopes[s] || seen[s] {
+				continue
 			}
+			seen[s] = true
+			scopes = append(scopes, s)
 		}
 		if len(scopes) == 0 {
-			badRequest(w, "scopes: derzeit nur payroll")
+			badRequest(w, "scopes: projects und/oder payroll")
 			return
 		}
 	}
@@ -91,7 +99,7 @@ func (a *App) integrationsCreate(w http.ResponseWriter, r *http.Request, u User)
 		"hint": "Token nur einmal sichtbar – im Abrechnungsprogramm hinterlegen. Header: Authorization: Bearer zpint_…",
 		"usage": map[string]string{
 			"header":  "Authorization: Bearer <token>",
-			"example": "curl -sH 'Authorization: Bearer zpint_…' 'https://zeit.example/api/integrations/payroll?month=2026-11'",
+			"example": "curl -sH 'Authorization: Bearer zpint_…' 'https://zeit.example/api/integrations/projects?month=2026-11'",
 		},
 	})
 }
@@ -161,7 +169,129 @@ func (a *App) integrationScope(need string, h func(http.ResponseWriter, *http.Re
 	}
 }
 
-// payrollMonth: Monatssummen je Person für Abrechnung (Standard: nur freigegeben/geschlossen).
+// projectsMonth: Stunden je Projekt (über Personen hinweg, gruppiert nach Jira-Key bzw. Name).
+// Standard nur freigegebene/geschlossene Monate; Abwesenheitsbuchungen zählen nicht.
+func (a *App) projectsMonth(w http.ResponseWriter, r *http.Request, _ int64) {
+	month, from, to, ok := a.overviewMonth(r)
+	if !ok {
+		badRequest(w, "month: JJJJ-MM")
+		return
+	}
+	onlyReady := r.URL.Query().Get("all") != "1"
+	ctx := r.Context()
+	ready := ""
+	if onlyReady {
+		ready = ` AND COALESCE(a.status,'open') IN ('approved','closed')`
+	}
+	rs, err := a.maps(ctx, `SELECT
+		COALESCE(NULLIF(TRIM(p.jira_key),''), p.name, '(ohne Projekt)') AS project_key,
+		MAX(p.name) AS project_name,
+		COALESCE(SUM(e.duration_seconds),0)::bigint AS seconds,
+		COALESCE(SUM(CASE WHEN COALESCE(e.billable,1)<>0 THEN e.duration_seconds ELSE 0 END),0)::bigint AS billable_seconds,
+		COUNT(*)::int AS entry_count,
+		COUNT(DISTINCT e.user_id)::int AS people
+		FROM time_entries e
+		JOIN users u ON u.id=e.user_id
+		LEFT JOIN projects p ON p.id=e.project_id
+		LEFT JOIN month_approvals a ON a.user_id=e.user_id AND a.month=$1
+		WHERE `+activeSQL+` AND e.date>=$2 AND e.date<=$3 AND e.end_time IS NOT NULL
+		  AND COALESCE(e.is_absence,0)=0`+ready+`
+		GROUP BY 1
+		ORDER BY 1`, month, from, to)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	for _, row := range rs {
+		sec := int64(asFloat(row["seconds"]))
+		bill := int64(asFloat(row["billable_seconds"]))
+		row["hours"] = round2(float64(sec) / 3600)
+		row["billable_hours"] = round2(float64(bill) / 3600)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"month": month, "from": from, "to": to,
+		"filter": map[string]any{"ready_only": onlyReady, "hint": "Standard nur approved/closed; ?all=1 für alle Status"},
+		"projects": rs,
+	})
+	a.auditNil(ctx, "integration.projects", fmt.Sprintf("month=%s n=%d", month, len(rs)))
+}
+
+// projectsEntries: Einzelbuchungen mit Projekt/Ticket/Kommentar für Abrechnung.
+// Optional: project_key=… (Jira-Key oder exakter Projektname), user_id=…
+func (a *App) projectsEntries(w http.ResponseWriter, r *http.Request, _ int64) {
+	month, from, to, ok := a.overviewMonth(r)
+	if !ok {
+		badRequest(w, "month: JJJJ-MM")
+		return
+	}
+	onlyReady := r.URL.Query().Get("all") != "1"
+	q := r.URL.Query()
+	pkey := strings.TrimSpace(q.Get("project_key"))
+	var uid int64
+	if s := strings.TrimSpace(q.Get("user_id")); s != "" {
+		var err error
+		uid, err = strconvParseID(s)
+		if err != nil || uid <= 0 {
+			badRequest(w, "user_id ungültig")
+			return
+		}
+	}
+	ctx := r.Context()
+	ready := ""
+	args := []any{month, from, to}
+	n := 4
+	if onlyReady {
+		ready = ` AND COALESCE(a.status,'open') IN ('approved','closed')`
+	}
+	extra := ""
+	if pkey != "" {
+		extra += fmt.Sprintf(` AND COALESCE(NULLIF(TRIM(p.jira_key),''), p.name, '(ohne Projekt)')=$%d`, n)
+		args = append(args, pkey)
+		n++
+	}
+	if uid > 0 {
+		extra += fmt.Sprintf(` AND e.user_id=$%d`, n)
+		args = append(args, uid)
+	}
+	rs, err := a.maps(ctx, `SELECT e.id, e.date, e.start_time, e.end_time, e.duration_seconds,
+		e.comment, e.activity, e.billable, e.source, e.tempo_account,
+		e.user_id, u.name AS user_name, u.email,
+		p.id AS project_id, p.name AS project_name,
+		COALESCE(NULLIF(TRIM(p.jira_key),''), p.name, '(ohne Projekt)') AS project_key,
+		t.id AS task_id, t.title AS task_name, COALESCE(t.jira_ticket,'') AS ticket,
+		COALESCE(a.status,'open') AS month_status
+		FROM time_entries e
+		JOIN users u ON u.id=e.user_id
+		LEFT JOIN projects p ON p.id=e.project_id
+		LEFT JOIN tasks t ON t.id=e.task_id
+		LEFT JOIN month_approvals a ON a.user_id=e.user_id AND a.month=$1
+		WHERE `+activeSQL+` AND e.date>=$2 AND e.date<=$3 AND e.end_time IS NOT NULL
+		  AND COALESCE(e.is_absence,0)=0`+ready+extra+`
+		ORDER BY e.date, e.start_time, e.id`, args...)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	for _, row := range rs {
+		sec := int64(asFloat(row["duration_seconds"]))
+		row["hours"] = round2(float64(sec) / 3600)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"month": month, "from": from, "to": to,
+		"filter": map[string]any{
+			"ready_only": onlyReady, "project_key": pkey, "user_id": uid,
+			"hint": "Standard nur approved/closed; ?all=1 für alle Status; optional project_key, user_id",
+		},
+		"entries": rs,
+	})
+	a.auditNil(ctx, "integration.projects.entries", fmt.Sprintf("month=%s n=%d", month, len(rs)))
+}
+
+func round2(v float64) float64 {
+	return float64(int64(v*100+0.5)) / 100
+}
+
+// payrollMonth: Monatssummen je Person für Lohn (Standard: nur freigegeben/geschlossen).
 func (a *App) payrollMonth(w http.ResponseWriter, r *http.Request, _ int64) {
 	month, from, to, ok := a.overviewMonth(r)
 	if !ok {

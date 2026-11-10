@@ -99,7 +99,7 @@
   </section>
 
   <section id="t-integrations" class="hidden">
-    <p class="mut">Token für <b>Abrechnungsprogramme</b> (Lohn u. a.) – nicht für Mitarbeiter-Clients. Header <code>Authorization: Bearer zpint_…</code>. Scope <code>payroll</code>: Monatssummen und Buchungen freigegebener Monate.</p>
+    <p class="mut">Token für <b>Abrechnungsprogramme</b> – Stunden auf Projekten/Tickets und optional Lohn. Nicht für Mitarbeiter-Clients. Header <code>Authorization: Bearer zpint_…</code>. Scopes: <code>projects</code> (Standard), <code>payroll</code>.</p>
     <div class="row">
       <input id="int-label" placeholder="Bezeichnung (z. B. DATEV-Export)" size="28">
       <button class="act" onclick="createIntegration()">Token anlegen</button>
@@ -267,11 +267,11 @@ async function loadIntegrations() {
 }
 async function createIntegration() {
   try {
-    const j = await api('POST', '/admin/integrations', { label: $('int-label').value || undefined, scopes: ['payroll'] });
+    const j = await api('POST', '/admin/integrations', { label: $('int-label').value || undefined, scopes: ['projects', 'payroll'] });
     $('int-label').value = '';
     $('int-fresh').innerHTML = `<div class="pwbox"><b>Token einmalig – jetzt kopieren</b><br><code>${esc(j.token)}</code><br>
       <span class="mut">${esc(j.hint||'')}</span><br>
-      <code style="font-size:12px">curl -sH 'Authorization: Bearer …' '…/api/integrations/payroll?month=2026-11'</code>
+      <code style="font-size:12px">curl -sH 'Authorization: Bearer …' '…/api/integrations/projects?month=2026-11'</code>
       <a href="#" onclick="$('int-fresh').innerHTML='';return false"> schließen</a></div>`;
     msg('Token angelegt.');
   } catch (e) { msg(e.message, true); }

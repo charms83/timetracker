@@ -94,8 +94,8 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - Verbindung gehärtet: Client lehnt TLS-Fehler ab, blockiert HTTP-Downgrade, optional Cert-Pin; Server `__Host-zp_session` + Session-HMAC, Betrieb braucht `ZP_PUBLIC_URL=https://`.
 - Usability: Cert-Pin nur wenn gesetzt (Firmen-CA bleibt nutzbar); Notifications erlaubt; Alltag = URL setzen + anmelden.
 - Server-Update: Version per ldflags; `GET /api/admin/update` + Admin-Tab; `install.sh --upgrade` mit Backup; CLI `version`; Doku `Betrieb-Update.md` (kein In-App-Upload).
-- Abrechnungs-API: Integrations-Token `zpint_…` (Admin, Migration 028), `GET /api/integrations/payroll` (+ entries); Geräte-Token wieder nur Client-Hinweise; Doku/UI korrigiert.
-- Offen bleibt: Kunden-Export, „exportiert“-Sperre; Tray-UI; echte Systemtests.
+- Abrechnungs-API: Integrations-Token `zpint_…` (Admin, Migration 028), `GET /api/integrations/projects` (+ entries) für Stunden auf Projekten/Tickets, plus Lohn (`/payroll`); Geräte-Token wieder nur Client-Hinweise; Doku/UI korrigiert.
+- Offen bleibt: „exportiert“-Sperre/Formate; Tray-UI; echte Systemtests.
 
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik, SMTP); gefundene Fehler beheben.

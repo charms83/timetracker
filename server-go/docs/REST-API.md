@@ -1,6 +1,6 @@
 # API für Abrechnungsprogramme
 
-Die offene API ist für **Lohn-/Abrechnungsprogramme** und ähnliche Integrationen – **nicht** für den Mitarbeiter-Alltag (der läuft per Browser-Login).
+Die offene API ist für **Abrechnungsprogramme** (Projektstunden, optional Lohn) – **nicht** für den Mitarbeiter-Alltag (der läuft per Browser-Login).
 
 Geräte-Token (`zpdev_…`) bleiben nur für Mac-Client/Add-on (Hinweise). Abrechnung nutzt eigene Tokens (`zpint_…`).
 
@@ -11,7 +11,7 @@ Geräte-Token (`zpdev_…`) bleiben nur für Mac-Client/Add-on (Hinweise). Abrec
 3. Im Abrechnungsprogramm als Bearer-Token hinterlegen
 4. Bei Verlust: widerrufen und neu anlegen
 
-Server speichert nur HMAC. Scope derzeit: `payroll`.
+Server speichert nur HMAC. Scopes: `projects` (Stunden auf Projekten/Tickets), `payroll` (Monatssummen je Person). Standard bei neuem Token: beide.
 
 ## Authentifizierung
 
@@ -21,17 +21,39 @@ Authorization: Bearer zpint_…
 
 Kein `Origin`-Header (curl/Skript). HTTPS in Betrieb.
 
-## Endpunkte (Lohn)
+## Endpunkte – Projektstunden
 
-### Monatssummen
+### Summen je Projekt
+
+```bash
+curl -sS -H "Authorization: Bearer $ZPINT" \
+  "$ZP_URL/api/integrations/projects?month=2026-11"
+```
+
+Gruppierung nach Jira-Key (sonst Projektname). Felder u. a.: `project_key`, `project_name`, `seconds`, `hours`, `billable_seconds`, `billable_hours`, `entry_count`, `people`.
+
+Standard: nur Personen mit Status **approved** oder **closed**. Abwesenheiten zählen nicht.  
+Vollständigkeit: `?month=2026-11&all=1`.
+
+### Einzelbuchungen (Projekt / Ticket / Kommentar)
+
+```bash
+curl -sS -H "Authorization: Bearer $ZPINT" \
+  "$ZP_URL/api/integrations/projects/entries?month=2026-11"
+```
+
+Optional: `project_key=…`, `user_id=…`, `all=1`.
+
+Je Zeile u. a.: Datum, Person, `project_key`/`project_name`, `ticket`/`task_name`, Kommentar, `hours`, `billable`, `tempo_account`.
+
+## Endpunkte – Lohn (optional)
+
+### Monatssummen je Person
 
 ```bash
 curl -sS -H "Authorization: Bearer $ZPINT" \
   "$ZP_URL/api/integrations/payroll?month=2026-11"
 ```
-
-Standard: nur Personen mit Status **approved** oder **closed**.  
-Vollständigkeit prüfen: `?month=2026-11&all=1`.
 
 Antwort je Person u. a.: `id`, `name`, `email`, `status`, `soll_h`, `ist_h`, `saldo_h`, `konto_h`.
 
@@ -46,9 +68,9 @@ Wenn der Monat nicht freigegeben ist → `409` mit `code: month_not_ready` (auß
 
 ## Was noch fehlt (bewusst offen)
 
-- Kunden-Export (Scope `customers`)
 - „exportiert“-Markierung / Sperre (Spez §16.7 – Format mit Buchhaltung klären)
 - feste CSV/DATEV-Dateiformate
+- eigene Kundenstammdaten (aktuell Projekt = Abrechnungseinheit)
 
 ## Admin-API
 
