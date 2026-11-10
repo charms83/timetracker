@@ -78,7 +78,7 @@ Vorschläge („Light“, Regeln/Textabgleich, keine KI) folgen einem gemeinsame
 
 | Pfad | Methode | Genutzt in | Go heute |
 |---|---|---|---|
-| `/todo` | GET/POST | zp-todo, zp-ui | gebaut (Vorlagen + „Zeiten nachtragen“ wie Node; `capacity.meetings` immer 0) |
+| `/todo` | GET/POST | zp-todo, zp-ui | gebaut (Vorlagen + „Zeiten nachtragen“ wie Node; `capacity.meetings` aus calendar_events) |
 | `/todo/{id}` | PUT/DELETE | zp-todo, zp-calendar | gebaut (Löschen mit Buchung in gesperrtem Monat → 409 month_locked) |
 | `/todo/{id}/start` | POST | zp-todo, zp-calendar | gebaut (Timer über gemeinsamen `startTimer`) |
 | `/todo/range` | GET | zp-calendar | gebaut |
@@ -96,7 +96,7 @@ Vorschläge („Light“, Regeln/Textabgleich, keine KI) folgen einem gemeinsame
 | `/absence-hints`, `/absence-hints/{key}` | GET/POST | zp-assistant | gebaut (liefert gespeicherte Hinweise; Übernahme unter Monatssperre) |
 | `/ticket-estimates`, `/ticket-estimates/{ticket}` | GET/PUT | zp-report, zp-ui | gebaut |
 
-Bleibt im Client (keine Erkennung im Server): Termin-Vorschläge und -Vorbereitung (Kalender), SSH-Vorschläge und Verknüpfen von SSH/Termin beim Lernen, „am Mac von–bis“ (Anwesenheit), Abwesenheits-Erkennung aus dem Kalender. Grund: lokales Wissen des Rechners. Offen: Annahme-Schnittstelle, über die der Client erkannte Abwesenheits-Hinweise ablegt; Tempo-Abwesenheiten als Hinweis (braucht Tempo-Import); `/ticket/ensure`, `/ticket/start` – gebaut 10.11. (siehe E).
+Bleibt im Client (Erkennung am Mac): SSH-Vorschläge, Browser-Add-on/Pairing, Abwesenheits-Erkennung aus dem Kalender. Meetings/Kalender und Anwesenheit meldet der Mac an den Server (Vorschläge, Nachtragen, Mini). Offen: Annahme für Abwesenheits-Hinweise; Tempo-Abwesenheiten; Plane-Pull.
 
 ## E Betrieb/Aufräumen (Schritt 3) – 13
 
