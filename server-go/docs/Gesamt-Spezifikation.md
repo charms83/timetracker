@@ -163,7 +163,7 @@ Pilot: Vorschlag 3 Personen (Betrieb und Entwicklung), 1 Monat – **Entscheidun
 7. Offene Fragen aus Abschnitt 6 und 13 dort eintragen.
 
 ## 15. Nächste Schritte (aktuell)
-1. Abnahme Browser + echte Systeme. 2. Exchange-OAuth/Graph. 3. Mehrere Plane-Workspaces, Exporte. 4. Web-Maske LDAP/OIDC, gemeinsame Zähler, DB-Rollen, `govulncheck`. 5. Client-Anbindung und Mac-Härtung. 6. Cloud-Varianten (nachrangig). Nachtragen-UI, SMTP, Tempo-Rücksync, Urlaubsantrag und Geräte-Token/Client-Hinweise sind gebaut (Abnahme offen).
+1. Abnahme Browser + echte Systeme. 2. Exchange-OAuth/Graph. 3. Mehrere Plane-Workspaces, Exporte. 4. Web-Maske LDAP/OIDC, DB-Rollen, `govulncheck`. 5. Client-Anbindung und Mac-Härtung. 6. Cloud-Varianten (nachrangig). Nachtragen-UI, SMTP, Tempo-Rücksync, Urlaubsantrag, Geräte-Token/Client-Hinweise und gemeinsame Mehr-Pod-Zähler sind gebaut (Abnahme offen).
 
 ## 16. Entscheidungen zu Freigabe, Teams, Erinnerungen, Urlaub (10.11.2026)
 Antworten des Nutzers auf die acht Fragen des Systemvergleichs:

@@ -470,6 +470,7 @@ func (a *App) tempoSyncDo(ctx context.Context, uid int64, from, to string, dry, 
 	}
 
 	holidays := 0
+	absenceHints := 0
 	if !dry {
 		holidays = a.ensureNIHolidays(ctx, uid, from, to)
 		ts := stUsr["tracking_start_date"]
@@ -481,6 +482,7 @@ func (a *App) tempoSyncDo(ctx context.Context, uid int64, from, to string, dry, 
 			_ = a.setUserSetting(ctx, a.DB, uid, "tempo_sync_from", from)
 		}
 		_ = a.setUserSetting(ctx, a.DB, uid, "tempo_sync_last", time.Now().UTC().Format(time.RFC3339))
+		_, absenceHints = a.fromTempoAbsences(ctx, uid)
 		if !quiet || nNew > 0 || nChanged > 0 || nRemoved > 0 {
 			a.sysLog(ctx, uid, "info", "tempo-abgleich",
 				fmt.Sprintf("Abgleich %s – %s: %d neu, %d geändert, %d entfernt, %d eigene Übertragungen übersprungen",
@@ -506,6 +508,7 @@ func (a *App) tempoSyncDo(ctx context.Context, uid int64, from, to string, dry, 
 	out["years"] = yp
 	out["projects_new"] = pn
 	out["holidays"] = holidays
+	out["absence_hints"] = absenceHints
 	out["errors"] = errs
 	return out, nil
 }

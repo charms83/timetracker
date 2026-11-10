@@ -144,6 +144,17 @@ func (a *App) jiraGateFor(uid int64) *jiraGate {
 }
 
 func (g *jiraGate) wait(ctx context.Context) error {
+	return g.waitShared(ctx, nil, 0)
+}
+
+func (g *jiraGate) waitShared(ctx context.Context, a *App, uid int64) error {
+	if a != nil && a.DB != nil {
+		if until := a.rateBlockUntil(ctx, "jira", strconv.FormatInt(uid, 10)); !until.IsZero() {
+			if d := time.Until(until); d > 0 {
+				return sleepCtx(ctx, d)
+			}
+		}
+	}
 	g.mu.Lock()
 	d := time.Until(g.until)
 	g.mu.Unlock()
@@ -154,11 +165,19 @@ func (g *jiraGate) wait(ctx context.Context) error {
 }
 
 func (g *jiraGate) block(d time.Duration) {
+	g.blockShared(nil, 0, d)
+}
+
+func (g *jiraGate) blockShared(a *App, uid int64, d time.Duration) {
+	until := time.Now().Add(d)
 	g.mu.Lock()
-	if u := time.Now().Add(d); u.After(g.until) {
-		g.until = u
+	if until.After(g.until) {
+		g.until = until
 	}
 	g.mu.Unlock()
+	if a != nil && a.DB != nil {
+		a.rateSetBlock(context.Background(), "jira", strconv.FormatInt(uid, 10), until)
+	}
 }
 
 var jiraMinWait = 2 * time.Second // Tests setzen es kleiner
@@ -181,7 +200,7 @@ func (a *App) jiraDo(ctx context.Context, uid int64, c jiraCfg, method, path str
 	}
 	g := a.jiraGateFor(uid)
 	for attempt := 0; ; attempt++ {
-		if err := g.wait(ctx); err != nil {
+		if err := g.waitShared(ctx, a, uid); err != nil {
 			return nil, &jiraErr{Status: 0, Msg: "abgebrochen"}
 		}
 		res, err := a.jiraOnce(ctx, c, method, path, body)
@@ -190,7 +209,7 @@ func (a *App) jiraDo(ctx context.Context, uid int64, c jiraCfg, method, path str
 			return res, err
 		}
 		w := jiraRetryWait(je.RetryAfter, attempt)
-		g.block(w)
+		g.blockShared(a, uid, w)
 		a.sysLogSafe(ctx, uid, "info", "tempo", fmt.Sprintf("Jira/Tempo-Anfragelimit erreicht – Pause %d s", int(w.Seconds())))
 	}
 }

@@ -221,17 +221,17 @@ func (a *App) ldapLogin(w http.ResponseWriter, r *http.Request, username, passwo
 	tooMany := func() {
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "Zu viele Fehlversuche – bitte später erneut versuchen"})
 	}
-	if !a.loginFailsIP.reserve(ip) {
+	if !a.loginReserve("login_ip", ip, a.loginFailsIP) {
 		tooMany()
 		return
 	}
 	key := username + "|" + ip
-	if !a.loginFailsUser.reserve(key) {
-		a.loginFailsIP.release(ip)
+	if !a.loginReserve("login_user", key, a.loginFailsUser) {
+		a.loginRelease("login_ip", ip, a.loginFailsIP)
 		tooMany()
 		return
 	}
-	release := func() { a.loginFailsIP.release(ip); a.loginFailsUser.release(key) }
+	release := func() { a.loginRelease("login_ip", ip, a.loginFailsIP); a.loginRelease("login_user", key, a.loginFailsUser) }
 	cfg, err := LoadLDAPConfig(ctx, a.DB, a.Key)
 	if err == nil {
 		err = cfg.Validate()

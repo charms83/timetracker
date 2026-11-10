@@ -161,20 +161,20 @@ func (a *App) authLogin(w http.ResponseWriter, r *http.Request) {
 	tooMany := func() {
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "Zu viele Fehlversuche – bitte später erneut versuchen"})
 	}
-	if !a.loginFailsIP.reserve(ip) {
+	if !a.loginReserve("login_ip", ip, a.loginFailsIP) {
 		tooMany()
 		return
 	}
 	var userLim *failLimiter
-	userKey := ""
+	userKind, userKey := "login_user", ""
 	// Schlüssel Name|Adresse für bekannte UND erfundene Namen: keine Auskunft, ob es den Benutzer gibt, und niemand sperrt ein Konto
 	// für alle anderen aus. (Verteiltes Raten bremsen Passwortrichtlinie und Adress-Limit.)
 	userLim, userKey = a.loginFailsUser, username+"|"+ip
 	if armed {
-		userLim = a.loginFailsBG
+		userLim, userKind = a.loginFailsBG, "login_bg"
 	}
-	if userLim != nil && !userLim.reserve(userKey) {
-		a.loginFailsIP.release(ip)
+	if userLim != nil && !a.loginReserve(userKind, userKey, userLim) {
+		a.loginRelease("login_ip", ip, a.loginFailsIP)
 		tooMany()
 		return
 	}
@@ -195,9 +195,9 @@ func (a *App) authLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": fail})
 		return
 	}
-	a.loginFailsIP.release(ip) // Erfolg zählt nicht als Fehlversuch
+	a.loginRelease("login_ip", ip, a.loginFailsIP) // Erfolg zählt nicht als Fehlversuch
 	if userLim != nil {
-		userLim.release(userKey)
+		a.loginRelease(userKind, userKey, userLim)
 	}
 	ttl := sessionAbsolute
 	if role == "breakglass" {
@@ -248,7 +248,7 @@ func (a *App) authPassword(w http.ResponseWriter, r *http.Request, u User) {
 	ctx := r.Context()
 	a.initLimits()
 	key := fmt.Sprintf("pw:%d", u.ID)
-	if a.loginFailsUser.blocked(key) {
+	if a.loginBlocked("login_user", key, a.loginFailsUser) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "Zu viele Fehlversuche – bitte später erneut versuchen"})
 		return
 	}
@@ -259,7 +259,7 @@ func (a *App) authPassword(w http.ResponseWriter, r *http.Request, u User) {
 		return
 	}
 	if hash == nil || !verifyPassword(in.Old, *hash) {
-		a.loginFailsUser.fail(key)
+		a.loginFailRec("login_user", key, a.loginFailsUser)
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": "Aktuelles Passwort falsch"})
 		return
 	}

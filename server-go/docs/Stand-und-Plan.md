@@ -28,12 +28,13 @@ Monatsschluss nach einem Werktag, Nachtragen nur Teamleitung/Personal, Teams aus
 - Tempo→lokal Abgleich (`GET/POST /api/tempo-sync`, Spiegel `source=tempo`, 12‑h-Automatik, Grundimport).
 - Urlaubsantrag mit Genehmigung Teamleitung / Vertretung Personal (Migration 021 `leave_requests`, UI Abwesenheiten + Team/Personal).
 - Geräte-Token + Client-Hinweise (Migration 021 `client_hints`, `device_tokens.kind`, UI Einstellungen › Erkennung; Ingest `POST /api/client/hints`).
+- Tempo-Abwesenheitsvorschläge nach Abgleich (`is_absence` + `absence_hints`); gemeinsame Zähler Mehr-Pod (Migration 022 `rate_events`/`rate_blocks` für Login/Plane/Jira).
 
 ## Offen (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, OIDC, SMTP).
 2. Exchange-OAuth/Graph für E-Mail.
 3. Mehrere Plane-Workspaces (Admin legt fest), Exporte (Lohn/Kunden; später entschieden).
-4. Gemeinsame Zähler (Anmeldesperre, Plane-/Jira-Bremse) für Mehr-Pod-Betrieb; getrennte Datenbank-Rollen; `server rekey`.
+4. Getrennte Datenbank-Rollen; `server rekey`.
 5. Client: Mac-App spricht den Server an (nur lokale Erkennung: SSH, Meetings, Anwesenheit), Härtung, später Tray/Windows.
 6. Jira Cloud / Tempo Cloud / Plane Cloud (nachrangig).
 

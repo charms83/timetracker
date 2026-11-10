@@ -125,7 +125,25 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 }
 
 func (l *limiter) acquire(ctx context.Context, interactive bool) error {
+	return l.acquireShared(ctx, nil, 0, interactive)
+}
+
+// acquireShared: Speicher + optional gemeinsame DB (Mehr-Pod).
+func (l *limiter) acquireShared(ctx context.Context, a *App, uid int64, interactive bool) error {
+	key := strconv.FormatInt(uid, 10)
 	for {
+		if a != nil && a.DB != nil {
+			if until := a.rateBlockUntil(ctx, "plane", key); !until.IsZero() {
+				wait := time.Until(until)
+				if interactive {
+					return &planeErr{Status: 429, Fast: true, Msg: fmt.Sprintf("Plane ist kurz ausgelastet – in %d s nochmal", int(math.Ceil(wait.Seconds())))}
+				}
+				if err := sleepCtx(ctx, wait); err != nil {
+					return err
+				}
+				continue
+			}
+		}
 		l.mu.Lock()
 		now := time.Now()
 		for len(l.sent) > 0 && now.Sub(l.sent[0]) > time.Minute {
@@ -146,9 +164,24 @@ func (l *limiter) acquire(ctx context.Context, interactive bool) error {
 		if interactive {
 			limit = 58
 		}
+		if a != nil && a.DB != nil {
+			if n, err := a.rateCount(ctx, "plane", key, time.Minute); err == nil && n >= limit {
+				l.mu.Unlock()
+				if interactive {
+					return &planeErr{Status: 429, Fast: true, Msg: "Plane ist kurz ausgelastet – bitte gleich nochmal"}
+				}
+				if err := sleepCtx(ctx, 500*time.Millisecond); err != nil {
+					return err
+				}
+				continue
+			}
+		}
 		if len(l.sent) < limit {
 			l.sent = append(l.sent, now)
 			l.mu.Unlock()
+			if a != nil && a.DB != nil {
+				_ = a.rateAdd(ctx, "plane", key)
+			}
 			return nil
 		}
 		wait := time.Minute - now.Sub(l.sent[0]) + 50*time.Millisecond
@@ -166,16 +199,24 @@ func (l *limiter) acquire(ctx context.Context, interactive bool) error {
 }
 
 func (l *limiter) block(d time.Duration) (logIt bool) {
+	return l.blockShared(nil, 0, d)
+}
+
+func (l *limiter) blockShared(a *App, uid int64, d time.Duration) (logIt bool) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
-	if until := time.Now().Add(d); until.After(l.blocked) {
+	until := time.Now().Add(d)
+	if until.After(l.blocked) {
 		l.blocked = until
 	}
 	if time.Since(l.lastLog) > 30*time.Second {
 		l.lastLog = time.Now()
-		return true
+		logIt = true
 	}
-	return false
+	l.mu.Unlock()
+	if a != nil && a.DB != nil {
+		a.rateSetBlock(context.Background(), "plane", strconv.FormatInt(uid, 10), until)
+	}
+	return logIt
 }
 
 /* ── Anfragen ───────────────────────────────────────────────────── */
@@ -220,7 +261,7 @@ func (a *App) planeDo(ctx context.Context, uid int64, c planeCfg, method, path s
 	}
 	lim := a.limiterFor(uid)
 	for attempt := 0; ; attempt++ {
-		if err := lim.acquire(ctx, o.Interactive); err != nil {
+		if err := lim.acquireShared(ctx, a, uid, o.Interactive); err != nil {
 			return nil, err
 		}
 		res, err := a.planeOnce(ctx, c, method, path, body)
@@ -233,7 +274,7 @@ func (a *App) planeDo(ctx context.Context, uid int64, c planeCfg, method, path s
 			wait = time.Duration(attempt+1) * 5 * time.Second
 		}
 		wait = min(max(wait, 2*time.Second), 65*time.Second)
-		if lim.block(wait) {
+		if lim.blockShared(a, uid, wait) {
 			a.sysLog(ctx, uid, "info", "plane", fmt.Sprintf("Plane-Anfragelimit erreicht – Pause %d s", int(wait.Seconds())))
 		}
 		if o.Interactive || attempt >= 4 {

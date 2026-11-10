@@ -63,6 +63,20 @@ func TestLeaveDecideRule(t *testing.T) {
 	}
 }
 
+func TestRangeFromAbsenceTitle(t *testing.T) {
+	from, to, ok := rangeFromAbsenceTitle("Vacation(HAP) 20.07.-07.08.26", 2026)
+	if !ok || from != "2026-07-20" || to != "2026-08-07" {
+		t.Fatalf("got %v %s–%s", ok, from, to)
+	}
+	from, to, ok = rangeFromAbsenceTitle("Urlaub 30.12.-02.01.27", 2026)
+	if !ok || from != "2026-12-30" || to != "2027-01-02" {
+		t.Fatalf("jahreswechsel %v %s–%s", ok, from, to)
+	}
+	if absenceTypeOf("Sick leave") != "krankheit" || absenceTypeOf("Sommerurlaub") != "urlaub" {
+		t.Fatal("typeOf")
+	}
+}
+
 func TestDeviceTokenHashStable(t *testing.T) {
 	a := deviceTokenHash("zpdev_abc")
 	b := deviceTokenHash("zpdev_abc")

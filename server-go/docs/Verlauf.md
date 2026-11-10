@@ -63,5 +63,5 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik, SMTP); gefundene Fehler beheben.
 2. Exchange-OAuth/Graph.
 3. Mehrere Plane-Workspaces; Exporte.
-4. Web-Maske LDAP/OIDC; gemeinsame Zähler; DB-Rollen; `govulncheck`.
+4. Web-Maske LDAP/OIDC; DB-Rollen; `govulncheck`.
 5. Sicherheits-Audit fortsetzen; Client-Anbindung und Mac-Härtung; Cloud-Varianten.
