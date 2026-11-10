@@ -42,7 +42,7 @@ Monatsschluss nach einem Werktag, Nachtragen nur Teamleitung/Personal, Teams aus
 | Personal | `#personal` + Mitarbeiter (+ Freigabe) | fertig verdrahtet; CSV-Auswertung da; Abrechnungs-API da; `exportiert`-Sperre offen |
 | Misch (Lead+HR usw.) | additive Nav | fertig verdrahtet |
 
-**GUI-Kern: gebaut.** Team/Personal: Übersicht-CSV + Buchungs-CSV + Buchungsprotokoll. Assistent-Parität. Mac-Client Team-Session. **Abrechnungs-API** (`zpint_…`, Projektstunden + Lohn) gebaut – `exportiert`/Formate offen. Fehlt: Browser-Abnahme; Timer im Mini; Tray-UI; echte Systemtests.
+**GUI-Kern: gebaut.** Team/Personal: Übersicht-CSV + Buchungs-CSV + Buchungsprotokoll. Assistent-Parität. Mac-Client Team-Session. **Abrechnungs-API** (`zpint_…`, Projektstunden + Lohn) gebaut – `exportiert`/Formate offen. Timer ohne Ticket + Tempo-Dauerbuchung (Platzierung) gebaut. Fehlt: Browser-Abnahme; Timer im Mini; Tray-UI; echte Systemtests.
 
 ## Offen (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, OIDC, SMTP).

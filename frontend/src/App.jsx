@@ -161,17 +161,23 @@ function TimeEntryModal({ entry, projects, onSave, onClose, defaultDate }) {
     if (!start && durMin==null) return;
     if (Number.isNaN(durMin) || durMin===0) { setErr("Dauer nicht lesbar – z. B. 1h 30, 45m, 1,5h."); return; }
     setLoading(true);
-    const startLocal = start || "08:00";
-    const startISO = new Date(`${date}T${startLocal}`).toISOString();
-    const endISO   = durMin ? new Date(new Date(startISO).getTime()+durMin*60000).toISOString() : end ? new Date(`${date}T${end}`).toISOString() : null;
-    const durSecs  = endISO ? Math.floor((new Date(endISO)-new Date(startISO))/1000) : null;
-    if (durSecs !== null && durSecs <= 0) { setErr("Ende muss nach dem Start liegen."); setLoading(false); return; }
     // Aufgabe aus Ticket-Feld ermitteln (lokal oder aus Plane übernommen)
     let tId = null;
     const tk = ticket.trim();
     if (tk && projId) {
       const cur = tasks.find(t => t.id === taskId || String(t.id) === String(taskId));
       tId = (cur && (cur.jira_ticket === tk || cur.title === tk)) ? cur.id : await resolveTask(parseInt(projId), tk, picked?.name);
+    }
+    const autoPlace = !isEdit && !start && durMin > 0; // Tempo-Stil: nur Dauer → Server legt Uhrzeit in freie Lücke
+    let startISO = null, endISO = null, durSecs = null;
+    if (autoPlace) {
+      durSecs = durMin * 60;
+    } else {
+      const startLocal = start || "08:00";
+      startISO = new Date(`${date}T${startLocal}`).toISOString();
+      endISO   = durMin ? new Date(new Date(startISO).getTime()+durMin*60000).toISOString() : end ? new Date(`${date}T${end}`).toISOString() : null;
+      durSecs  = endISO ? Math.floor((new Date(endISO)-new Date(startISO))/1000) : null;
+      if (durSecs !== null && durSecs <= 0) { setErr("Ende muss nach dem Start liegen."); setLoading(false); return; }
     }
     // Warnung bei sehr kurzen Einträgen (< 5min)
     if (durSecs !== null && durSecs < 300) {
@@ -187,11 +193,12 @@ function TimeEntryModal({ entry, projects, onSave, onClose, defaultDate }) {
       });
       if (!r || r.error) { setErr(r?.error || "Speichern fehlgeschlagen – läuft der Dienst?"); setLoading(false); return; }
     } else {
-      const r = await api("POST", "/time-entries", {
+      const body = {
         project_id: projId ? parseInt(projId) : null, task_id: tId,
-        start_time: startISO, end_time: endISO,
         duration_seconds: durSecs, comment, billable, date, activity: activity || null
-      });
+      };
+      if (!autoPlace) { body.start_time = startISO; body.end_time = endISO; }
+      const r = await api("POST", "/time-entries", body);
       if (!r || r.error) { setErr(r?.error || "Speichern fehlgeschlagen – läuft der Dienst?"); setLoading(false); return; }
     }
     setLoading(false);
@@ -199,12 +206,12 @@ function TimeEntryModal({ entry, projects, onSave, onClose, defaultDate }) {
   };
 
   return (
-    <Modal title={isEdit ? "⏱ Zeiteintrag bearbeiten" : "⏱ Manueller Zeiteintrag"} onClose={onClose} width={480}>
+    <Modal title={isEdit ? "⏱ Zeiteintrag bearbeiten" : "⏱ Zeit eintragen"} onClose={onClose} width={480}>
       <div style={{padding:"14px 18px 18px"}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-          <Field label="PROJEKT *">
+          <Field label="PROJEKT">
             <select style={sel} value={projId} onChange={e=>{setProjId(e.target.value);setTaskId("");}}>
-              <option value="">– kein Projekt (nur Zeiteintrag) –</option>
+              <option value="">– ohne Projekt / Ticket –</option>
               {projects.filter(p=>p.status!=="archived").map(p=>
                 <option key={p.id} value={p.id}>{p.customer_name ? `${p.customer_name} – `:""}{p.name}</option>
               )}
@@ -220,16 +227,19 @@ function TimeEntryModal({ entry, projects, onSave, onClose, defaultDate }) {
           <Field label="DATUM">
             <input style={inp} type="date" value={date} onChange={e=>setDate(e.target.value)}/>
           </Field>
-          <Field label="START">
+          <Field label="DAUER">
+            <input style={inp} placeholder="1h 30" value={dur} onChange={e=>setDur(e.target.value)} title="wie Tempo: 1h 30, 45m, 1,5h – ohne Start/Ende legt der Assistent die Uhrzeit"/>
+          </Field>
+          <Field label="START (opt.)">
             <input style={inp} type="time" value={start} onChange={e=>setStart(e.target.value)}/>
           </Field>
-          <Field label="ENDE">
+          <Field label="ENDE (opt.)">
             <input style={inp} type="time" value={end} disabled={durMin>0} onChange={e=>setEnd(e.target.value)}/>
           </Field>
-          <Field label="ODER DAUER">
-            <input style={inp} placeholder="1h 30" value={dur} onChange={e=>setDur(e.target.value)} title="z. B. 1h 30, 45m, 1,5h, 90 – ohne Start ab 08:00"/>
-          </Field>
         </div>
+        {!isEdit && !start && !!dur.trim() && (
+          <div style={{fontSize:12,color:"var(--text2)",margin:"-4px 0 10px"}}>Ohne Start/Ende: Uhrzeit wird passend in eine freie Lücke des Tages gelegt.</div>
+        )}
         <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:12}}>
           <Field label="KOMMENTAR">
             <input style={inp} placeholder="Was wurde gemacht?" value={comment} onChange={e=>setComment(e.target.value)} onKeyDown={e=>e.key==="Enter"&&save()}/>
@@ -552,7 +562,7 @@ function TimerView({ timer, elapsed, onStart, onStop, onSwitch, workday, todayDa
       <div className="zp-panel">
         {isToday&&<BrowserTicketBar timer={timer} onChanged={onRefresh}/>}
         <NowCard timer={timer} pauseState={pauseState}/>
-        <QuickStart projects={projects} onChanged={onRefresh}/>
+        <QuickStart projects={projects} onChanged={onRefresh} timer={timer}/>
         <TimerActions timer={timer} pauseState={pauseState} onChanged={onRefresh}
           onManual={()=>{ setManualDate(expandedDay||today()); setManual(true); }}
           onPauseEntry={()=>{ onDateChange(expandedDay||today()); setPauseOpen(true); }}/>

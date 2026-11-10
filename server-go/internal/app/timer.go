@@ -20,6 +20,7 @@ func (a *App) routesTimer(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/timer/status", a.auth(a.timerStatus))
 	mux.HandleFunc("POST /api/timer/start", a.auth(a.timerStart))
 	mux.HandleFunc("POST /api/timer/stop", a.auth(a.timerStop))
+	mux.HandleFunc("POST /api/timer/assign", a.auth(a.timerAssign)) // Ticket/Projekt nachträglich am laufenden Timer
 	mux.HandleFunc("GET /api/pause/status", a.auth(a.pauseStatus))
 	mux.HandleFunc("POST /api/pause/start", a.auth(a.pauseStart))
 	mux.HandleFunc("POST /api/pause/stop", a.auth(a.pauseStop))
@@ -173,14 +174,12 @@ type apiErr struct {
 	Body map[string]any
 }
 
-// startTimer: gemeinsamer Weg für POST /api/timer/start und den Start aus einem To-do (gleiche Prüfungen, gleiche Sperre)
+// startTimer: gemeinsamer Weg für POST /api/timer/start und den Start aus einem To-do (gleiche Prüfungen, gleiche Sperre).
+// Projekt/Ticket optional – Tracken ohne Ticket; später per /api/timer/assign oder nach Stopp zuordnen.
 func (a *App) startTimer(ctx context.Context, uid int64, pid, tid, plid, comment, activity any, wantStart string) (map[string]any, *apiErr, error) {
 	var monthLocked bool
 	if err := a.DB.QueryRow(ctx, `SELECT zp_month_locked($1, $2)`, uid, time.Now().In(a.Loc).Format("2006-01-02")).Scan(&monthLocked); err == nil && monthLocked {
 		return nil, &apiErr{http.StatusConflict, map[string]any{"error": "Der laufende Monat ist geschlossen, eingereicht oder freigegeben – der Timer kann nicht starten", "code": "month_locked"}}, nil
-	}
-	if pid == nil && plid == nil {
-		return nil, &apiErr{http.StatusBadRequest, map[string]any{"error": "project_id oder plan_task_id fehlt"}}, nil
 	}
 	if !a.owned(ctx, "projects", pid, uid) || !a.owned(ctx, "tasks", tid, uid) || !a.owned(ctx, "plan_tasks", plid, uid) {
 		return nil, &apiErr{http.StatusBadRequest, map[string]any{"error": "Projekt, Ticket oder Plan-Aufgabe nicht gefunden"}}, nil
@@ -254,6 +253,66 @@ func (a *App) timerStop(w http.ResponseWriter, r *http.Request, u User) {
 	a.flagAfterID(ctx, u.ID, stoppedID)
 	a.syncAuto(u.ID)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// timerAssign: laufenden Timer nachträglich mit Projekt/Ticket/Kommentar versehen (oder Ticket anlegen lassen).
+func (a *App) timerAssign(w http.ResponseWriter, r *http.Request, u User) {
+	var in body
+	if !readJSON(w, r, &in) {
+		return
+	}
+	for _, k := range []string{"project_id", "task_id", "plan_task_id"} {
+		if invalidID(in[k]) {
+			badRequest(w, k+" ungültig")
+			return
+		}
+	}
+	ctx := r.Context()
+	pid, tid, plid := asID(in["project_id"]), asID(in["task_id"]), asID(in["plan_task_id"])
+	if !a.owned(ctx, "projects", pid, u.ID) || !a.owned(ctx, "tasks", tid, u.ID) || !a.owned(ctx, "plan_tasks", plid, u.ID) {
+		badRequest(w, "Projekt, Ticket oder Plan-Aufgabe nicht gefunden")
+		return
+	}
+	if pid != nil || tid != nil {
+		pid, tid, _ = a.redirect(ctx, u.ID, pid, tid)
+	}
+	var start *string
+	err := a.DB.QueryRow(ctx, `SELECT start_time FROM timer_state WHERE user_id=$1`, u.ID).Scan(&start)
+	if err != nil || start == nil || *start == "" {
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "Kein Timer aktiv", "code": "no_timer"})
+		return
+	}
+	sets := []string{}
+	args := []any{u.ID}
+	add := func(col string, v any) {
+		args = append(args, v)
+		sets = append(sets, fmt.Sprintf("%s=$%d", col, len(args)))
+	}
+	if _, has := in["project_id"]; has {
+		add("project_id", pid)
+	}
+	if _, has := in["task_id"]; has {
+		add("task_id", tid)
+	}
+	if _, has := in["plan_task_id"]; has {
+		add("plan_task_id", plid)
+	}
+	if _, has := in["comment"]; has {
+		add("comment", nz(in["comment"]))
+	}
+	if _, has := in["activity"]; has {
+		add("activity", nz(in["activity"]))
+	}
+	if len(sets) == 0 {
+		badRequest(w, "nichts zu setzen")
+		return
+	}
+	_, err = a.DB.Exec(ctx, `UPDATE timer_state SET `+strings.Join(sets, ",")+` WHERE user_id=$1 AND start_time IS NOT NULL`, args...)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	a.timerStatus(w, r, u)
 }
 
 func (a *App) pauseStatus(w http.ResponseWriter, r *http.Request, u User) {

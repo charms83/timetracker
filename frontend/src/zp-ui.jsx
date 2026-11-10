@@ -566,12 +566,13 @@ export function NowCard({ timer, pauseState }) {
   if (timer?.active) {
     const p = timer.project || {};
     const tk = timer.task?.jira_ticket, tt = timer.task?.title;
-    const main = tk || tt ? ticketLabel(tk, tt) : (timer.planTask?.title || p.name || "–");
+    const bare = !tk && !tt && !timer.planTask?.title && !p.name;
+    const main = tk || tt ? ticketLabel(tk, tt) : (timer.planTask?.title || p.name || "Ohne Ticket");
     return (
       <div className="zp-now running" style={{ "--bar": projColor(p.id) }}>
         <div className="info">
           <div className="p">{main}{(tk || tt) && p.name && <span className="zp-tag" title={p.name} style={{ "--c": projColor(p.id) }}>{(p.plane_identifier || p.jira_key || p.name).toString().toUpperCase().slice(0, 18)}</span>}</div>
-          <div className="s">{[timer.activity, timer.comment, `seit ${hm(timer.start_time)} Uhr`].filter(Boolean).join(" · ")}</div>
+          <div className="s">{[timer.activity, timer.comment, bare ? "Ticket später zuweisen" : null, `seit ${hm(timer.start_time)} Uhr`].filter(Boolean).join(" · ")}</div>
         </div>
         <div className="clock">{clock((Date.now() - Date.parse(timer.start_time)) / 1000)}</div>
       </div>
@@ -579,13 +580,14 @@ export function NowCard({ timer, pauseState }) {
   }
   return (
     <div className="zp-now">
-      <div className="info"><div className="p">Kein Timer aktiv</div><div className="s">Work-Item wählen und Start drücken</div></div>
+      <div className="info"><div className="p">Kein Timer aktiv</div><div className="s">Start – mit oder ohne Ticket</div></div>
     </div>
   );
 }
 
-/* ── Schnellstart (wie Mini-Fenster) ──────────────────────────────── */
-export function QuickStart({ projects, onChanged }) {
+/* ── Schnellstart (wie Mini-Fenster) ────────────────────────────────
+   Timer darf ohne Ticket/Projekt laufen; Zuweisung später oder hier am laufenden Timer. */
+export function QuickStart({ projects, onChanged, timer }) {
   const active = (projects || []).filter(p => p.status !== "archived" && p.status !== "done");
   const [pid, setPid] = useState(() => store.get("lastProject", ""));
   const [ticket, setTicket] = useState("");
@@ -597,6 +599,8 @@ export function QuickStart({ projects, onChanged }) {
   const [recent, setRecent] = useState([]);
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState("");
+  const running = !!timer?.active;
+  const needsAssign = running && !timer?.task?.id && !timer?.project?.id;
 
   useEffect(() => {
     if (!pid) { setTasks([]); return; }
@@ -616,7 +620,6 @@ export function QuickStart({ projects, onChanged }) {
   useEffect(() => { loadRecent(); }, [loadRecent]);
   const [now, setNow] = useState(null);
   useEffect(() => { const l = () => api("GET", "/suggest-now").then(r => r && !r.error && setNow(r)); l(); const t = setInterval(l, 5 * 60e3); return () => clearInterval(t); }, []);
-  useEffect(() => { if (active.length && !active.some(p => String(p.id) === String(pid))) setPid(String(active[0].id)); }, [active.length, pid]);
 
   const onTicket = v => {
     setTicket(v); setPicked(null); setHint("");
@@ -630,50 +633,70 @@ export function QuickStart({ projects, onChanged }) {
     else if (!it.local) {
       const p = projectFromTicket(active, it.key);
       if (p) setPid(String(p.id));
-      else setHint(`Plane-Projekt von ${it.key} ist noch nicht verknüpft – Einstellungen → Plane. Buchung läuft vorerst auf das gewählte Projekt.`);
+      else setHint(`Plane-Projekt von ${it.key} ist noch nicht verknüpft – Einstellungen → Plane.`);
     }
   };
 
-  const start = async ({ project_id, task_id, comment: c, ticket: tk, name } = {}) => {
-    project_id = project_id || +pid;
-    if (!project_id || busy) return;
-    setBusy(true);
-    if (!task_id && (tk ?? ticket)) task_id = await resolveTask(project_id, tk ?? ticket, name ?? picked?.name);
-    // Kein Ticket, aber „Was machst du?“ ausgefüllt → lokale Aufgabe (Entwurf) anlegen; das echte Ticket entsteht erst beim Freigeben
-    if (!task_id && !(tk ?? ticket) && ((c ?? comment) || "").trim()) {
+  const resolveIds = async ({ project_id, task_id, comment: c, ticket: tk, name } = {}) => {
+    project_id = project_id || (pid ? +pid : null);
+    if (!task_id && (tk ?? ticket) && project_id) task_id = await resolveTask(project_id, tk ?? ticket, name ?? picked?.name);
+    // Kein Ticket, aber Kommentar + Projekt → lokale Aufgabe (Entwurf); echtes Ticket erst beim Freigeben
+    if (!task_id && !(tk ?? ticket) && project_id && ((c ?? comment) || "").trim()) {
       const t = await api("POST", "/tasks", { project_id, title: (c ?? comment).trim().slice(0, 200), local_only: true });
       if (t && !t.error && t.id) task_id = t.id;
     }
-    const r = await api("POST", "/timer/start", { project_id, task_id: task_id || null, comment: (c ?? comment) || null, activity: activity || null });
+    return { project_id: project_id || null, task_id: task_id || null, comment: (c ?? comment) || null };
+  };
+
+  const start = async (opts = {}) => {
+    if (busy) return;
+    setBusy(true);
+    const ids = await resolveIds(opts);
+    const r = await api("POST", "/timer/start", { ...ids, activity: activity || null });
     store.set("lastActivity", activity || "");
     if (!r || r.error) { setHint(r?.error || "Start fehlgeschlagen – läuft der Zeitprotokoll-Server?"); setBusy(false); return; }
-    store.set("lastProject", String(project_id));
+    if (ids.project_id) store.set("lastProject", String(ids.project_id));
     setTicket(""); setComment(""); setPicked(null); setHint(""); setBusy(false);
     onChanged?.(); loadRecent();
   };
 
+  const assign = async (opts = {}) => {
+    if (busy || !running) return;
+    setBusy(true);
+    const ids = await resolveIds(opts);
+    if (!ids.project_id && !ids.task_id && !ids.comment) { setHint("Ticket, Projekt oder Kommentar wählen"); setBusy(false); return; }
+    const r = await api("POST", "/timer/assign", { ...ids, activity: activity || null });
+    if (!r || r.error) { setHint(r?.error || "Zuweisen fehlgeschlagen"); setBusy(false); return; }
+    if (ids.project_id) store.set("lastProject", String(ids.project_id));
+    setTicket(""); setComment(""); setPicked(null); setHint(""); setBusy(false);
+    onChanged?.();
+  };
+
+  const go = running ? assign : start;
+  const btnLabel = running ? (needsAssign ? "Zuweisen" : "Aktualisieren") : "Start";
+
   return (
     <div className="zp-quick">
       <div className="grid" style={{ gridTemplateColumns: "1.6fr 1fr" }}>
-        <TicketInput value={ticket} onChange={onTicket} onPick={onPick} onEnter={() => start()} localTasks={tasks} projectId={pid}
-          onCreatedStart={it => start({ project_id: it.local_project_id, task_id: it.task_id, ticket: "" })} />
-        <select value={pid} onChange={e => setPid(e.target.value)} title="Projekt (wird aus dem Work-Item automatisch gesetzt)">
-          {!active.length && <option value="">– kein Projekt –</option>}
+        <TicketInput value={ticket} onChange={onTicket} onPick={onPick} onEnter={() => go()} localTasks={tasks} projectId={pid}
+          onCreatedStart={it => go({ project_id: it.local_project_id, task_id: it.task_id, ticket: "" })} />
+        <select value={pid} onChange={e => setPid(e.target.value)} title="Projekt optional – Timer läuft auch ohne">
+          <option value="">– ohne Projekt –</option>
           {active.map(p => <option key={p.id} value={p.id}>{p.name}{p.customer_name ? ` · ${p.customer_name}` : ""}</option>)}
         </select>
       </div>
       <div className="go">
-        <input placeholder="Was machst du?" value={comment} onChange={e => setComment(e.target.value)} onKeyDown={e => e.key === "Enter" && start()} />
+        <input placeholder={running ? "Kommentar / Ticket zuweisen…" : "Was machst du? (Ticket optional)"} value={comment} onChange={e => setComment(e.target.value)} onKeyDown={e => e.key === "Enter" && go()} />
         {activities.length > 0 && (
           <select value={activity} onChange={e => setActivity(e.target.value)} title="Tätigkeit" style={{ width: 150, flex: "0 0 auto", color: activity ? "var(--text)" : "var(--text3)" }}>
             <option value="">Tätigkeit …</option>
             {activities.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
         )}
-        <button className="zp-btn-start" disabled={!pid || busy} onClick={() => start()}>Start</button>
+        <button className="zp-btn-start" disabled={busy} onClick={() => go()}>{btnLabel}</button>
       </div>
       {hint && <div style={{ color: "#8a6400", fontSize: 11, marginTop: 6 }}>{hint}</div>}
-      {now?.items?.length > 0 && !ticket && (
+      {!running && now?.items?.length > 0 && !ticket && (
         <div className="zp-chips" style={{ marginBottom: 2 }}>
           <span style={{ fontSize: 11, color: "var(--text2)", alignSelf: "center" }}>✨ Jetzt vermutlich{now.context ? ` (${now.context})` : ""}:</span>
           {now.items.map(e => (
@@ -682,7 +705,7 @@ export function QuickStart({ projects, onChanged }) {
               <i />{e.label}
             </button>))}
         </div>)}
-      {recent.length > 0 && (
+      {!running && recent.length > 0 && (
         <div className="zp-chips">
           {recent.map(e => (
             <button key={e.id} className="zp-chip" style={{ "--c": projColor(e.project_id) }}
