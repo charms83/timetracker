@@ -30,17 +30,26 @@ const DEFAULTS = {
   mainInBrowser: true,    // v6.30: „Zeitprotokoll öffnen“ öffnet den Standard-Browser statt eines eigenen großen Fensters
   // Team-Server (Go): mode "team" + serverUrl + deviceToken (zpdev_… aus Einstellungen › Erkennung)
   mode: "local",          // "local" | "team"
-  serverUrl: "",          // z. B. https://zeit.firma.example
+  serverUrl: "",          // nur https://… (http nur localhost mit allowHttpTeam)
   deviceToken: "",        // Geräte-Token; nie ins Log schreiben
+  allowHttpTeam: false,   // Dev: http://localhost bzw. 127.0.0.1 erlauben
 };
+function teamUrlOk(url) {
+  try {
+    const u = new URL(String(url || "").trim());
+    if (u.protocol === "https:") return true;
+    if (cfg.allowHttpTeam && u.protocol === "http:" && (u.hostname === "localhost" || u.hostname === "127.0.0.1")) return true;
+  } catch (_) {}
+  return false;
+}
 function baseUrls() {
-  if (cfg.mode === "team" && cfg.serverUrl) {
+  if (cfg.mode === "team" && cfg.serverUrl && teamUrlOk(cfg.serverUrl)) {
     const root = String(cfg.serverUrl).replace(/\/+$/, "");
     return { api: root + "/api", web: root + "/" };
   }
   return { api: LOCAL_API, web: LOCAL_WEB };
 }
-function isTeamMode() { return cfg.mode === "team" && !!String(cfg.serverUrl || "").trim(); }
+function isTeamMode() { return cfg.mode === "team" && teamUrlOk(cfg.serverUrl); }
 const LOG_FILE = path.join(HOME, ".zeitprotokoll", "desktop.log");
 function log(...a) {
   const line = `${new Date().toISOString()} ${a.map(x => typeof x === "string" ? x : JSON.stringify(x)).join(" ")}\n`;
@@ -50,9 +59,15 @@ process.on("uncaughtException", e => log("uncaughtException", e.stack || String(
 process.on("unhandledRejection", e => log("unhandledRejection", e?.stack || String(e)));
 let cfg = { ...DEFAULTS };
 try { cfg = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(CFG_FILE, "utf8")) }; } catch (_) {}
+const saveCfg = () => {
+  try {
+    fs.mkdirSync(path.dirname(CFG_FILE), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(CFG_FILE, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+    try { fs.chmodSync(CFG_FILE, 0o600); } catch (_) {}
+  } catch (_) {}
+};
 // v6.18: „Immer im Vordergrund“ war Standard und hat genervt → einmalig aus (im Menü wieder einschaltbar)
-if (!cfg.topSmart) { cfg.alwaysOnTop = false; cfg.topSmart = true; cfg.topMigrated = true; try { fs.mkdirSync(path.dirname(CFG_FILE), { recursive: true }); fs.writeFileSync(CFG_FILE, JSON.stringify(cfg, null, 2)); } catch (_) {} }
-const saveCfg = () => { try { fs.mkdirSync(path.dirname(CFG_FILE), { recursive: true }); fs.writeFileSync(CFG_FILE, JSON.stringify(cfg, null, 2)); } catch (_) {} };
+if (!cfg.topSmart) { cfg.alwaysOnTop = false; cfg.topSmart = true; cfg.topMigrated = true; saveCfg(); }
 
 // Nur eine Instanz
 if (!app.requestSingleInstanceLock()) { app.quit(); }
@@ -503,12 +518,24 @@ ipcMain.handle("cfg:get", () => {
   if (c.deviceToken) c.deviceToken = c.deviceToken.slice(0, 8) + "…"; // Klartext nicht in die UI spiegeln
   return c;
 });
-ipcMain.handle("cfg:setTeam", (_e, { mode, serverUrl, deviceToken }) => {
+ipcMain.handle("cfg:setTeam", (_e, { mode, serverUrl, deviceToken, allowHttpTeam }) => {
   if (mode === "local" || mode === "team") cfg.mode = mode;
-  if (typeof serverUrl === "string") cfg.serverUrl = serverUrl.trim().replace(/\/+$/, "");
+  if (typeof allowHttpTeam === "boolean") cfg.allowHttpTeam = allowHttpTeam;
+  if (typeof serverUrl === "string") {
+    const u = serverUrl.trim().replace(/\/+$/, "");
+    if (u && cfg.mode === "team" && !teamUrlOk(u)) {
+      return { ok: false, error: "Team-Server braucht https://… (http nur localhost mit allowHttpTeam)" };
+    }
+    cfg.serverUrl = u;
+  }
   if (typeof deviceToken === "string") {
     const t = deviceToken.trim();
-    if (t === "" || t.startsWith("zpdev_")) cfg.deviceToken = t;
+    if (t === "" || /^zpdev_[A-Za-z0-9_-]{20,180}$/.test(t)) cfg.deviceToken = t;
+    else return { ok: false, error: "deviceToken ungültig (erwartet zpdev_…)" };
+  }
+  if (cfg.mode === "team" && cfg.serverUrl && !teamUrlOk(cfg.serverUrl)) {
+    cfg.mode = "local";
+    return { ok: false, error: "Ungültige serverUrl – Modus zurück auf local" };
   }
   saveCfg();
   log("cfg team", cfg.mode, cfg.serverUrl ? "url=set" : "url=empty", cfg.deviceToken ? "token=set" : "token=empty");
@@ -525,11 +552,12 @@ app.whenReady().then(async () => {
   // Lokal: App-Schlüssel (X-ZP-Token). Team: Geräte-Token (X-ZP-Device-Token) an den Go-Server – nie Admin.
   const tokenFile = path.join(HOME, ".zeitprotokoll", "app-token");
   let appTok = null; const readTok = () => { try { appTok = fs.readFileSync(tokenFile, "utf8").trim(); } catch (_) { appTok = null; } return appTok; };
-  const filterUrls = ["http://127.0.0.1:3747/*", "http://localhost:3747/*"];
+  // Token nur an API-Pfade hängen – nie an JS/CSS/Fonts (weniger Log-/HAR-Exposition)
+  const filterUrls = ["http://127.0.0.1:3747/api/*", "http://localhost:3747/api/*"];
   if (isTeamMode()) {
     try {
       const u = new URL(cfg.serverUrl);
-      filterUrls.push(`${u.protocol}//${u.host}/*`);
+      filterUrls.push(`${u.protocol}//${u.host}/api/*`);
     } catch (_) {}
   }
   session.defaultSession.webRequest.onBeforeSendHeaders({ urls: filterUrls }, (d, cb) => {
@@ -537,6 +565,12 @@ app.whenReady().then(async () => {
     else { const t = appTok || readTok(); if (t) d.requestHeaders["X-ZP-Token"] = t; }
     cb({ requestHeaders: d.requestHeaders });
   });
+  // Bestehende insecure Config: Team ohne https → warnen und deaktivieren
+  if (cfg.mode === "team" && cfg.serverUrl && !teamUrlOk(cfg.serverUrl)) {
+    log("team mode disabled: serverUrl muss https sein");
+    cfg.mode = "local";
+    saveCfg();
+  }
   session.defaultSession.webRequest.onCompleted({ urls: ["http://127.0.0.1:3747/*"] }, d => { if (d.statusCode === 403) readTok(); });
   log("start", app.getVersion(), process.versions.electron, "mode", cfg.mode || "local");
   // App-Menü: ⌘Q beendet, Bearbeiten-Menü für Kopieren/Einfügen in Feldern

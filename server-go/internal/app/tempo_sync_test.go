@@ -1,6 +1,10 @@
 package app
 
-import "testing"
+import (
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
 
 func TestMonthChunks(t *testing.T) {
 	got := monthChunks("2026-01-15", "2026-03-10")
@@ -83,5 +87,16 @@ func TestDeviceTokenHashStable(t *testing.T) {
 	c := deviceTokenHash("zpdev_xyz")
 	if a != b || a == c || len(a) != 64 {
 		t.Fatalf("hash %s / %s / %s", a, b, c)
+	}
+}
+
+func TestDeviceUserRejectsMalformed(t *testing.T) {
+	a := &App{}
+	for _, tok := range []string{"", "Bearer x", "zpdev", "admin-token", strings.Repeat("x", 300)} {
+		req := httptest.NewRequest("POST", "/api/client/hints", nil)
+		req.Header.Set("X-ZP-Device-Token", tok)
+		if _, _, ok := a.deviceUser(req); ok {
+			t.Fatalf("erwartete Ablehnung für %q", tok)
+		}
 	}
 }

@@ -86,8 +86,13 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - Mac-Client: `mode=team` + `serverUrl` + `deviceToken` → UI am Go-Server, Presence/Meetings als `client_hints`; Doku `desktop/TEAM-SERVER.md`.
 - Sicherheit: Geräte-Token nicht für Admin; Create nur zeiterfassende Konten.
 
+## Client-Sicherheit (Review + Härtung)
+- Medium behoben: Device-Token nur an `/api/*` (webRequest); Team-`serverUrl` nur `https` (localhost-HTTP mit `allowHttpTeam`); `desktop.json` Mode `0600`.
+- Server: Hints-Ingest per Geräte-Token rate-limitiert (60/min), max. 50 Hints, Payload ≤ 4 KiB; Admin/Breakglass weiter ausgeschlossen.
+- Offen bleibt: Token im Schlüsselbund, Tray-UI für URL/Token, Timer über Device-Routen.
+
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik, SMTP); gefundene Fehler beheben.
 2. Exchange-OAuth/Graph und mehrere Mail-Konten.
 3. Exporte (Lohn/Kunden).
-4. `govulncheck` regelmäßig; Sicherheits-Audit fortsetzen; Client-Anbindung und Mac-Härtung; Cloud-Varianten.
+4. `govulncheck` regelmäßig; Sicherheits-Audit fortsetzen; Mac-Schlüsselbund / Tray-UI; Cloud-Varianten.

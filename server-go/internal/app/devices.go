@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
 
 /* Geräte-Token (Mac-Client, Browser-Add-on, Minimal-Client) + Annahme-Schnittstelle für Client-Hinweise.
@@ -189,6 +190,15 @@ func (a *App) clientHintsConsume(w http.ResponseWriter, r *http.Request, u User)
 
 // clientHintsIngest: Vorschläge vom Client (keine Buchungen). Body: {hints:[{kind,day,start_time?,end_time?,title?,payload?,dedupe_key?}]}
 func (a *App) clientHintsIngest(w http.ResponseWriter, r *http.Request, u User, deviceID int64) {
+	ctx := r.Context()
+	// Geräte-Token: eng begrenzen (Missbrauch / Flooding); Sitzung bleibt großzügiger über Protect.
+	if deviceID > 0 {
+		key := fmt.Sprintf("d:%d", deviceID)
+		if !a.rateReserve(ctx, "client_hints", key, 60, time.Minute) {
+			writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "Zu viele Hinweise – bitte später erneut", "code": "rate_limited"})
+			return
+		}
+	}
 	var in struct {
 		Hints []body `json:"hints"`
 	}
@@ -199,11 +209,14 @@ func (a *App) clientHintsIngest(w http.ResponseWriter, r *http.Request, u User, 
 		badRequest(w, "hints erforderlich")
 		return
 	}
-	if len(in.Hints) > 200 {
-		badRequest(w, "höchstens 200 Hinweise je Aufruf")
+	maxHints := 50
+	if deviceID == 0 {
+		maxHints = 200
+	}
+	if len(in.Hints) > maxHints {
+		badRequest(w, fmt.Sprintf("höchstens %d Hinweise je Aufruf", maxHints))
 		return
 	}
-	ctx := r.Context()
 	var deviceRef any
 	if deviceID > 0 {
 		deviceRef = deviceID
@@ -238,6 +251,10 @@ func (a *App) clientHintsIngest(w http.ResponseWriter, r *http.Request, u User, 
 		payload, _ := json.Marshal(h["payload"])
 		if payload == nil || string(payload) == "null" {
 			payload = []byte("{}")
+		}
+		if len(payload) > 4096 { // Payload-Cap gegen aufgeblähte Client-Daten
+			skipped++
+			continue
 		}
 		tag, err := a.DB.Exec(ctx, `INSERT INTO client_hints(user_id,device_id,kind,day,start_time,end_time,title,payload,dedupe_key)
 			VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)
