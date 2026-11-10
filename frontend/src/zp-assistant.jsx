@@ -108,7 +108,9 @@ const TASK_UI = {
   overlaps: { body: p => <OverlapCard {...p} days={31} emptyText="Keine Überschneidungen mehr offen." /> },
   tempo_errors: { body: () => <button style={btn(true)} onClick={() => go("uebertragen")}><ExternalLink size={13} /> Zu Übertragen › Nach Tempo</button> },
   tempo_noticket: { body: () => <button style={btn(true)} onClick={() => go("uebertragen")}><ExternalLink size={13} /> Ticket zuordnen (Übertragen › Nach Tempo)</button> },
-  selfcheck: { body: () => <SelfCheckCard /> },
+  selfcheck: { body: () => isServerMode()
+    ? <div style={{ fontSize: 12.5, color: "var(--text2)" }}>Selbstprüfung liegt unter <a href="/admin">Administration</a> (nur technischer Admin).</div>
+    : <SelfCheckCard /> },
 };
 function TasksView({ onSetup }) {
   const [list, setList] = useState(null); const [open, setOpen] = useState({}); const [tick, setTick] = useState(0);
@@ -129,7 +131,9 @@ function TasksView({ onSetup }) {
         </div>
         {ui && isOpen && <div style={{ marginTop: 10 }}>{ui.body({ onChanged: changed, tick })}</div>}
       </div>); })}
-    <div style={{ fontSize: 11, color: "var(--text2)" }}>Geprüft wird nur die eigene Datenbank, ohne Netz – neu, wenn sich Buchungen oder Projekte ändern. Plane/Jira liest das System einmal im Monat oder auf Knopfdruck ein.</div>
+    <div style={{ fontSize: 11, color: "var(--text2)" }}>{isServerMode()
+      ? "Geprüft wird deine Datenbank auf dem Team-Server (ohne zusätzliches Netz außer dem Assistenten-Hinweis auf Tempo-Abgleich). Tempo-/Plane-Aufrufe nur bei den Aufgaben, die du startest."
+      : "Geprüft wird nur die eigene Datenbank, ohne Netz – neu, wenn sich Buchungen oder Projekte ändern. Plane/Jira liest das System einmal im Monat oder auf Knopfdruck ein."}</div>
   </div>);
 }
 

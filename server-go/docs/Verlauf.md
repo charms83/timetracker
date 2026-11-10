@@ -81,6 +81,11 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - CSV der Monatsübersicht (Team + Personal) und Buchungen je Person – Auswertung, **ohne** „exportiert“-Sperre (Spez §16.7 weiter offen).
 - Personen-Detail: Buchungsprotokoll via `GET /api/audit?user=` (asTarget); Admin-Konten nicht per `?user=` einsehbar.
 
+## Weiterbau (Parität Tempo/Assistent + Client→Server)
+- Assistent-Aufgaben: `tempo_sync`, `duplicates`, `cleanup`, `tempo_noticket` (wie Node); Sync-UI-Texte serverfähig; CSV bleibt lokal, Server = API-Abgleich.
+- Mac-Client: `mode=team` + `serverUrl` + `deviceToken` → UI am Go-Server, Presence/Meetings als `client_hints`; Doku `desktop/TEAM-SERVER.md`.
+- Sicherheit: Geräte-Token nicht für Admin; Create nur zeiterfassende Konten.
+
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik, SMTP); gefundene Fehler beheben.
 2. Exchange-OAuth/Graph und mehrere Mail-Konten.

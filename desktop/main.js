@@ -13,10 +13,10 @@ const fs   = require("fs");
 const os   = require("os");
 const { spawn, execSync } = require("child_process");
 
-const API      = "http://127.0.0.1:3747/api";
-const WEB      = "http://127.0.0.1:3747/";
 const HOME     = os.homedir();
 const CFG_FILE = path.join(HOME, ".zeitprotokoll", "desktop.json");
+const LOCAL_API = "http://127.0.0.1:3747/api";
+const LOCAL_WEB = "http://127.0.0.1:3747/";
 
 // ── Einstellungen ────────────────────────────────────────────────
 const DEFAULTS = {
@@ -28,7 +28,19 @@ const DEFAULTS = {
   showAtLogin: true,
   miniBounds: null,
   mainInBrowser: true,    // v6.30: „Zeitprotokoll öffnen“ öffnet den Standard-Browser statt eines eigenen großen Fensters
+  // Team-Server (Go): mode "team" + serverUrl + deviceToken (zpdev_… aus Einstellungen › Erkennung)
+  mode: "local",          // "local" | "team"
+  serverUrl: "",          // z. B. https://zeit.firma.example
+  deviceToken: "",        // Geräte-Token; nie ins Log schreiben
 };
+function baseUrls() {
+  if (cfg.mode === "team" && cfg.serverUrl) {
+    const root = String(cfg.serverUrl).replace(/\/+$/, "");
+    return { api: root + "/api", web: root + "/" };
+  }
+  return { api: LOCAL_API, web: LOCAL_WEB };
+}
+function isTeamMode() { return cfg.mode === "team" && !!String(cfg.serverUrl || "").trim(); }
 const LOG_FILE = path.join(HOME, ".zeitprotokoll", "desktop.log");
 function log(...a) {
   const line = `${new Date().toISOString()} ${a.map(x => typeof x === "string" ? x : JSON.stringify(x)).join(" ")}\n`;
@@ -52,17 +64,24 @@ let quitting = false;
 // ── API-Helfer ───────────────────────────────────────────────────
 async function api(method, p, body) {
   try {
-    const r = await fetch(API + p, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    const { api: base } = baseUrls();
+    const headers = { "Content-Type": "application/json", Accept: "application/json" };
+    if (isTeamMode() && cfg.deviceToken) headers["X-ZP-Device-Token"] = cfg.deviceToken;
+    const r = await fetch(base + p, { method, headers, body: body ? JSON.stringify(body) : undefined });
     return await r.json();
   } catch (_) { return null; }
 }
 
-// ── Server sicherstellen ─────────────────────────────────────────
+// ── Server sicherstellen (nur lokaler Node; Team-Modus: Go-Server muss erreichbar sein) ──
 function findNode() {
   for (const p of ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"]) if (fs.existsSync(p)) return p;
   try { return execSync("/bin/zsh -lc 'command -v node'", { encoding: "utf8" }).trim(); } catch (_) { return null; }
 }
 async function ensureServer() {
+  if (isTeamMode()) {
+    const h = await api("GET", "/health");
+    return !!(h && (h.ok === true || h.status === "ok" || h.version || h.time));
+  }
   if (await api("GET", "/health")) return true;
   const server = path.join(HOME, "zeitprotokoll", "backend", "server.js");
   const node = findNode();
@@ -188,6 +207,7 @@ function showMini(reason) {
 }
 
 function createMain(view, forceWindow) {
+  const { web: WEB } = baseUrls();
   const target = WEB + (typeof view === "string" && view ? "#" + view : "");
   if (cfg.mainInBrowser && !forceWindow) { shell.openExternal(target); return; }
   if (main && !main.isDestroyed()) {
@@ -247,7 +267,7 @@ async function refreshStatus() {
     { type: "separator" },
     { label: "Schnellfenster zeigen", accelerator: "CommandOrControl+Alt+Z", click: () => setExpanded(true, pendingReason) },
     { label: cfg.mainInBrowser ? "Zeitprotokoll im Browser öffnen" : "Hauptfenster öffnen", click: () => createMain() },
-    ...(cfg.mainInBrowser ? [] : [{ label: "Im Browser öffnen", click: () => shell.openExternal(WEB) }]),
+    ...(cfg.mainInBrowser ? [] : [{ label: "Im Browser öffnen", click: () => shell.openExternal(baseUrls().web) }]),
     { label: "Stundenzettel (Woche/Monat)", click: () => createMain("stundenzettel") },
     { label: "Browser-Add-ons einrichten …", click: async () => { const r = await installAllAddons(); if (!r.length) new Notification({ title: "Zeitprotokoll", body: "Alle Browser sind schon verbunden (Safari erkennt der Tracker selbst)." }).show(); } },
     { type: "separator" },
@@ -309,6 +329,16 @@ function remind(reason) {
 }
 async function onMeetingEvent(ev) {
   log("meeting", ev.type, ev.app);
+  // Team-Server: Meeting nur als Hinweis ablegen (keine Buchung); lokale Meeting-API gibt es dort nicht
+  if (isTeamMode()) {
+    if (!cfg.deviceToken) return;
+    const day = new Date();
+    const d = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+    await api("POST", "/client/hints", { hints: [{ kind: "meeting", day: d, title: `${ev.app || "Meeting"} (${ev.type})`,
+      dedupe_key: `meeting:${ev.type}:${ev.app || ""}:${d}:${Math.floor(Date.now() / 60000)}`,
+      payload: { type: ev.type, app: ev.app } }] });
+    return;
+  }
   const now = await api("GET", "/meetings/now");
   if (now && now.ask === false) return;
   await refreshStatus();
@@ -329,6 +359,7 @@ async function onMeetingEvent(ev) {
 /* Termin beginnt (auch ohne Meeting-Programm) → einmal nachfragen, vorbelegt */
 const calAsked = new Set();
 async function calendarTick() {
+  if (isTeamMode()) return; // Kalender-Erkennung am Team-Server nur über client_hints
   const now = await api("GET", "/meetings/now");
   const ev = now?.event; if (!ev || now.ask === false || now.state || calAsked.has(ev.uid)) return;
   const since = Date.now() - Date.parse(ev.start_time);
@@ -339,11 +370,20 @@ async function calendarTick() {
   await onMeetingEvent({ type: "calendar", app: "Termin" });
 }
 setInterval(() => calendarTick().catch(() => {}), 60 * 1000);
-// ── Anwesenheit (optional, Einstellung „presence_track“): nur „jemand ist am Mac“ je Minute – kein Inhalt
+// ── Anwesenheit: lokal → POST /presence; Team-Server → client_hints (kind=presence), keine Admin-Rechte
 let screenLocked = false;
 async function presenceTick() {
   const active = !screenLocked && powerMonitor.getSystemIdleTime() < cfg.idleLimitSeconds;
-  if (active) await api("POST", "/presence", { active: true });
+  if (!active) return;
+  if (isTeamMode()) {
+    if (!cfg.deviceToken) return;
+    const day = new Date();
+    const d = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+    const hm = `${String(day.getHours()).padStart(2, "0")}:${String(day.getMinutes()).padStart(2, "0")}`;
+    await api("POST", "/client/hints", { hints: [{ kind: "presence", day: d, title: "am Mac", dedupe_key: `presence:${d}:${hm}`, payload: { active: true } }] });
+    return;
+  }
+  await api("POST", "/presence", { active: true });
 }
 setInterval(() => presenceTick().catch(() => {}), 60 * 1000);
 ipcMain.on("meeting:timerStarted", () => { meetingTimerStarted = true; });
@@ -458,7 +498,22 @@ ipcMain.on("mini:hide", () => setExpanded(false));
 ipcMain.on("mini:quit", () => { quitting = true; app.quit(); });
 ipcMain.on("mini:openMain", (_e, view) => createMain(view));
 ipcMain.on("mini:changed", () => refreshStatus());
-ipcMain.handle("cfg:get", () => cfg);
+ipcMain.handle("cfg:get", () => {
+  const c = { ...cfg };
+  if (c.deviceToken) c.deviceToken = c.deviceToken.slice(0, 8) + "…"; // Klartext nicht in die UI spiegeln
+  return c;
+});
+ipcMain.handle("cfg:setTeam", (_e, { mode, serverUrl, deviceToken }) => {
+  if (mode === "local" || mode === "team") cfg.mode = mode;
+  if (typeof serverUrl === "string") cfg.serverUrl = serverUrl.trim().replace(/\/+$/, "");
+  if (typeof deviceToken === "string") {
+    const t = deviceToken.trim();
+    if (t === "" || t.startsWith("zpdev_")) cfg.deviceToken = t;
+  }
+  saveCfg();
+  log("cfg team", cfg.mode, cfg.serverUrl ? "url=set" : "url=empty", cfg.deviceToken ? "token=set" : "token=empty");
+  return { ok: true, mode: cfg.mode };
+});
 
 // ── Start ────────────────────────────────────────────────────────
 app.on("second-instance", () => showMini());
@@ -467,15 +522,23 @@ app.on("before-quit", () => { quitting = true; });
 app.on("window-all-closed", e => e.preventDefault());
 
 app.whenReady().then(async () => {
-  // Zugang zur lokalen Schnittstelle: App-Schlüssel an alle Anfragen an den eigenen Server hängen (Tracker-Fenster läuft als file://)
+  // Lokal: App-Schlüssel (X-ZP-Token). Team: Geräte-Token (X-ZP-Device-Token) an den Go-Server – nie Admin.
   const tokenFile = path.join(HOME, ".zeitprotokoll", "app-token");
   let appTok = null; const readTok = () => { try { appTok = fs.readFileSync(tokenFile, "utf8").trim(); } catch (_) { appTok = null; } return appTok; };
-  session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ["http://127.0.0.1:3747/*", "http://localhost:3747/*"] }, (d, cb) => {
-    const t = appTok || readTok(); if (t) d.requestHeaders["X-ZP-Token"] = t;
+  const filterUrls = ["http://127.0.0.1:3747/*", "http://localhost:3747/*"];
+  if (isTeamMode()) {
+    try {
+      const u = new URL(cfg.serverUrl);
+      filterUrls.push(`${u.protocol}//${u.host}/*`);
+    } catch (_) {}
+  }
+  session.defaultSession.webRequest.onBeforeSendHeaders({ urls: filterUrls }, (d, cb) => {
+    if (isTeamMode() && cfg.deviceToken) d.requestHeaders["X-ZP-Device-Token"] = cfg.deviceToken;
+    else { const t = appTok || readTok(); if (t) d.requestHeaders["X-ZP-Token"] = t; }
     cb({ requestHeaders: d.requestHeaders });
   });
-  session.defaultSession.webRequest.onCompleted({ urls: ["http://127.0.0.1:3747/*"] }, d => { if (d.statusCode === 403) readTok(); });   // Server hat neuen Schlüssel → neu lesen
-  log("start", app.getVersion(), process.versions.electron);
+  session.defaultSession.webRequest.onCompleted({ urls: ["http://127.0.0.1:3747/*"] }, d => { if (d.statusCode === 403) readTok(); });
+  log("start", app.getVersion(), process.versions.electron, "mode", cfg.mode || "local");
   // App-Menü: ⌘Q beendet, Bearbeiten-Menü für Kopieren/Einfügen in Feldern
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: "Zeitprotokoll", submenu: [

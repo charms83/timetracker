@@ -42,7 +42,7 @@ Monatsschluss nach einem Werktag, Nachtragen nur Teamleitung/Personal, Teams aus
 | Personal | `#personal` + Mitarbeiter (+ Freigabe) | fertig verdrahtet; CSV-Auswertung da; Lohn-/Kunden-Export mit Sperre offen |
 | Misch (Lead+HR usw.) | additive Nav | fertig verdrahtet |
 
-**GUI-Kern: gebaut.** Team/Personal: Übersicht-CSV + Buchungs-CSV + Buchungsprotokoll (`?user=`). Fehlt noch: Browser-Abnahme; Lohn-/Kunden-Export (Entscheidung offen); Client-only (SSH/Meetings) nur Hinweise; echte Systemtests.
+**GUI-Kern: gebaut.** Team/Personal: Übersicht-CSV + Buchungs-CSV + Buchungsprotokoll (`?user=`). Assistent: Tempo-Abgleich, Duplikate, Aufräumen, ohne-Ticket. Mac-Client: Modus `team` + Geräte-Token (`desktop/TEAM-SERVER.md`). Fehlt noch: Browser-Abnahme; Lohn-Export; Timer über Device-Token; Add-on-Remote; echte Systemtests.
 
 ## Offen (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, OIDC, SMTP).

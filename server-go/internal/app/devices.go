@@ -42,6 +42,10 @@ func (a *App) devicesList(w http.ResponseWriter, r *http.Request, u User) {
 }
 
 func (a *App) devicesCreate(w http.ResponseWriter, r *http.Request, u User) {
+	if !u.timeAccount() {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": "Geräte-Token nur für Konten mit Zeiterfassung", "code": "admin_only_account"})
+		return
+	}
 	var in body
 	if !readJSON(w, r, &in) {
 		return
@@ -117,7 +121,7 @@ func (a *App) deviceUser(r *http.Request) (User, int64, bool) {
 	err := a.DB.QueryRow(r.Context(), `SELECT d.id, u.id, u.email, u.name, u.role, u.kind, u.productive, u.must_change_password, u.is_hr,
 		EXISTS(SELECT 1 FROM team_members m WHERE m.user_id=u.id AND m.is_lead)
 		FROM device_tokens d JOIN users u ON u.id=d.user_id
-		WHERE d.token_hash=$1 AND d.revoked_at IS NULL AND NOT u.disabled AND u.role<>'breakglass'`, deviceTokenHash(raw)).
+		WHERE d.token_hash=$1 AND d.revoked_at IS NULL AND NOT u.disabled AND u.role<>'breakglass' AND u.role<>'admin'`, deviceTokenHash(raw)).
 		Scan(&did, &u.ID, &u.Email, &u.Name, &u.Role, &u.Kind, &u.Productive, &u.MustChange, &u.IsHR, &u.IsLead)
 	if err != nil {
 		return User{}, 0, false

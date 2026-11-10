@@ -17,7 +17,8 @@ import (
    Abgeschaltet: GET /api/assistant liefert nur {enabled:false, reason}, /tasks eine leere Liste – ohne weitere Abfragen.
    Bewusst anders (Mehrbenutzer): Plane-Adresse und Jira-Instanzen legt der Administrator fest; „konfiguriert“ heißt hier
    eigener Plane-Schlüssel bzw. nutzbare Jira-Instanz mit eigenem Token. TLS-Pins gibt es im Server nicht (pins = 0).
-   Nicht portierte Aufgaben (Daten fehlen im Server): tempo_sync, duplicates, cleanup, tempo_noticket, selfcheck (Betrieb). */
+   Aufgaben tempo_sync / duplicates / cleanup / tempo_noticket sind portiert (nur DB bzw. vorhandene Helfer).
+   selfcheck bleibt Betrieb → /admin (nicht in der Mitarbeiter-Aufgabenliste). */
 
 var ruleOfMode = map[string]string{"jira": "tempo", "bridge": "bridge", "plane": "plane"}
 
@@ -454,13 +455,42 @@ func (a *App) assistantTasks(w http.ResponseWriter, r *http.Request, u User) {
 	if ph, err := a.planningHints(ctx, u.ID); err == nil {
 		out = append(out, ph...)
 	}
+	// Tempo→lokal noch nie abgeglichen (wie Node: zuerst, sonst stimmen Konto und Lücken nicht)
+	if f, err := a.assistantFacts(ctx, u.ID, st); err == nil && f.jira && strings.TrimSpace(st["tempo_sync_from"]) == "" {
+		add(hint{"tempo_sync", "todo", "Zeiten aus Tempo übernehmen", "einmal alle eigenen Tempo-Zeiten holen – nur lesen; danach stimmen Arbeitszeitkonto und offene Tage", 1})
+	}
 	if me, err := a.monthEndStatus(ctx, u.ID, true); err == nil {
 		if h := monthEndHint(me); h != nil {
 			add(*h)
 		}
 	}
+	if dups, err := a.duplicates(ctx, u.ID); err == nil && len(dups) > 0 {
+		var l []string
+		for _, d := range dups[:min(3, len(dups))] {
+			from, _ := d["from"].(map[string]any)
+			into, _ := d["into"].(map[string]any)
+			l = append(l, asStr(from["name"])+" ↔ "+asStr(into["name"]))
+		}
+		add(hint{"duplicates", "todo", "Doppelte Projekte", strings.Join(l, ", "), len(dups)})
+	}
 	if c := n(`SELECT COUNT(*) FROM project_sources WHERE user_id=$1 AND status='new' AND gone=0`); c > 0 {
 		add(hint{"pending", "todo", "Neue Projekte aus Plane/Jira", "übernehmen oder stumm schalten", c})
+	}
+	if lp, err := a.localProjects(ctx, u.ID); err == nil {
+		var names []string
+		for _, p := range lp {
+			last := asStr(p["last"])
+			if last == "" || last >= since {
+				names = append(names, asStr(p["name"]))
+			}
+		}
+		if len(names) > 0 {
+			show := names
+			if len(show) > 4 {
+				show = show[:4]
+			}
+			add(hint{"cleanup", "todo", "Projekte nur hier (ohne Plane/Jira)", strings.Join(show, ", "), len(names)})
+		}
 	}
 	if c := n(`SELECT COUNT(*) FROM time_entries WHERE user_id=$1 AND check_flags IS NOT NULL AND check_flags<>'overlap' AND check_note IS NULL AND date>=$2`, since); c > 0 {
 		add(hint{"review", "warn", "Buchungen bitte prüfen", "fallen aus dem Rahmen (z. B. über 10 h, Urlaubstag)", c})
@@ -470,6 +500,21 @@ func (a *App) assistantTasks(w http.ResponseWriter, r *http.Request, u User) {
 		if ov, err := a.overlapPairs(ctx, u.ID, days); err == nil && len(ov) > 0 {
 			add(hint{"overlaps", "warn", "Überschneidende Buchungen", "vermutlich doppelt gebucht", len(ov)})
 		}
+	}
+	// Buchungen ohne Jira-Ticket an Projekten mit Jira-Quelle (Tempo braucht Ticket)
+	var ntN int
+	var ntS int64
+	_ = a.DB.QueryRow(ctx, `SELECT COUNT(*), COALESCE(SUM(e.duration_seconds),0)::bigint FROM time_entries e
+		LEFT JOIN tasks t ON t.id=e.task_id AND t.user_id=e.user_id
+		WHERE e.user_id=$1 AND e.date>=$2 AND e.tempo_push_id IS NULL AND COALESCE(e.tempo_skip,0)=0
+		  AND TRIM(COALESCE(t.jira_ticket,''))=''
+		  AND EXISTS (SELECT 1 FROM project_sources s WHERE s.user_id=e.user_id AND s.project_id=e.project_id AND s.system='jira' AND s.status='linked')`,
+		u.ID, since).Scan(&ntN, &ntS)
+	if ntN > 0 {
+		h := math.Round(float64(ntS)/360) / 10
+		add(hint{"tempo_noticket", "warn", "Buchungen ohne Jira-Ticket",
+			fmt.Sprintf("%d Buchung%s (%.1f h) – in Jira gibt es keine Zeit ohne Ticket; nur Plane geht aufs Übergangs-Ticket. Bitte ein Ticket zuordnen",
+				ntN, map[bool]string{true: "", false: "en"}[ntN == 1], h), ntN})
 	}
 	if c := n(`SELECT COUNT(*) FROM time_entries WHERE user_id=$1 AND tempo_push_error IS NOT NULL AND tempo_push_id IS NULL AND date>=$2`, since); c > 0 {
 		add(hint{"tempo_errors", "warn", "Fehler bei der Übertragung nach Tempo", "unter Übertragen ansehen", c})

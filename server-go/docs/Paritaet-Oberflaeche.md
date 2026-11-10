@@ -32,7 +32,7 @@ Ziel: Der Go-Server liefert die bestehende Oberfläche aus (`ZP_STATIC_DIR`) und
 | `/jira/search` | GET | zp-ui | gebaut 09.11. (ohne `?instance=` alle nutzbaren Instanzen) |
 | `/jira/status` | GET | zp-jira | gebaut 09.11. (Modul aus → `{enabled:false}`) |
 | `/tempo-csv-import` | POST | App |  |
-| `/tempo-sync` | GET | zp-tempo-sync |  |
+| `/tempo-sync` | GET/POST | zp-tempo-sync | gebaut (`tempo_sync.go`, 12‑h-Cron); CSV-Import lokal bleibt Node-only, Server nutzt API-Abgleich |
 
 ## C Plane (Schritt 1) – 2
 
@@ -78,7 +78,7 @@ Vorschläge („Light“, Regeln/Textabgleich, keine KI) folgen einem gemeinsame
 | `/todo/templates`, `/todo/templates/{id}` | GET/POST/DELETE | zp-todo | gebaut |
 | `/todo-settings` | PUT | zp-todo | gebaut – Schalter gespeichert, Abgleich nach Plane/Jira/Tempo **offen** (`settings.sync_available:false`) |
 | `/assistant` | GET/PUT | App, zp-assistant | gebaut (regelbasiert, abschaltbar; aus = leeres Gerüst `enabled:false`) |
-| `/assistant/tasks`, `/assistant/reset` | GET/POST | zp-assistant | gebaut (ohne tempo_sync, duplicates, cleanup, tempo_noticket, selfcheck – **offen**) |
+| `/assistant/tasks`, `/assistant/reset` | GET/POST | zp-assistant | gebaut: tempo_sync, duplicates, cleanup, tempo_noticket; selfcheck nur Admin (`/admin`) |
 | `/workday` | GET | App | gebaut |
 | `/workday/start`, `/workday/{id}`, `/workday/end`, `/workday/reopen`, `/workday/pause/start`, `/workday/pause/end` | POST/PUT | (Oberfläche nutzt sie nicht) | gebaut; Pausen ohne Arbeitstag-Bezug, Monatssperre geprüft |
 | `/month-end`, `/month-end/ok` | GET/POST | zp-gaps | gebaut (+ `approval`, `locked_months`; gesperrte Monate nicht nachtragbar; ohne „am Mac von–bis“) |
