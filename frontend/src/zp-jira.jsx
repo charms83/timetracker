@@ -220,17 +220,24 @@ function PlaneCreateDialog({ workspaceId, onClose, onDone }) {
   const sm = isServerMode();
   const workspaces = usePlaneWorkspaces();
   const rk = useRef({ sig: "", key: newRequestKey() });
+  const [wsPick, setWsPick] = useState(workspaceId ? String(workspaceId) : "");
   const [projects, setProjects] = useState([]); const [f, setF] = useState({ local_project_id: "", name: "", description: "", start: true }); const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
+  useEffect(() => { if (workspaceId) setWsPick(String(workspaceId)); }, [workspaceId]);
+  useEffect(() => {
+    if (sm && workspaces.length === 1 && !wsPick) setWsPick(String(workspaces[0].id));
+  }, [sm, workspaces, wsPick]);
   useEffect(() => { api("GET", "/projects").then(p => {
     let list = Array.isArray(p) ? p.filter(x => x.plane_project_id && x.status !== "archived") : [];
-    if (sm && workspaceId) list = list.filter(x => !x.plane_workspace_id || String(x.plane_workspace_id) === String(workspaceId));
+    if (sm && wsPick) list = list.filter(x => !x.plane_workspace_id || String(x.plane_workspace_id) === String(wsPick));
     setProjects(list);
-  }); }, [sm, workspaceId]);
+    setF(v => list.some(x => String(x.id) === String(v.local_project_id)) ? v : { ...v, local_project_id: "" });
+  }); }, [sm, wsPick]);
   const save = async () => {
+    if (sm && workspaces.length > 1 && !wsPick) { setErr("Bitte den Plane-Workspace wählen"); return; }
     setBusy(true); setErr("");
     let extra = {};
     if (sm) {   // Go-Server: nur nach ausdrücklichem Klick (confirm), idempotent über request_key
-      const sig = JSON.stringify([f.local_project_id, f.name, f.description, workspaceId || ""]);
+      const sig = JSON.stringify([f.local_project_id, f.name, f.description, wsPick || ""]);
       if (rk.current.sig !== sig) rk.current = { sig, key: newRequestKey() };
       extra = { confirm: true, request_key: rk.current.key };
     }
@@ -239,11 +246,18 @@ function PlaneCreateDialog({ workspaceId, onClose, onDone }) {
     if (f.start) await call("POST", "/timer/start", { project_id: r.local_project_id, task_id: r.task_id });
     onDone(r.key, f.start);
   };
-  const wsHint = workspaceId && workspaces.find(w => String(w.id) === String(workspaceId))?.name;
+  const wsHint = wsPick && workspaces.find(w => String(w.id) === String(wsPick))?.name;
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.3)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
       <div className="zp-card" style={{ width: 480, padding: "16px 18px" }} onClick={e => e.stopPropagation()}>
-        <div style={{ fontWeight: 600, fontSize: 15 }}>Neues Plane-Ticket{wsHint ? ` · ${wsHint}` : ""}</div>
+        <div style={{ fontWeight: 600, fontSize: 15 }}>Neues Plane-Ticket{wsHint && workspaces.length <= 1 ? ` · ${wsHint}` : ""}</div>
+        {sm && workspaces.length > 1 && (<>
+          <label style={lab}>Plane-Workspace</label>
+          <select value={wsPick} onChange={e => { setWsPick(e.target.value); setF(v => ({ ...v, local_project_id: "" })); }} style={{ ...inpS }}>
+            <option value="">Workspace wählen …</option>
+            {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+        </>)}
         <label style={lab}>Projekt</label>
         <select value={f.local_project_id} onChange={e => setF({ ...f, local_project_id: e.target.value })} style={{ ...inpS }}><option value="">Projekt wählen …</option>{projects.map(p => <option key={p.id} value={p.id}>{(p.plane_identifier || "").toUpperCase()} – {p.name}</option>)}</select>
         <label style={lab}>Titel</label><input style={inpS} value={f.name} onChange={e => setF({ ...f, name: e.target.value })} autoFocus />

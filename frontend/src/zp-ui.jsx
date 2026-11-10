@@ -759,8 +759,8 @@ export const inpS = { width: "100%", padding: "7px 9px" };
 export const btn = (primary) => ({ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 7, fontWeight: 600,
   border: primary ? "none" : "1px solid var(--line)", background: primary ? "var(--accent-fill)" : "var(--card)", color: primary ? "#fff" : "var(--text)" });
 
-/* Plane-Workspaces (Server): wie Jira-Instanzen – Schlüssel je Host */
-function WorkspaceKey({ ws, onChanged }) {
+/* Plane-Workspaces (Server): wie JiraInstancesPanel – eine Karte je Workspace, Schlüssel je Host */
+function WorkspaceKey({ ws, sharedNote, onChanged }) {
   const [val, setVal] = useState(""); const [msg, setMsg] = useState(null); const [busy, setBusy] = useState(false);
   const save = async () => {
     if (!val.trim() || busy) return;
@@ -771,7 +771,7 @@ function WorkspaceKey({ ws, onChanged }) {
     setVal(""); setMsg({ text: "Schlüssel gespeichert" }); onChanged();
   };
   const del = async () => {
-    if (!confirm(`Plane-Schlüssel für „${ws.name}“ entfernen?`)) return;
+    if (!confirm(`Plane-Schlüssel für „${ws.name}“ entfernen?${sharedNote ? " (gilt für alle Workspaces auf dieser Adresse)" : ""}`)) return;
     setBusy(true); setMsg(null);
     const r = await call("DELETE", `/profile/secrets/plane_key?workspace=${ws.id}`);
     setBusy(false);
@@ -780,7 +780,8 @@ function WorkspaceKey({ ws, onChanged }) {
   };
   return (
     <div>
-      <label style={lab}>API-Schlüssel (Plane › Profil › API Tokens – verschlüsselt, nie wieder angezeigt)</label>
+      <label style={lab}>Persönlicher API-Schlüssel (Plane › Profil › API Tokens – wird verschlüsselt gespeichert, nie wieder angezeigt)</label>
+      {sharedNote && <div style={{ fontSize: 12, color: "var(--text2)", margin: "-2px 0 6px" }}>{sharedNote}</div>}
       <div style={{ display: "flex", gap: 8 }}>
         <input style={inpS} type="password" autoComplete="new-password" placeholder={ws.key_set ? "•••• gespeichert – zum Ersetzen neuen Schlüssel eingeben" : "Schlüssel einfügen"} value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => e.key === "Enter" && save()} />
         <button style={btn(true)} disabled={!val.trim() || busy} onClick={save}><KeyRound size={14} /> Speichern</button>
@@ -799,29 +800,30 @@ export function PlaneWorkspacesPanel({ status, onChanged }) {
   useEffect(() => { load(); }, [load]);
   if (!list) return <div style={{ color: "var(--text3)", fontSize: 12 }}>Lade…</div>;
   if (list.error) return <div style={{ color: "var(--text2)", fontSize: 12 }}>{list.error}</div>;
-  if (!list.length) return <div style={{ color: "var(--text2)", fontSize: 12 }}>Es ist kein Plane-Workspace eingerichtet. Das legt der Administrator unter /admin fest.</div>;
-  const byHost = {};
-  for (const w of list) {
-    const h = w.host || w.base_url || "";
-    if (!byHost[h]) byHost[h] = { host: h, key_set: false, items: [] };
-    byHost[h].key_set = byHost[h].key_set || !!w.key_set;
-    byHost[h].items.push(w);
-  }
+  if (!list.length) return <div style={{ color: "var(--text2)", fontSize: 12 }}>Es ist kein Plane-Workspace eingerichtet. Das legt der Administrator fest.</div>;
+  const hostCount = {};
+  for (const w of list) hostCount[w.host || w.base_url || ""] = (hostCount[w.host || w.base_url || ""] || 0) + 1;
+  const keyShown = new Set();   // Schlüssel-Feld nur einmal je Host (wie gemeinsame Adresse)
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ fontSize: 12, color: "var(--text2)" }}>Der Schlüssel gilt je Plane-Adresse; Workspaces auf demselben Host teilen ihn.</div>
-      {Object.values(byHost).map(g => {
-        const rep = g.items[0];
-        const st = (status || []).find(x => g.items.some(i => i.id === x.id));
+      {list.map(w => {
+        const host = w.host || w.base_url || "";
+        const st = Array.isArray(status) ? status.find(x => x.id === w.id) : (status?.workspaces || []).find(x => x.id === w.id);
+        const showKey = !keyShown.has(host);
+        if (showKey) keyShown.add(host);
+        const shared = hostCount[host] > 1;
         return (
-          <div key={g.host || rep.id} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px" }}>
+          <div key={w.id} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <b>{g.host || rep.name}</b>
-              <span className={`zp-pill ${g.key_set ? "synced" : "changed"}`}>{g.key_set ? "Schlüssel gespeichert" : "Schlüssel fehlt"}</span>
+              <b>{w.name}</b>
+              {w.workspace && <span className="zp-pill">{w.workspace}</span>}
+              {host && <span className="zp-pill" title={w.base_url || host}>{host.replace(/^https?:\/\//, "")}</span>}
+              <span className={`zp-pill ${w.key_set ? "synced" : "changed"}`}>{w.key_set ? "Schlüssel gespeichert" : "Schlüssel fehlt"}</span>
               {st && <span style={{ fontSize: 12, color: st.ok ? "var(--accent)" : "var(--stop)" }}>{st.ok ? "✓ " : "✗ "}{st.message}</span>}
             </div>
-            <div style={{ fontSize: 12, color: "var(--text2)", margin: "4px 0 8px" }}>{g.items.map(i => `${i.name} (${i.workspace})`).join(" · ")}</div>
-            <WorkspaceKey ws={{ ...rep, key_set: g.key_set, name: g.items.map(i => i.name).join(", ") }} onChanged={load} />
+            {showKey
+              ? <div style={{ marginTop: 6 }}><WorkspaceKey ws={w} sharedNote={shared ? "Dieser Schlüssel gilt für alle Workspaces auf derselben Plane-Adresse." : null} onChanged={load} /></div>
+              : <div style={{ marginTop: 6, fontSize: 12, color: "var(--text2)" }}>Schlüssel über „{list.find(x => (x.host || x.base_url || "") === host)?.name || host}“ – gilt für diesen Workspace mit.</div>}
           </div>);
       })}
     </div>);
@@ -852,15 +854,11 @@ export function PlaneSettingsTab() {
     setMsg(st.error ? { err: true, text: st.error } : { text: st.message || "Gespeichert" });
     setBusy(false);
   };
-  const saveMode = async () => {
+  const saveModeAndTest = async () => {
     setBusy(true); setMsg(null);
     const put = await call("PUT", "/settings", { plane_sync_mode: f.plane_sync_mode });
+    if (put.error) { setMsg({ err: true, text: put.error }); setBusy(false); return; }
     resetPlaneCfg();
-    setMsg(put.error ? { err: true, text: put.error } : { text: "Übertragungsmodus gespeichert" });
-    setBusy(false);
-  };
-  const testAll = async () => {
-    setBusy(true); setMsg(null);
     const list = await reloadPlaneWorkspaces();
     const st = [];
     for (const w of list) {
@@ -868,16 +866,16 @@ export function PlaneSettingsTab() {
       st.push({ id: w.id, ok: !!(r.configured && r.connected), message: r.message || r.error || (r.configured ? "ok" : "nicht eingerichtet") });
     }
     setWsStatus(st);
-    resetPlaneCfg();
     const ok = st.filter(x => x.ok).length;
-    setMsg(ok ? { text: `${ok} von ${st.length} Workspace${st.length === 1 ? "" : "s"} verbunden` } : { err: true, text: st[0]?.message || "Keine Verbindung" });
+    setMsg(ok ? { text: `Gespeichert · ${ok} von ${st.length} Workspace${st.length === 1 ? "" : "s"} verbunden` } : { err: true, text: st[0]?.message || "Gespeichert, aber keine Verbindung" });
     setBusy(false);
   };
 
   return (
     <div>
-      <Box title="Plane-Zugang" sub={sm ? "Adresse und Workspace legt der Administrator fest. Du trägst je Plane-Adresse deinen API-Schlüssel ein (verschlüsselt, nie wieder angezeigt)." : "Die Zugangsdaten bleiben lokal auf diesem Mac (SQLite). Der API-Key wird danach nur noch maskiert angezeigt."}>
+      <Box title="Plane-Zugang" sub={sm ? "Plane ist das Hauptsystem. Adressen und Workspaces legt der Administrator fest; du trägst je Workspace deinen API-Schlüssel ein (verschlüsselt, nie wieder angezeigt)." : "Die Zugangsdaten bleiben lokal auf diesem Mac (SQLite). Der API-Key wird danach nur noch maskiert angezeigt."}>
         {sm ? (<>
+          <div style={{ fontSize: 12, color: "var(--text2)", margin: "0 0 8px" }}>Workspaces auf derselben Plane-Adresse teilen einen Schlüssel – wie Jira-Instanzen mit je einem Token.</div>
           <div style={{ marginBottom: 10 }}>
             <PlaneWorkspacesPanel status={wsStatus} onChanged={() => { resetPlaneCfg(); reloadPlaneWorkspaces(); }} />
           </div>
@@ -895,8 +893,7 @@ export function PlaneSettingsTab() {
             ))}
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 14 }}>
-            <button style={btn(true)} onClick={saveMode} disabled={busy}><Check size={14} /> Modus speichern</button>
-            <button style={btn(false)} onClick={testAll} disabled={busy}>{busy ? "Prüfe…" : "Verbindungen testen"}</button>
+            <button style={btn(true)} onClick={saveModeAndTest} disabled={busy}><Check size={14} /> {busy ? "Prüfe…" : "Speichern & Verbindungen testen"}</button>
             {msg && <span style={{ fontSize: 12, color: msg.err ? "var(--stop)" : "var(--accent)" }}>{msg.err ? "✗ " : "✓ "}{msg.text}</span>}
           </div>
         </>) : (<>
@@ -1127,7 +1124,7 @@ export function PlaneSyncView({ onOpenSettings }) {
         </div>
         {sm && workspaces.length > 1 && (
           <select value={wsId} onChange={e => setWsId(e.target.value)} style={{ ...inpS, width: "auto", minWidth: 160 }} title="Plane-Workspace">
-            <option value="">Primär-Workspace</option>
+            <option value="">Alle Workspaces</option>
             {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}{w.key_set ? "" : " (Schlüssel fehlt)"}</option>)}
           </select>
         )}

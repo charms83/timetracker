@@ -88,23 +88,28 @@ async function planeState() {
       <button class="sec" onclick="delKey('plane_key')">Entfernen</button></div></div>`;
     return;
   }
-  // Schlüssel je Host; Workspaces mit gleicher Adresse teilen ihn
-  const byHost = {};
-  for (const w of list) {
-    const h = w.host || w.base_url || '';
-    if (!byHost[h]) byHost[h] = { host: h, key_set: false, items: [] };
-    byHost[h].key_set = byHost[h].key_set || !!w.key_set;
-    byHost[h].items.push(w);
-  }
-  $('plane-list').innerHTML = Object.values(byHost).map(g => {
-    const rep = g.items[0];
-    const names = g.items.map(i => esc(i.name) + ' <span class="mut">(' + esc(i.workspace) + ')</span>').join(', ');
-    return `<div class="card" style="margin-bottom:10px"><b>${esc(g.host)}</b>
-      <span class="${g.key_set ? 'ok' : 'no'}"> · ${g.key_set ? 'Schlüssel gespeichert' : 'noch kein Schlüssel'}</span>
-      <div class="mut" style="margin:4px 0 8px">${names}</div>
-      <div class="row"><input type="password" id="pk-${rep.id}" autocomplete="off" placeholder="Plane-API-Schlüssel">
-      <button onclick="saveKey('plane_key','pk-${rep.id}',null,${rep.id})">Speichern</button>
-      <button class="sec" onclick="delKey('plane_key',null,${rep.id})">Entfernen</button></div></div>`;
+  // Eine Karte je Workspace (wie Jira-Instanzen); Schlüssel je Host nur einmal
+  const hostCount = {};
+  for (const w of list) hostCount[w.host || w.base_url || ''] = (hostCount[w.host || w.base_url || ''] || 0) + 1;
+  const keyShown = {};
+  $('plane-list').innerHTML = list.map(w => {
+    const host = w.host || w.base_url || '';
+    const showKey = !keyShown[host];
+    keyShown[host] = true;
+    const hostShort = host.replace(/^https?:\/\//, '');
+    const shared = hostCount[host] > 1;
+    const pills = [
+      w.workspace ? `<span class="badge">${esc(w.workspace)}</span>` : '',
+      hostShort ? `<span class="badge">${esc(hostShort)}</span>` : '',
+      `<span class="${w.key_set ? 'ok' : 'no'}">${w.key_set ? 'Schlüssel gespeichert' : 'Schlüssel fehlt'}</span>`,
+    ].filter(Boolean).join(' ');
+    const keyRow = showKey
+      ? `${shared ? '<div class="mut" style="margin:4px 0 6px">Dieser Schlüssel gilt für alle Workspaces auf derselben Plane-Adresse.</div>' : ''}
+         <div class="row"><input type="password" id="pk-${w.id}" autocomplete="off" placeholder="${w.key_set ? '•••• gespeichert – zum Ersetzen neuen Schlüssel eingeben' : 'Plane-API-Schlüssel'}">
+         <button onclick="saveKey('plane_key','pk-${w.id}',null,${w.id})">Speichern</button>
+         <button class="sec" onclick="delKey('plane_key',null,${w.id})">Entfernen</button></div>`
+      : `<div class="mut" style="margin-top:6px">Schlüssel über denselben Host – gilt für diesen Workspace mit.</div>`;
+    return `<div class="card" style="margin-bottom:10px"><b>${esc(w.name)}</b> ${pills}${keyRow}</div>`;
   }).join('');
 }
 async function testPlane() {

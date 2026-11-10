@@ -3,7 +3,7 @@
 ═══════════════════════════════════════════════════════════════════ */
 import { useState, useEffect, useCallback } from "react";
 import { Upload, RefreshCw, EyeOff, Eye, ChevronDown, ChevronRight, Pencil, Trash2 } from "lucide-react";
-import { api, call, Box, lab, inpS, btn, hm, deleteEntry, dupIds, isServerMode } from "./zp-ui.jsx";
+import { api, call, Box, lab, inpS, btn, hm, deleteEntry, dupIds, isServerMode, usePlaneWorkspaces, wsQ } from "./zp-ui.jsx";
 import { JiraInstancesPanel } from "./zp-servermode.jsx";
 
 const PILL = { new: ["Neu", "new"], changed: ["Geändert", "changed"], synced: ["In Tempo", "synced"], error: ["Fehler", "error"], skipped: ["Ausgenommen", ""],
@@ -585,6 +585,9 @@ const KEYRE = /^[A-Za-z][A-Za-z0-9_]*-\d+$/;
 const pct = s => `${Math.round(s * 100)} %`;
 
 export function TicketMapPanel() {
+  const sm = isServerMode();
+  const workspaces = usePlaneWorkspaces();
+  const [wsId, setWsId] = useState("");
   const [data, setData] = useState(null);
   const [sugg, setSugg] = useState({});        // jira_key → [Kandidaten] | "…" | {error}
   const [pick, setPick] = useState({});        // jira_key → gewählter Plane-Key
@@ -594,16 +597,19 @@ export function TicketMapPanel() {
   const [msg, setMsg] = useState(null);
   const [show, setShow] = useState("open");
 
+  useEffect(() => {
+    if (sm && workspaces.length === 1 && !wsId) setWsId(String(workspaces[0].id));
+  }, [sm, workspaces, wsId]);
   const load = useCallback(async () => {
-    const r = await api("GET", "/integrations/plane/map");
+    const r = await api("GET", `/integrations/plane/map${wsQ(wsId)}`);
     setData(r && !r.error ? r : { failed: true, error: r?.error || "Server nicht erreichbar" });
     if (r?.projects?.length) setCreatePid(v => v || String(r.projects[0].id));
-  }, []);
+  }, [wsId]);
   useEffect(() => { load(); }, [load]);
 
   const suggest = async (row) => {
     setSugg(v => ({ ...v, [row.jira_key]: "…" }));
-    const r = await call("GET", `/integrations/plane/map/suggest?key=${encodeURIComponent(row.jira_key)}&title=${encodeURIComponent(row.title || "")}`);
+    const r = await call("GET", `/integrations/plane/map/suggest?key=${encodeURIComponent(row.jira_key)}&title=${encodeURIComponent(row.title || "")}${wsQ(wsId, false)}`);
     if (r.error) { setSugg(v => ({ ...v, [row.jira_key]: { error: r.error } })); return; }
     setSugg(v => ({ ...v, [row.jira_key]: r }));
     if (r[0] && r[0].score >= 0.5) setPick(v => ({ ...v, [row.jira_key]: v[row.jira_key] || r[0].key }));
@@ -650,6 +656,12 @@ export function TicketMapPanel() {
           </div>
           <div style={{ color: "var(--text2)", fontSize: 12, marginTop: 4 }}>{data.open.length} Ticket{data.open.length === 1 ? "" : "s"} offen · {fmtMin(totalMin)}</div>
         </div>
+        {sm && workspaces.length > 1 && (
+          <select value={wsId} onChange={e => setWsId(e.target.value)} style={{ ...inpS, width: "auto", minWidth: 160 }} title="Plane-Workspace">
+            <option value="">Alle Workspaces</option>
+            {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+        )}
         <button style={btn(false)} onClick={suggestAll} disabled={!!busy || !data.open.length}>{busy === "sugg" ? "Suche…" : "Vorschläge laden"}</button>
         <button style={btn(true)} onClick={takeBest} disabled={!!busy}>Sichere Treffer übernehmen</button>
       </div>
