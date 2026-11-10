@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zeitprotokoll – Anmelden</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fff; --fg:#1a1d21; --mut:#6b7280; --line:#d6d9de; --acc:#0d6e5b; --err:#c0392b; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1214; --fg:#e6e8eb; --mut:#9aa3ad; --line:#2a3036; --acc:#2fb99c; --err:#ff6b5c; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,sans-serif; }
+  main { max-width:380px; margin:0 auto; padding:56px 16px; }
+  h1 { font-size:20px; margin:0 0 4px; } p.mut { color:var(--mut); margin:0 0 20px; }
+  label { display:block; margin:14px 0 4px; font-weight:600; }
+  input { width:100%; box-sizing:border-box; padding:9px 10px; border:1px solid var(--line); border-radius:6px; background:transparent; color:inherit; font:inherit; }
+  button { margin-top:20px; width:100%; padding:10px; border:0; border-radius:6px; background:var(--acc); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+  #msg { margin-top:14px; min-height:1.4em; color:var(--err); }
+  .pw2 { display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Zeitprotokoll-Server</h1>
+  <p class="mut" id="mode">Anmeldung</p>
+  <form id="f" autocomplete="on">
+    <label for="u">Benutzername</label>
+    <input id="u" name="username" autocomplete="username" autofocus>
+    <label for="p">Passwort</label>
+    <input id="p" name="password" type="password" autocomplete="current-password">
+    <div class="pw2" id="chg">
+      <p class="mut">Bitte lege jetzt ein neues Passwort fest (mindestens 12 Zeichen, drei Zeichenarten).</p>
+      <label for="n">Neues Passwort</label>
+      <input id="n" type="password" autocomplete="new-password">
+    </div>
+    <button id="go" type="submit">Anmelden</button>
+  </form>
+  <p id="sso" style="display:none"><a href="#" id="ssoLink" style="display:block;text-align:center;padding:10px;border:1px solid var(--line);border-radius:6px;color:var(--acc);font-weight:600;text-decoration:none;margin-top:12px">Mit authentik anmelden</a></p>
+  <div id="msg"></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const next = role => { const n = new URLSearchParams(location.search).get('next') || ''; const ok = /^\/(?![\/\\])[A-Za-z0-9_\-\/.?=&%]*$/.test(n) && !(n.startsWith('/admin') && role !== 'admin'); return ok ? n : (role === 'admin' ? '/admin' : '/'); };
+let changing = false, lastRole = '';
+const E = { off: 'Anmeldung über authentik ist nicht aktiv', unreach: 'Anmeldung über authentik ist nicht erreichbar', busy: 'Gerade zu viele Anmeldungen – bitte gleich erneut versuchen', denied: 'Keine Berechtigung (nicht in einer erlaubten Gruppe)', fail: 'Anmeldung fehlgeschlagen' };
+const qe = new URLSearchParams(location.search).get('e'); if (qe) $('msg').textContent = E[qe] || E.fail;
+fetch('/api/auth/state').then(r => r.json()).then(s => {
+  if (s.mode === 'oidc') { $('sso').style.display = 'block'; $('ssoLink').href = '/api/auth/oidc/start?next=' + encodeURIComponent(next('')); }
+  $('mode').textContent = s.mode === 'oidc' ? 'Mitarbeitende melden sich über authentik an. Diese Seite ist nur für den Notfallzugang.' : (s.mode === 'local' ? 'Lokale Anmeldung' : 'Anmeldung');
+});
+async function post(path, body) {
+  const r = await fetch('/api' + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('Fehler ' + r.status));
+  return j;
+}
+$('f').addEventListener('submit', async e => {
+  e.preventDefault(); $('msg').textContent = '';
+  try {
+    if (!changing) {
+      const j = await post('/auth/login', { username: $('u').value, password: $('p').value });
+      lastRole = (j.user && j.user.kind === 'local' && !j.user.productive) || (j.user && j.user.role === 'admin') ? 'admin' : (j.user && j.user.role);
+      if (j.must_change_password) { changing = true; $('chg').style.display = 'block'; $('go').textContent = 'Passwort ändern'; $('n').focus(); return; }
+      location.href = next(lastRole);
+    } else {
+      await post('/auth/password', { old: $('p').value, new: $('n').value });
+      location.href = next(lastRole);
+    }
+  } catch (err) { $('msg').textContent = err.message; }
+});
+</script>
+</body>
+</html>

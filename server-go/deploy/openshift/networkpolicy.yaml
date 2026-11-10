@@ -1,0 +1,28 @@
+# Nur der OpenShift-Router darf an den Server; der Server darf nur DNS, Datenbank und nach außen (Plane, Jira, authentik, LDAP).
+# Ziel-Adressen/Ports an die Umgebung anpassen (CHANGEME), sonst sind sie zu weit gefasst.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: zeitprotokoll
+spec:
+  podSelector:
+    matchLabels: { app: zeitprotokoll }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { policy-group.network.openshift.io/ingress: "" }
+      ports:
+        - { protocol: TCP, port: 8080 }
+  egress:
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+        - { protocol: UDP, port: 5353 }
+        - { protocol: TCP, port: 5353 }
+    - ports:                       # PostgreSQL, HTTPS (Plane, Jira, authentik), LDAPS
+        - { protocol: TCP, port: 5432 }
+        - { protocol: TCP, port: 443 }
+        - { protocol: TCP, port: 636 }

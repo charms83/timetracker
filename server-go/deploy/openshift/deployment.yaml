@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zeitprotokoll
+  labels: { app: zeitprotokoll }
+spec:
+  # Pilot: 1 Replika. Mehrere sind möglich (Läufe sind per Datenbank-Sperre je Person gesichert); Selbsttest/Wächter laufen je Pod.
+  replicas: 1
+  strategy: { type: RollingUpdate, rollingUpdate: { maxSurge: 1, maxUnavailable: 0 } }
+  selector:
+    matchLabels: { app: zeitprotokoll }
+  template:
+    metadata:
+      labels: { app: zeitprotokoll }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: server
+          image: registry.example.com/example/zeitprotokoll-server:CHANGEME   # Tag fest vergeben, nie :latest
+          imagePullPolicy: IfNotPresent
+          args: ["serve"]
+          ports:
+            - { name: http, containerPort: 8080 }
+          envFrom:
+            - configMapRef: { name: zeitprotokoll-config }
+            - secretRef: { name: zeitprotokoll-secrets }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 3
+          startupProbe:   # Migrationen und Selbsttest beim Start dürfen bis zu 2 Minuten dauern
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            failureThreshold: 24
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }

@@ -1,0 +1,31 @@
+[Unit]
+Description=Zeitprotokoll-Server
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zeitprotokoll
+Group=zeitprotokoll
+EnvironmentFile=/etc/zeitprotokoll/zeitprotokoll.env
+ExecStart=/usr/local/bin/zeitprotokoll-server serve
+Restart=on-failure
+RestartSec=5
+# Härtung: kein Zugriff außer auf das, was der Dienst braucht
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+CapabilityBoundingSet=
+SystemCallFilter=@system-service
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target

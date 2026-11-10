@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zeitprotokoll – Admin</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fff; --fg:#1a1d21; --mut:#6b7280; --line:#d6d9de; --acc:#0d6e5b; --warn:#b45309; --err:#c0392b; --card:#f6f7f9; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1214; --fg:#e6e8eb; --mut:#9aa3ad; --line:#2a3036; --acc:#2fb99c; --warn:#f0a43a; --err:#ff6b5c; --card:#171b1f; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 system-ui,sans-serif; }
+  header { display:flex; align-items:center; gap:16px; padding:12px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0; }
+  nav { display:flex; gap:4px; flex-wrap:wrap; }
+  nav button { background:none; border:0; color:var(--mut); padding:6px 12px; border-radius:6px; font:inherit; cursor:pointer; }
+  nav button.on { background:var(--card); color:var(--fg); font-weight:600; }
+  main { padding:16px; max-width:1100px; margin:0 auto; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px; }
+  .card b { display:block; font-size:20px; }
+  .mut { color:var(--mut); }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--mut); font-weight:600; font-size:12px; }
+  .log td:first-child { white-space:nowrap; color:var(--mut); }
+  .lvl-error { color:var(--err); font-weight:600; } .lvl-warn { color:var(--warn); font-weight:600; } .lvl-success { color:var(--acc); }
+  .st-ok, .st-fixed { color:var(--acc); } .st-warn { color:var(--warn); } .st-error { color:var(--err); font-weight:600; }
+  input, select, button.act { font:inherit; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:transparent; color:inherit; }
+  button.act { cursor:pointer; background:var(--acc); color:#fff; border-color:var(--acc); }
+  button.act.sec { background:transparent; color:var(--fg); border-color:var(--line); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:0 0 12px; }
+  .hidden { display:none; }
+  .notice { border:1px solid var(--warn); border-left-width:4px; border-radius:6px; padding:8px 12px; margin:0 0 8px; background:var(--card); }
+  .notice.alarm { border-color:var(--err); color:var(--err); font-weight:600; }
+  .pwbox { border:1px dashed var(--acc); border-radius:8px; padding:12px; margin:10px 0; background:var(--card); }
+  .pwbox code { font-size:16px; user-select:all; }
+  #msg { margin:8px 0; min-height:1.4em; }
+  code { background:var(--card); padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Zeitprotokoll-Server</h1>
+  <nav id="tabs"></nav>
+  <span class="mut" id="who"></span>
+</header>
+<main>
+  <div id="notices"></div>
+  <div id="msg"></div>
+
+  <section id="t-status"></section>
+
+  <section id="t-check" class="hidden">
+    <div class="row">
+      <button class="act sec" onclick="runCheck(false)">Neu prüfen</button>
+      <button class="act" onclick="runCheck(true)">Prüfen und sicher reparieren</button>
+      <span class="mut">Läuft auch beim Start und alle 6 Stunden. „Reparieren“ zieht Migrationen nach und räumt Abgelaufenes auf, löscht aber keine Zugangsdaten (das nur per Befehl <code>server check --fix</code>).</span>
+    </div>
+    <table><thead><tr><th>Prüfung</th><th>Ergebnis</th><th>Einzelheiten</th></tr></thead><tbody id="check-rows"></tbody></table>
+  </section>
+
+  <section id="t-logs" class="hidden">
+    <div class="row">
+      <select id="lf-level"><option value="">alle Stufen</option><option value="warn">Warnungen + Fehler</option><option value="error">nur Fehler</option><option value="info">info</option><option value="success">erfolgreich</option></select>
+      <input id="lf-cat" placeholder="Kategorie (z. B. plane)" size="16">
+      <input id="lf-user" placeholder="Benutzer" size="14">
+      <input id="lf-q" placeholder="Text suchen" size="20">
+      <label><input type="checkbox" id="lf-live"> mitlesen (alle 3 s)</label>
+      <button class="act sec" onclick="loadLogs(true)">Aktualisieren</button>
+      <button class="act sec" onclick="loadAudit()">Änderungsprotokoll</button>
+    </div>
+    <table class="log"><thead><tr><th>Zeit</th><th>Stufe</th><th>Kategorie</th><th>Benutzer</th><th>Meldung</th></tr></thead><tbody id="log-rows"></tbody></table>
+  </section>
+
+  <section id="t-users" class="hidden">
+    <div id="pwbox"></div>
+    <div class="row">
+      <input id="nu-name" placeholder="Benutzername (a–z, 0–9)" size="20">
+      <input id="nu-mail" placeholder="E-Mail" size="22">
+      <select id="nu-role"><option>user</option><option>lead</option><option>admin</option></select>
+      <label><input type="checkbox" id="nu-prod" checked> produktiv</label>
+      <button class="act" onclick="addUser()">Lokales Konto anlegen</button>
+    </div>
+    <p class="mut">Lokale Konten gelten für Installation und Einzelbetrieb: Solange authentik/LDAP nicht eingerichtet ist, darf nur <b>eine</b> Person produktiv arbeiten. Der Administrator ist ein Testkonto (nicht produktiv).</p>
+    <table><thead><tr><th>ID</th><th>Name / E-Mail</th><th>Art</th><th>Rolle</th><th>produktiv</th><th>Zugangsdaten</th><th>Einträge</th><th>Letzte Anmeldung</th><th>Gesperrt</th><th>Vorschläge</th><th></th></tr></thead><tbody id="user-rows"></tbody></table>
+  </section>
+
+  <section id="t-teams" class="hidden">
+    <p class="mut">Teamleiter sehen die Zeiten der Mitglieder ihrer Teams, <b>Personal</b> sieht alle. Beides lässt sich kombinieren. Bei Verzeichnis-Konten (LDAP/authentik) setzt die Gruppe das Personal-Recht bei jeder Anmeldung neu. Niemand kann sich selbst Personal- oder Teamleiter-Rechte geben.</p>
+    <div class="row"><input id="nt-name" placeholder="Neues Team" size="22"><button class="act" onclick="addTeam()">Team anlegen</button></div>
+    <div id="team-list"></div>
+    <h3>Personal (sieht alle)</h3>
+    <div id="hr-list"></div>
+  </section>
+
+  <section id="t-config" class="hidden">
+    <div class="row"><label>Plane-Adresse <input id="c-base" size="36" placeholder="https://plane.example.com"></label>
+    <label>Workspace <input id="c-ws" size="16"></label>
+    <button class="act" onclick="saveConfig()">Speichern</button></div>
+    <h3>Jira / Tempo (Modul)</h3>
+    <div class="row"><label><input type="checkbox" id="c-tempo"> Modul Jira/Tempo einschalten</label>
+    <label><input type="checkbox" id="c-suggest"> Vorschläge (Regeln/Textabgleich: Tickets, To-dos, Nachtragen, „Jetzt vermutlich“, Assistent) für alle erlauben</label>
+    <button class="act" onclick="saveTempo()">Speichern</button></div>
+    <p class="mut">Jira-Instanzen (mehrere Jira-Server möglich). Jede Person trägt je Instanz ihr Jira-Token im Profil ein (Tempo nutzt dasselbe). Eine neue Adresse löscht nur die Tokens dieser Instanz. Jira Cloud / Tempo Cloud: anlegbar, einschalten folgt.</p>
+    <table><thead><tr><th>Name</th><th>Art</th><th>Tempo</th><th>Adresse</th><th>Ein</th><th>Tokens</th><th>Verweise</th><th></th></tr></thead><tbody id="ji-list"></tbody></table>
+    <div class="row"><label>Name <input id="ji-name" size="14" maxlength="60"></label>
+    <label>Adresse <input id="ji-url" size="32" placeholder="https://jira.example.com"></label>
+    <label>Art <select id="ji-kind"><option value="dc">Data Center</option><option value="cloud">Cloud (folgt)</option></select></label>
+    <label>Tempo <select id="ji-tempo"><option value="dc">Tempo DC</option><option value="none">ohne Tempo</option><option value="cloud">Tempo Cloud (folgt)</option></select></label>
+    <button class="act" onclick="addJira()">Anlegen</button></div>
+    <h3>Monatsfreigabe</h3>
+    <div class="row"><label>Wer gibt frei? <select id="c-amode"><option value="either">Teamleiter oder Personal</option><option value="lead">nur Teamleiter</option><option value="hr">nur Personal</option></select></label>
+    <label>Einreichen bis Werktag <input id="c-asub" size="3"></label>
+    <label>Freigabe bis Werktag <input id="c-adec" size="3"></label>
+    <button class="act" onclick="saveApproval()">Speichern</button></div>
+    <p class="mut">Anmeldung (Testmodus/OIDC) ändert man auf <a href="/setup">/setup</a> mit dem Einrichtungs-Token aus dem Server-Log.</p>
+    <p class="mut" id="c-auth"></p>
+  </section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const TABS = [['status','Status'],['check','Selbsttest'],['logs','Logs'],['users','Benutzer'],['teams','Teams'],['config','Einstellungen']];
+let cur = 'status', liveTimer = null, lastId = 0;
+
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function api(method, path, body) {
+  const r = await fetch('/api' + path, { method, headers: body ? {'Content-Type':'application/json'} : {}, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (j.error === 'setup_required') { location.href = '/setup'; throw new Error('Einrichtung nötig'); }
+  if (r.status === 401 && j.error === 'login_required') { location.href = '/login?next=/admin'; throw new Error('Anmeldung nötig'); }
+  if (r.status === 403 && j.error === 'password_change_required') { location.href = '/login?next=/admin'; throw new Error('Passwort ändern'); }
+  if (!r.ok) throw new Error(j.error || ('Fehler ' + r.status));
+  return j;
+}
+function msg(t, err) { const m = $('msg'); m.textContent = t || ''; m.style.color = err ? 'var(--err)' : 'var(--acc)'; }
+const fmtUp = s => { const d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60); return (d ? d+' d ' : '') + h + ' h ' + m + ' min'; };
+
+function tabs() {
+  $('tabs').innerHTML = TABS.map(([k, l]) => `<button class="${k===cur?'on':''}" onclick="show('${k}')">${l}</button>`).join('');
+  for (const [k] of TABS) $('t-'+k).classList.toggle('hidden', k !== cur);
+}
+async function show(k) {
+  cur = k; tabs(); msg('');
+  clearInterval(liveTimer); liveTimer = null;
+  try {
+    if (k === 'status') await loadStatus();
+    if (k === 'check') await runCheck(false, true);
+    if (k === 'logs') { lastId = 0; await loadLogs(true); }
+    if (k === 'users') await loadUsers();
+    if (k === 'teams') await loadTeams();
+    if (k === 'config') await loadConfig();
+  } catch (e) { msg(e.message, true); }
+}
+
+async function loadStatus() {
+  const s = await api('GET', '/admin/status');
+  const c = s.counts, d = s.database, su = s.setup;
+  const card = (t, v, sub) => `<div class="card"><span class="mut">${t}</span><b>${esc(v)}</b><span class="mut">${esc(sub||'')}</span></div>`;
+  $('t-status').innerHTML = `<div class="grid">
+    ${card('Version', s.version, s.go)}
+    ${card('Laufzeit', fmtUp(s.uptime_seconds), 'seit ' + s.started)}
+    ${card('Datenbank', d.ok ? 'in Ordnung' : 'FEHLER', d.migrations.length + ' Migrationen')}
+    ${card('Anmeldung', su.auth_mode || 'nicht eingerichtet', su.done ? 'eingerichtet' : 'Einrichtung offen')}
+    ${card('Plane', su.plane_configured ? 'eingerichtet' : 'fehlt', su.allow_http ? 'http erlaubt' : 'nur https')}
+    ${card('Benutzer', c.users, c.users_disabled + ' gesperrt')}
+    ${card('Zeiteinträge', c.time_entries, c.projects + ' Projekte')}
+    ${card('Fehler / Warnungen (24 h)', c.errors_24h + ' / ' + c.warnings_24h, 'Plane-Löschungen offen: ' + c.plane_pending_deletions)}
+  </div>`;
+}
+
+async function runCheck(fix, cached) {
+  const rep = fix ? await api('POST', '/admin/selfcheck', {fix:true}) : (cached ? await api('GET', '/admin/selfcheck') : await api('GET', '/admin/selfcheck?fresh=1'));
+  $('check-rows').innerHTML = rep.items.map(i => `<tr><td>${esc(i.name)}</td><td class="st-${i.status}">${{ok:'in Ordnung',fixed:'repariert',warn:'Hinweis',error:'FEHLER'}[i.status]}</td><td>${esc(i.detail)}</td></tr>`).join('');
+  msg('Stand ' + rep.at + ' – Gesamt: ' + {ok:'in Ordnung',fixed:'repariert',warn:'Hinweise',error:'Fehler'}[rep.worst], rep.worst === 'error');
+}
+
+function logQuery(after) {
+  const p = new URLSearchParams();
+  for (const [k, id] of [['level','lf-level'],['category','lf-cat'],['user','lf-user'],['q','lf-q']]) if ($(id).value.trim()) p.set(k, $(id).value.trim());
+  if (after) p.set('after', after);
+  p.set('limit', '300');
+  return '/admin/logs?' + p;
+}
+const logRow = l => `<tr><td>${esc(l.timestamp.replace('T',' ').slice(0,19))}</td><td class="lvl-${esc(l.level)}">${esc(l.level)}</td><td>${esc(l.category)}</td><td>${esc(l.user)}</td><td>${esc(l.message)}</td></tr>`;
+async function loadLogs(reset) {
+  const rows = await api('GET', logQuery(reset ? 0 : lastId));
+  if (reset) { $('log-rows').innerHTML = rows.map(logRow).join(''); }
+  else if (rows.length) { $('log-rows').insertAdjacentHTML('afterbegin', rows.map(logRow).join('')); }
+  if (rows.length) lastId = Math.max(lastId, ...rows.map(r => r.id));
+  clearInterval(liveTimer);
+  if ($('lf-live').checked) liveTimer = setInterval(() => loadLogs(false).catch(() => {}), 3000);
+}
+async function loadAudit() {
+  const rows = await api('GET', '/admin/audit?limit=300');
+  $('log-rows').innerHTML = rows.map(a => `<tr><td>${esc(String(a.at).slice(0,19))}</td><td>audit</td><td>${esc(a.action)}</td><td>${esc(a.user)}</td><td>${esc(a.detail)}</td></tr>`).join('');
+  clearInterval(liveTimer);
+}
+['lf-level','lf-cat','lf-user','lf-q','lf-live'].forEach(id => document.addEventListener('DOMContentLoaded', () => $(id).addEventListener('change', () => loadLogs(true).catch(e => msg(e.message, true)))));
+
+async function loadUsers() {
+  const us = await api('GET', '/admin/users');
+  $('user-rows').innerHTML = us.map(u => {
+    const bg = u.role === 'breakglass';
+    const armed = bg && u.armed_until && new Date(u.armed_until) > new Date();
+    return `<tr>
+    <td>${u.id}</td><td>${esc(u.name)}<br><span class="mut">${esc(u.email)}</span></td>
+    <td>${esc(u.kind || '')}${bg ? (armed ? ' <b class="st-error">SCHARF</b>' : ' <span class="mut">gesperrt</span>') : ''}</td>
+    <td>${bg ? 'Notfall' : `<select onchange="setUser(${u.id},{role:this.value})">${['user','lead','admin'].map(r => `<option ${r===u.role?'selected':''}>${r}</option>`).join('')}</select>`}</td>
+    <td>${u.kind === 'local' && !bg ? `<input type="checkbox" ${u.productive?'checked':''} onchange="setUser(${u.id},{productive:this.checked})">` : ''}</td>
+    <td>${u.kind === 'local' && !u.productive ? '<span class="mut">–</span>' : (u.plane_key ? 'Plane ✓' : 'Plane –') + ' · ' + (u.jira_token ? 'Jira ✓' : 'Jira –')}</td><td>${u.entries}</td>
+    <td class="mut">${esc(u.last_login ? String(u.last_login).slice(0,16) : '–')}</td>
+    <td>${bg ? '' : `<input type="checkbox" ${u.disabled?'checked':''} onchange="setUser(${u.id},{disabled:this.checked})">`}</td>
+    <td>${bg || (u.kind === 'local' && !u.productive) ? '<span class="mut">–</span>' : `<input type="checkbox" title="Vorschläge erlaubt (Tickets, To-dos, Nachtragen, Assistent)" ${u.suggest_blocked?'':'checked'} onchange="setUser(${u.id},{suggest_blocked:!this.checked})">`}</td>
+    <td>${u.kind === 'local' && !bg ? `<a href="#" onclick="resetPw(${u.id});return false">Passwort neu</a> · <a href="#" onclick="delUser(${u.id},${u.entries});return false">Entfernen</a>` : ''}${!bg && (u.plane_key || u.jira_token) ? ` · <a href="#" onclick="delSecrets(${u.id});return false">Zugangsdaten löschen</a>` : ''}</td></tr>`;
+  }).join('');
+}
+function showPw(title, j) {
+  $('pwbox').innerHTML = `<div class="pwbox"><b>${esc(title)}</b><br>Benutzer: <code>${esc(j.username)}</code> · Passwort: <code>${esc(j.password)}</code><br><span class="mut">${esc(j.hinweis || '')} Wird nur jetzt angezeigt.</span> <a href="#" onclick="$('pwbox').innerHTML='';return false">schließen</a></div>`;
+}
+async function addUser() {
+  try {
+    const j = await api('POST', '/admin/local-users', { username: $('nu-name').value, email: $('nu-mail').value, role: $('nu-role').value, productive: $('nu-prod').checked });
+    showPw('Konto angelegt', j); $('nu-name').value = ''; $('nu-mail').value = ''; msg('');
+  } catch (e) { msg(e.message, true); }
+  loadUsers();
+}
+async function resetPw(id) {
+  if (!confirm('Neues Passwort erzeugen? Das alte gilt dann nicht mehr, laufende Sitzungen werden beendet.')) return;
+  try { showPw('Neues Passwort', await api('POST', '/admin/users/' + id + '/reset-password')); msg(''); } catch (e) { msg(e.message, true); }
+}
+async function delUser(id, entries) {
+  if (!confirm(entries ? 'Das Konto hat ' + entries + ' Einträge. ALLE Daten dieser Person werden gelöscht. Wirklich?' : 'Konto entfernen?')) return;
+  try { await api('DELETE', '/admin/local-users/' + id + (entries ? '?delete_data=1' : '')); msg('Entfernt.'); } catch (e) { msg(e.message, true); }
+  loadUsers();
+}
+async function delSecrets(id) {
+  if (!confirm('Gespeicherten Plane-Schlüssel und alle Jira-Tokens dieser Person löschen? Die Person trägt sie danach selbst neu ein.')) return;
+  try { const j = await api('DELETE', '/admin/users/' + id + '/secrets'); msg(j.deleted + ' gelöscht.'); } catch (e) { msg(e.message, true); }
+  loadUsers();
+}
+async function logout() { await api('POST', '/auth/logout'); location.href = '/login'; }
+async function changePw() {
+  const o = prompt('Aktuelles Passwort:'); if (o === null) return;
+  const n = prompt('Neues Passwort (mindestens 12 Zeichen, drei Zeichenarten):'); if (n === null) return;
+  try { await api('POST', '/auth/password', { old: o, new: n }); msg('Passwort geändert.'); } catch (e) { msg(e.message, true); }
+}
+async function setUser(id, patch) {
+  try { await api('PUT', '/admin/users/' + id, patch); msg('Gespeichert.'); } catch (e) { msg(e.message, true); }
+  loadUsers();
+}
+
+let teamUsers = [];
+async function loadTeams() {
+  const [t, us] = await Promise.all([api('GET', '/admin/teams'), api('GET', '/admin/users')]);
+  teamUsers = us.filter(u => u.role !== 'breakglass' && !u.disabled);
+  const opts = teamUsers.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('');
+  $('team-list').innerHTML = t.teams.map(x => `<div class="card" style="margin:0 0 10px"><b>${esc(x.name)}</b>
+    <a href="#" onclick="delTeam(${x.id},'${esc(x.name).replace(/'/g,'')}');return false" style="float:right">Team löschen</a>
+    <table><tbody>${x.members.map(m => `<tr><td>${esc(m.name)}</td>
+      <td><label><input type="checkbox" ${m.is_lead?'checked':''} onchange="setMember(${x.id},${m.user_id},this.checked)"> Teamleiter</label></td>
+      <td><a href="#" onclick="delMember(${x.id},${m.user_id});return false">entfernen</a></td></tr>`).join('') || '<tr><td class="mut">keine Mitglieder</td></tr>'}</tbody></table>
+    <div class="row" style="margin-top:8px"><select id="am-${x.id}">${opts}</select><button class="act sec" onclick="addMember(${x.id})">Hinzufügen</button></div></div>`).join('') || '<p class="mut">Noch keine Teams.</p>';
+  $('hr-list').innerHTML = teamUsers.map(u => `<label style="display:inline-block;margin:0 14px 6px 0"><input type="checkbox" ${t.hr.includes(u.id)?'checked':''} onchange="setHR(${u.id},this.checked)"> ${esc(u.name)}</label>`).join('') || '<p class="mut">–</p>';
+}
+async function addTeam() {
+  try { await api('POST', '/admin/teams', { name: $('nt-name').value }); $('nt-name').value = ''; msg('Team angelegt.'); } catch (e) { msg(e.message, true); }
+  loadTeams();
+}
+async function delTeam(id, name) {
+  if (!confirm('Team „' + name + '“ löschen? Die Zeiten der Mitglieder bleiben erhalten, die Sichtbarkeit für die Teamleiter entfällt.')) return;
+  try { await api('DELETE', '/admin/teams/' + id); msg('Gelöscht.'); } catch (e) { msg(e.message, true); }
+  loadTeams();
+}
+async function addMember(tid) {
+  try { await api('PUT', '/admin/teams/' + tid + '/members/' + $('am-' + tid).value, { is_lead: false }); msg('Gespeichert.'); } catch (e) { msg(e.message, true); }
+  loadTeams();
+}
+async function setMember(tid, uid, lead) {
+  try { await api('PUT', '/admin/teams/' + tid + '/members/' + uid, { is_lead: lead }); msg('Gespeichert.'); } catch (e) { msg(e.message, true); }
+  loadTeams();
+}
+async function delMember(tid, uid) {
+  try { await api('DELETE', '/admin/teams/' + tid + '/members/' + uid); msg('Entfernt.'); } catch (e) { msg(e.message, true); }
+  loadTeams();
+}
+async function setHR(uid, on) {
+  try { await api('PUT', '/admin/users/' + uid + '/hr', { is_hr: on }); msg('Gespeichert.'); } catch (e) { msg(e.message, true); }
+  loadTeams();
+}
+async function saveTempo() {
+  try { await api('PUT', '/admin/config', { module_tempo: $('c-tempo').checked ? '1' : '0', module_suggest: $('c-suggest').checked ? '1' : '0' }); msg('Gespeichert.'); } catch (e) { msg(e.message, true); }
+}
+let jiraList = [];
+async function loadJira() {
+  try { jiraList = await api('GET', '/admin/jira-instances'); } catch (e) { msg(e.message, true); return; }
+  $('ji-list').innerHTML = jiraList.map(i => '<tr><td>' + esc(i.name) + '</td><td>' + esc(i.kind) + '</td><td>' + esc(i.tempo) + '</td><td>' + esc(i.base_url) +
+    '</td><td><input type="checkbox" ' + (i.enabled ? 'checked ' : '') + (i.usable ? '' : 'disabled title="' + esc(i.note) + '" ') + 'onchange="toggleJira(' + i.id + ', this.checked)"></td><td>' + i.tokens + '</td><td>' + i.refs +
+    '</td><td><button onclick="editJira(' + i.id + ')">Ändern</button> <button onclick="delJira(' + i.id + ')">Löschen</button></td></tr>').join('') ||
+    '<tr><td colspan="8" class="mut">Noch keine Jira-Instanz</td></tr>';
+}
+async function addJira() {
+  try { await api('POST', '/admin/jira-instances', { name: $('ji-name').value, base_url: $('ji-url').value, kind: $('ji-kind').value, tempo: $('ji-tempo').value, enabled: $('ji-kind').value === 'dc' && $('ji-tempo').value !== 'cloud' });
+        msg('Angelegt.'); $('ji-name').value = ''; $('ji-url').value = ''; } catch (e) { msg(e.message, true); }
+  loadJira();
+}
+async function toggleJira(id, on) {
+  try { await api('PUT', '/admin/jira-instances/' + id, { enabled: on }); msg('Gespeichert.'); } catch (e) { msg(e.message, true); }
+  loadJira();
+}
+async function editJira(id) {
+  const i = jiraList.find(x => x.id === id); if (!i) return;
+  const name = prompt('Name', i.name); if (name === null) return;
+  const url = prompt('Adresse (eine neue Adresse löscht die Tokens dieser Instanz)', i.base_url); if (url === null) return;
+  const tempo = prompt('Tempo: dc, none oder cloud', i.tempo); if (tempo === null) return;
+  let same = false;
+  if (url.trim().replace(/\/+$/, '') !== i.base_url) {
+    if (!confirm('Neue Adresse: alle ' + i.tokens + ' Jira-Tokens der Instanz „' + i.name + '“ werden gelöscht. Weiter?')) return;
+    if (i.refs > 0) {
+      same = confirm(i.refs + ' Buchungen verweisen auf diese Instanz. Ist es DASSELBE Jira unter neuer Adresse? (Abbrechen = anderes Jira: dann bitte neue Instanz anlegen)');
+      if (!same) return;
+    }
+  }
+  try { const r = await api('PUT', '/admin/jira-instances/' + id, { name, base_url: url, tempo, same_system: same }); msg('Gespeichert.' + (r.tokens_cleared ? ' ' + r.tokens_cleared + ' Tokens gelöscht.' : '')); } catch (e) { msg(e.message, true); }
+  loadJira();
+}
+async function delJira(id) {
+  const i = jiraList.find(x => x.id === id); if (!i) return;
+  const typed = prompt('Jira-Instanz „' + i.name + '“ löschen (auch ' + i.tokens + ' Tokens)? Zur Bestätigung den Namen eingeben:');
+  if (typed === null) return;
+  if (typed.trim() !== i.name) { msg('Name stimmt nicht – nichts gelöscht.', true); return; }
+  let force = '';
+  if (i.refs > 0) {
+    if (!confirm(i.refs + ' Verweise (übertragene Buchungen, Löschaufträge). Besser nur ausschalten. Trotzdem löschen? Die Buchungen werden dann nie mehr nach Tempo übertragen.')) return;
+    force = '?force=1';
+  }
+  try { await api('DELETE', '/admin/jira-instances/' + id + force); msg('Gelöscht.'); } catch (e) { msg(e.message, true); }
+  loadJira();
+}
+async function saveApproval() {
+  try { await api('PUT', '/admin/config', { approval_mode: $('c-amode').value, approval_submit_workday: $('c-asub').value, approval_decide_workday: $('c-adec').value }); msg('Gespeichert.'); } catch (e) { msg(e.message, true); }
+}
+
+async function loadConfig() {
+  const c = await api('GET', '/admin/config');
+  $('c-tempo').checked = c.module_tempo === '1'; $('c-suggest').checked = c.module_suggest !== '0'; loadJira();
+  $('c-amode').value = c.approval_mode || 'either'; $('c-asub').value = c.approval_submit_workday || '3'; $('c-adec').value = c.approval_decide_workday || '5';
+  $('c-base').value = c.plane_base_url || ''; $('c-ws').value = c.plane_workspace || '';
+  $('c-auth').textContent = 'Anmeldung: ' + (c.auth_mode || '–') + (c.oidc_issuer ? ' · Issuer ' + c.oidc_issuer : '');
+}
+async function saveConfig() {
+  try { await api('PUT', '/admin/config', { plane_base_url: $('c-base').value, plane_workspace: $('c-ws').value }); msg('Gespeichert.'); } catch (e) { msg(e.message, true); }
+}
+
+api('GET', '/me').then(m => {
+  if (m.user.role !== 'admin' && m.user.role !== 'breakglass') { location.href = '/'; return; }   // Mitarbeiter gehören nicht in die Administration
+  $('who').textContent = m.user.name + ' (' + m.user.role + ')';
+  $('notices').innerHTML = (m.notices || []).map(n => `<div class="notice ${/NOTFALL|ACHTUNG/.test(n) ? 'alarm' : ''}">${esc(n)}</div>`).join('') + (m.user.kind === 'local' ? '<p>' + (m.user.productive ? '<a href="/profile">Mein Profil</a> · ' : '') + '<a href="#" onclick="changePw();return false">Eigenes Passwort ändern</a> · <a href="#" onclick="logout();return false">Abmelden</a></p>' : '');
+}).catch(() => {});
+show('status');
+</script>
+</body>
+</html>

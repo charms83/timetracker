@@ -1,0 +1,9 @@
+# Wirkt erst ab 2 Replikas; verhindert, dass Wartung alle Pods gleichzeitig beendet.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: zeitprotokoll
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels: { app: zeitprotokoll }

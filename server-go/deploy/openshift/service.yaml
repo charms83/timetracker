@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: zeitprotokoll
+  labels: { app: zeitprotokoll }
+spec:
+  selector: { app: zeitprotokoll }
+  ports:
+    - { name: http, port: 8080, targetPort: http }

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Zeitprotokoll liest deine Termine, um Zeitbuchungen vorzuschlagen. Es wird nichts verändert und nichts weitergegeben.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Zeitprotokoll liest deine Termine, um Zeitbuchungen vorzuschlagen. Es wird nichts verändert und nichts weitergegeben.</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Beispiel GmbH</string>
+</dict>
+</plist>

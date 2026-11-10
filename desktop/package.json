@@ -1,0 +1,11 @@
+{
+  "name": "zeitprotokoll-desktop",
+  "productName": "Zeitprotokoll",
+  "version": "1.5.0",
+  "description": "Beispiel Zeitprotokoll – Mac-Programm mit Schnellfenster",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "pack": "electron-packager . Zeitprotokoll --platform=darwin --arch=arm64 --out=build --overwrite --icon=icon.icns --app-bundle-id=com.example.zeitprotokoll --ignore='^/build' --ignore='^/node_modules'"
+  }
+}

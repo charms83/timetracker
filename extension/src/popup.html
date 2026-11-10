@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zeitprotokoll</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header><span class="logo">⏱</span> Zeitprotokoll</header>
+  <div id="msg" class="msg" hidden></div>
+
+  <section id="unpaired" hidden>
+    <p>Verbinde das Add-on einmalig mit der Zeitprotokoll-App auf diesem Mac. Danach kannst Du Tickets aus Jira und Plane mit einem Klick tracken.</p>
+    <button id="pair" class="primary">Mit Zeitprotokoll verbinden</button>
+    <p id="waiting" class="hint" hidden>Warte auf Bestätigung in Zeitprotokoll …</p>
+  </section>
+
+  <section id="paired" hidden>
+    <div id="state" class="state"></div>
+    <div class="row" id="stateBtns">
+      <button id="pause" hidden>Pause</button>
+      <button id="resume" class="primary" hidden>Weiter</button>
+      <button id="stop" hidden>Stopp</button>
+    </div>
+    <div id="ticket" class="card" hidden>
+      <div class="small">Offen:</div>
+      <div class="tk"><b id="tkKey"></b> <span id="tkTitle"></span> <span class="sys" id="tkSys"></span></div>
+      <div class="row">
+        <button id="track" class="primary">▶ Tracken</button>
+        <button id="todo">+ To-do heute</button>
+      </div>
+    </div>
+    <p id="noTicket" class="hint" hidden>Öffne ein Jira- oder Plane-Ticket, um es hier zu tracken.</p>
+  </section>
+
+  <footer><a href="#" id="openApp">Zeitprotokoll öffnen</a></footer>
+  <script src="parse.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

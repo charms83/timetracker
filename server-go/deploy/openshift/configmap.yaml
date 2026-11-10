@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zeitprotokoll-config
+data:
+  # Öffentliche Adresse (https): Host-Prüfung, OIDC-Rücksprung, Cookie „Secure“. Pflicht.
+  ZP_PUBLIC_URL: "https://zeit.example.com"
+  ZP_TZ: "Europe/Berlin"
+  # Hinter dem OpenShift-Router: genau ein Proxy davor (X-Forwarded-For)
+  ZP_TRUST_PROXY: "1"
+  ZP_TRUSTED_PROXIES: "1"
+  # Einrichtungsseite nach der Einrichtung geschlossen lassen
+  ZP_SETUP_ENABLED: "0"

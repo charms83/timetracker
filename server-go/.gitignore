@@ -1,0 +1,13 @@
+# nie ins Repository / Image: Schlüssel und Laufzeitdaten
+data/
+*.key
+.env
+.env.*
+bin/
+web/
+
+# Sitzungs-Verzeichnisse der Werkzeuge (enthalten Verlaufsprotokolle) – nie ins Image/Repository
+.claude/
+.claude-memory/
+**/.claude-memory/
+dist/

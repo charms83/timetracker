@@ -1,0 +1,15 @@
+# nie ins Repository / Image: Schlüssel und Laufzeitdaten
+data/
+*.key
+.env
+.env.*
+docs/
+deploy/
+*.md
+set-plane-key.sh
+web/
+
+# Sitzungs-Verzeichnisse der Werkzeuge (enthalten Verlaufsprotokolle) – nie ins Image/Repository
+.claude/
+.claude-memory/
+**/.claude-memory/

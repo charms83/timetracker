@@ -1,0 +1,180 @@
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+/* ═══ Design-Tokens – Beispiel Corporate Design (example-design) ═══
+   Grün heißt handeln: Dunkelgrün #0F752F nur für Aktionen, Links und „hier bist du“.
+   Hellgrün #B4D229 / Hellgrau #9E9E9E nie als Text auf Hell.
+   Im Dunkeln ist Dunkelgrün KEINE Textfarbe (2,92:1) → dort Hellgrün für Text/Links,
+   Buttons behalten die Fläche #0F752F mit weißer Schrift (5,82:1).
+   Statusfarben (ok/warn/bad) sind bewusst getrennt von den Markenfarben. */
+:root {
+  /* Basis (wie Mini-Fenster) */
+  --bg:#F2F2F7; --card:#FFFFFF; --line:#E3E3E8; --sel:#E4EAF8;
+  --accent-soft:rgba(15,117,47,.10);
+  --pause:#f5c242; --pause-text:#5a4300; --pause-bg:#fff4d6; --pause-line:#f1d98a;
+  --stop:#C4271B; --radius:12px;
+
+  /* Kompatibilitäts-Namen für bestehende Ansichten */
+  --bg2:#ffffff; --bg3:#ffffff; --bg4:#eef3ef;
+  --border:#e5e5ea; --border2:#d6d6dc;
+  --text:#1d1d1f; --text2:#6e6e73; --text3:#737378; --hi:#1d1d1f;
+  --accent:#0F752F; --green:#0F752F; --dkgreen:#0F752F; --blue:#4a6cf7; --red:#C4271B; --purple:#6e6e73; --accent-fill-hover:#0B5E25; --fill:rgba(120,120,128,.12);
+
+  --honi-green:#0F752F; --honi-green-mid:#419C5E; --honi-green-lt:#6CCE8B; --honi-lime:#B4D229;
+  --honi-white:#FEFEFE; --honi-lgray:#9E9E9E; --honi-dgray:#4D4D4D;
+
+  --accent-fill:#0F752F; --on-accent:#FFFFFF;
+  --ok:#1A7F37; --ok-bg:rgba(52,199,89,.14); --warn:#9A5800; --warn-bg:rgba(255,159,10,.16); --bad:#C4271B; --bad-bg:rgba(255,59,48,.12);
+  --focus:#0F752F;
+  /* Avenir LT Pro (lizenziert, nicht eingebettet) → auf dem Mac greift Avenir Next */
+  --font:"Avenir LT Pro","Avenir Next",Avenir,Verdana,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --font-display:Quantico,"Avenir LT Pro","Avenir Next",Verdana,sans-serif;
+  --sidebar:rgba(246,246,248,.86); --side-w:248px;
+  --mono:var(--font);
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:#000000; --card:#1C1C1E; --line:#38383A; --sel:#2C3350; --accent-soft:rgba(180,210,41,.14);
+    --pause-text:#3b2c00; --pause-bg:#3d3316; --pause-line:#5c4c1d;
+    --bg2:#1C1C1E; --bg3:#1C1C1E; --bg4:#26301F; --border:#38383A; --border2:#48484A;
+    --text:#f5f5f7; --text2:#a1a1a6; --text3:#8E8E93; --hi:#f5f5f7;
+    --accent:#B4D229; --green:#B4D229; --blue:#7b93ff; --red:#ff6b61; --purple:#a1a1a6;
+    --accent-fill:#0F752F; --ok:#30D158; --ok-bg:rgba(48,209,88,.16); --warn:#FFB340; --warn-bg:rgba(255,179,64,.16); --bad:#FF6961; --bad-bg:rgba(255,105,97,.16); --focus:#B4D229;
+    --stop:#FF6961; --fill:rgba(118,118,128,.24); --sidebar:rgba(28,28,30,.82);
+    color-scheme:dark;
+  }
+}
+
+html,body{background:var(--bg)}
+body{color:var(--text);font:13px/1.4 var(--font);min-height:100vh;-webkit-font-smoothing:antialiased}
+input,textarea,button,select{font-family:inherit;font-size:inherit;color:inherit}
+button{cursor:pointer}
+input,textarea,select{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:7px}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent)!important;box-shadow:0 0 0 3px var(--accent-soft)}
+button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.zp-display{font-family:var(--font-display);font-weight:400;letter-spacing:.01em;font-synthesis:none}
+/* ═══ Seitenleiste (Desktop ≥ 980 px) – components.md › Navigation ═══ */
+.zp-side{position:fixed;left:0;top:0;bottom:0;width:var(--side-w);background:var(--sidebar);-webkit-backdrop-filter:saturate(1.8) blur(20px);backdrop-filter:saturate(1.8) blur(20px);border-right:.5px solid var(--line);display:flex;flex-direction:column;z-index:30;padding:0 12px 12px}
+@media (prefers-reduced-transparency: reduce){.zp-side{background:var(--card);-webkit-backdrop-filter:none;backdrop-filter:none}}
+.zp-side .drag{height:38px;-webkit-app-region:drag;flex-shrink:0}
+.zp-side .brand{display:flex;align-items:center;gap:10px;padding:4px 8px 14px}
+.zp-side .brand img{width:34px;height:26px;flex-shrink:0}
+.zp-side .brand .name{font-family:var(--font-display);font-size:18px;line-height:1.1;color:var(--text);font-synthesis:none}
+.zp-side .brand .sub{font-size:11px;color:var(--text2)}
+.zp-side nav{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px}
+.zp-side .grp{font-size:11px;font-weight:600;color:var(--text2);padding:12px 10px 4px}
+.zp-side .item{display:flex;align-items:center;gap:10px;min-height:32px;padding:6px 10px;border-radius:8px;border:none;background:transparent;color:var(--text);font-size:14px;font-weight:500;text-align:left;width:100%}
+.zp-side .item svg{color:var(--accent);flex-shrink:0}
+.zp-side .item:hover{background:var(--fill)}
+.zp-side .item[aria-current="page"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.zp-side .run{margin-top:8px;padding:10px 12px;border-radius:10px;background:var(--sel);font-size:12px}
+.zp-main{margin-left:var(--side-w)}
+.zp-compact{display:none!important}
+@media (max-width:979px){ .zp-side{display:none} .zp-main{margin-left:0} .zp-compact{display:flex!important} }
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+@media (prefers-contrast: more){:root{--line:#8E8E93;--text2:#3A3A3C}}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes pop{from{transform:scale(.97);opacity:0}to{transform:none;opacity:1}}
+
+/* ═══ Bausteine im Stil des Mini-Fensters ═══ */
+.zp-card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius)}
+.zp-now{padding:14px 16px;border-radius:var(--radius);background:var(--card);border:1px solid var(--line);display:flex;align-items:center;gap:14px}
+.zp-now.running{background:var(--sel);border-color:transparent;box-shadow:inset 3px 0 0 var(--bar,#4a6cf7)}
+.zp-now.paused{background:var(--pause-bg);border-color:var(--pause-line)}
+.zp-now .info{flex:1;min-width:0}
+.zp-now .p{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.zp-now .s{color:var(--text2);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.zp-now .clock{font-size:26px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:.01em}
+
+.zp-quick{padding:12px;border-radius:var(--radius);background:var(--card);border:1px solid var(--line)}
+.zp-quick .grid{display:grid;grid-template-columns:1.4fr 1fr;gap:6px;margin-bottom:6px}
+.zp-quick .go{display:flex;gap:6px}
+.zp-quick input,.zp-quick select{padding:7px 9px;width:100%}
+.zp-btn-start{background:var(--accent-fill);color:#fff;border:none;border-radius:7px;padding:0 16px;font-weight:600;white-space:nowrap}
+.zp-btn-start:disabled{opacity:.45;cursor:default}
+
+.zp-chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
+.zp-chip{font-size:11px;padding:3px 9px;border-radius:20px;background:var(--bg);border:1px solid var(--line);color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px}
+.zp-chip:hover{border-color:var(--accent);color:var(--accent)}
+.zp-chip i{font-style:normal;display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;background:var(--c)}
+
+.zp-actions{display:flex;gap:8px}
+.zp-actions button{flex:1;height:40px;border-radius:9px;font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;border:none}
+.zp-b-pause{background:var(--pause);color:var(--pause-text)}
+.zp-b-stop{background:#C4271B;color:#fff}
+.zp-b-soft{background:var(--card)!important;border:1px solid var(--line)!important;color:var(--text)!important;font-size:13px!important;font-weight:500!important}
+.zp-actions button:disabled{opacity:.35;cursor:default}
+
+.zp-entry{display:flex;align-items:center;gap:10px;padding:9px 10px 9px 12px;margin:0 10px 4px;border-radius:8px;background:var(--card);border:1px solid var(--line);box-shadow:inset 3px 0 0 var(--c,#8e8e93)}
+.zp-entry .info{flex:1;min-width:0}
+.zp-entry .t{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.zp-entry .m{font-size:11px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.zp-entry .dur{font-variant-numeric:tabular-nums;color:var(--text2);font-size:12px;white-space:nowrap}
+.zp-entry .act{opacity:0;display:flex;gap:2px}
+.zp-entry:hover .act{opacity:1}
+.zp-entry.pause{box-shadow:inset 3px 0 0 var(--pause);background:transparent}
+.zp-tag{display:inline-block;font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px;margin-left:5px;color:#fff;background:var(--c,#8e8e93);vertical-align:1px}
+
+.zp-day{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.zp-day.today{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.zp-day-head{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer}
+.zp-day-head:hover{background:var(--bg)}
+.zp-timeline{position:relative;height:6px;margin:4px 14px 8px;border-radius:3px;background:var(--line);overflow:hidden}
+.zp-timeline span{position:absolute;top:0;bottom:0;border-radius:3px}
+
+.zp-saldo{display:flex;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.zp-saldo>div{text-align:center;padding:6px 14px;border-right:1px solid var(--line)}
+.zp-saldo>div:last-child{border-right:none}
+.zp-saldo .l{color:var(--text2);font-size:10px;white-space:nowrap}
+.zp-saldo .v{font-weight:600;font-variant-numeric:tabular-nums}
+
+.zp-nav{width:28px;height:28px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;color:var(--text2);background:transparent;border:none}
+.zp-nav:hover{background:var(--line)}
+.zp-nav:disabled{opacity:.3;cursor:default}
+
+/* Ticket-Vorschläge (Plane) */
+.zp-suggest{position:relative}
+.zp-suggest-list{position:absolute;z-index:30;left:0;right:0;top:calc(100% + 4px);background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.15);max-height:260px;overflow:auto;min-width:280px}
+.zp-suggest-list button{display:flex;gap:8px;align-items:baseline;width:100%;text-align:left;padding:7px 10px;background:none;border:none;border-bottom:1px solid var(--line)}
+.zp-suggest-list button:hover,.zp-suggest-list button.on{background:var(--accent-soft)}
+.zp-suggest-list b{font-size:11px;color:var(--accent);white-space:nowrap}
+.zp-suggest-list span{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.zp-suggest-list small{color:var(--text3);font-size:10px}
+
+/* Status-Pillen für Plane-Freigabe */
+.zp-pill{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap;background:var(--bg);color:var(--text2);border:1px solid var(--line)}
+.zp-pill.new{background:var(--sel);color:#3651c9;border-color:transparent}
+.zp-pill.changed{background:var(--pause-bg);color:#8a6400;border-color:var(--pause-line)}
+.zp-pill.synced{background:var(--ok-bg);color:var(--ok);border-color:transparent}
+.zp-pill.error{background:rgba(217,69,59,.12);color:var(--stop);border-color:transparent}
+@media (prefers-color-scheme: dark){ .zp-pill.new{color:#aab8ff} .zp-pill.changed{color:#f5e2a8} }
+
+/* ═══ Große Ansicht: Timer-Bereich als eine Karte, kompaktere Liste ═══ */
+.zp-panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.zp-panel .zp-now{border:none;border-radius:0;border-bottom:1px solid var(--line);padding:12px 16px}
+.zp-panel .zp-now.running{border-bottom-color:transparent}
+.zp-panel .zp-quick{border:none;border-radius:0;padding:12px 16px 8px}
+.zp-panel .zp-actions{padding:4px 16px 14px}
+.zp-panel .zp-actions button{height:36px}
+.zp-chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.zp-chips::-webkit-scrollbar{display:none}
+.zp-chip{flex:0 0 auto;max-width:240px}
+.zp-day-head{padding:8px 14px;min-height:42px}
+.zp-day + .zp-day{margin-top:0}
+
+/* Navigation: bei schmalen Fenstern nur Beschriftung, damit alle Reiter (inkl. Einstellungen) Platz haben */
+@media (max-width:1420px){ .topbar nav button > span:first-child{display:none!important} }
+.topbar nav{min-width:0;overflow-x:auto;scrollbar-width:none}
+.topbar nav::-webkit-scrollbar{display:none}
+
+/* Assistent: Schrittliste über dem Inhalt auf schmalen Fenstern */
+@media (max-width: 760px) { .zp-assist-grid { grid-template-columns: 1fr !important; } }
+
+/* Heute: groß = Zeitleiste rechts, klein = eine Zeile */
+@media (max-width: 1279px) { .zp-today-side { display: none !important; } .zp-day-compact { display: block !important; } }
+.zp-plan-wrap > div { width: auto !important; }
+.zp-fill .zp-suggest input{width:100%;box-sizing:border-box;padding:5px 7px;font-size:12.5px}
+.zp-fill-lg .zp-suggest input{padding:8px 10px;font-size:13px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--text)}
