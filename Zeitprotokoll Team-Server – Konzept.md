@@ -181,8 +181,6 @@ Erweiterbarkeit
 Offene REST-API mit Token und Plugins; Module wie Plane, Jira, Meetings einzeln abschaltbar
 Jira/Tempo
 Nur Übergang, bis alles über Plane läuft; Zeitprotokoll ersetzt Tempo für die Abrechnung
-Aviation
-Als möglicher Andockpunkt notiert (Plane-SSO, Worklogs mit Vergangenheitsdatum), noch nicht angebunden
 Projekte
 Projekte gibt es nur, wenn sie in Plane oder Jira existieren; lokale Projekte nur optional. Verknüpft wird an genau einer Stelle (Projekte › Quellen), Namen wie in Plane.
 Plane-Zeiten in Tempo
@@ -267,7 +265,7 @@ Plane und Tempo
 Übergang, bis Jira wegfällt
 Was automatisch im Hintergrund läuft
 • Quellen einlesen: Plane- und Jira-Projekte einmal im Monat; neue landen auf der Liste „Neue Projekte gefunden“, Projektleitung/Admin übernimmt sie mit einem Klick (gleiches Kürzel in Jira und Plane wird als ein Projekt vorgeschlagen).
-• Tickets abgleichen: eigene Tickets alle 10 Minuten; Plane- und Jira-Gegenstücke werden verknüpft (Zuordnung, Titelähnlichkeit, später Aviation).
+• Tickets abgleichen: eigene Tickets alle 10 Minuten; Plane- und Jira-Gegenstücke werden verknüpft (Zuordnung, Titelähnlichkeit).
 • Ausgänge: nach der Regel des Projekts automatisch oder nach Freigabe.
 • Eingang „Zu klären“: nur Fälle mit Entscheidung – Quelle ohne Projekt, Buchung ohne Ticket, Monat gesperrt, mögliche Doppelbuchung.
 Was sich am heutigen System ändert: Die beiden Bildschirme „Projekte verknüpfen“ (Plane, Jira) werden einer unter Projekte; Ausgänge werden je Projekt statt global eingestellt; eine Ticket-Ansicht über alle Quellen ersetzt die getrennten Reiter.

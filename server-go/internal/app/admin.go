@@ -252,7 +252,7 @@ func (a *App) adminUserUpdate(w http.ResponseWriter, r *http.Request, u User) {
 }
 
 // Einstellungen, die der Administrator hier ändern darf (Anmeldung bleibt der Einrichtung mit Token vorbehalten)
-var adminConfigKeys = []string{"plane_base_url", "plane_workspace", "approval_mode", "approval_submit_workday", "approval_decide_workday", "module_tempo", "module_suggest"}
+var adminConfigKeys = []string{"plane_base_url", "plane_workspace", "approval_mode", "approval_submit_workday", "approval_decide_workday", "month_grace_workdays", "module_tempo", "module_suggest"}
 
 func (a *App) adminConfigGet(w http.ResponseWriter, r *http.Request, u User) {
 	out := map[string]any{"auth_mode": a.conf(r.Context(), "auth_mode"), "oidc_issuer": a.conf(r.Context(), "oidc_issuer"), "oidc_client_id": a.conf(r.Context(), "oidc_client_id")}
@@ -289,7 +289,13 @@ func (a *App) checkAdminConfig(key, raw string) (string, error) {
 	switch key {
 	case "approval_mode":
 		if val != "either" && val != "lead" && val != "hr" {
-			return "", errUser("approval_mode: either, lead oder hr")
+			return "", errUser("approval_mode: hr (Standard), either oder lead")
+		}
+		return val, nil
+	case "month_grace_workdays": // Nachfrist nach Monatsende in Werktagen (monthclose.go)
+		var n int
+		if _, err := fmt.Sscan(val, &n); err != nil || n < 0 || n > 5 || fmt.Sprint(n) != val {
+			return "", errUser("month_grace_workdays: Zahl von 0 bis 5 (Werktage nach Monatsende)")
 		}
 		return val, nil
 	case "module_tempo", "module_suggest": // Modul-Schalter Jira/Tempo bzw. Ticket-Vorschläge
@@ -322,7 +328,7 @@ func (a *App) adminConfigPut(w http.ResponseWriter, r *http.Request, u User) {
 	ctx := r.Context()
 	clean := map[string]string{}
 	for k := range in {
-		if u.Role == "breakglass" && strings.HasPrefix(k, "approval_") {
+		if u.Role == "breakglass" && (strings.HasPrefix(k, "approval_") || k == "month_grace_workdays") {
 			writeJSON(w, http.StatusForbidden, map[string]any{"error": "Freigabe-Einstellungen sind mit dem Notfallzugang nicht änderbar"})
 			return
 		}

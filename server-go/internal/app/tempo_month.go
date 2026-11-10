@@ -14,7 +14,7 @@ import (
    „Übergang Zeiten <jira_username> <YYYY-MM>“ im Projekt für neue Tickets der Instanz, der Person zugewiesen.
    Angelegt beim ersten Übertragen einer Plane-Buchung des Monats (Modus month); vorher per JQL + exakter Überschrift gesucht,
    damit ein abgebrochener Lauf kein zweites anlegt (der Lauf hält die Sperre je Person).
-   Geschlossen nach Freigabe (month_approvals approved), Tempo-Sperre oder abgelaufener Nachfrist ohne Offenes; wieder
+   Geschlossen nach Freigabe oder Monatsschluss (month_approvals approved/closed), Tempo-Sperre oder abgelaufener Nachfrist ohne Offenes; wieder
    geöffnet, wenn Personal den Monat wiedereröffnet bzw. er abgelehnt oder neu eingereicht ist (monthWantClosed).
    Jira-Fehler blockieren die Freigabe nie: sie stehen in close_error, im Selbsttest und werden später wiederholt. */
 

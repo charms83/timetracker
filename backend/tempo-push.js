@@ -70,7 +70,7 @@ module.exports = function registerTempoPush(app, ctx) {
       since,
       newProject: (s.jira_new_project || "").trim().toUpperCase(),
       account: (s.tempo_account || "").trim(),
-      accountAttrId: parseInt(s.tempo_account_attr_id) || 2,                      // wie Aviation: TEMPO_ACCOUNT_ATTRIBUTE_ID
+      accountAttrId: parseInt(s.tempo_account_attr_id) || 2,                      // TEMPO_ACCOUNT_ATTRIBUTE_ID
       issueType: (s.jira_new_issuetype || "").trim() || "Task",
       // Plane-Zeiten in Tempo: „month“ = ein Übergangs-Ticket je Person und Monat (Standard), „ticket“ = Jira-Gegenstück je Plane-Ticket
       planeMode: s.tempo_plane_mode === "ticket" ? "ticket" : "month",

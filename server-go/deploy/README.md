@@ -12,3 +12,6 @@
 Dateisystem ist schreibgeschützt, Prozess ohne Root und ohne Rechte; es gibt keine lokalen Daten (alles in PostgreSQL). Sicherung = Datenbank-Backup + `ZP_SECRET_KEY`.
 
 Test, Umzug auf den Server und Cluster: siehe `docs/Betrieb-Migration.md`.
+
+## Linux ohne OpenShift
+`scripts/package.sh` baut das Paket, `deploy/linux/install.sh` installiert es als systemd-Dienst (siehe `docs/Stand-und-Plan.md`).

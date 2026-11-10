@@ -312,6 +312,7 @@ func (a *App) StartSelfCheck(ctx context.Context) {
 	a.clearPendingClaims(ctx)  // nur beim Start: dann läuft noch kein Anlegen
 	a.startTempoCron(ctx)      // Tempo-Automatik alle 10 min (nur bei module_tempo=1)
 	a.startTempoMonthCron(ctx) // Übergangs-Tickets alle 6 h schließen/wiederöffnen
+	a.startMonthCloseCron(ctx) // Monatsschluss nach Nachfrist: beim Start und alle 15 min
 	run := func() {
 		purgeCaches()
 		rep := a.SelfCheck(ctx, CheckOpts{Fix: true})

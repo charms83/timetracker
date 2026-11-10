@@ -55,8 +55,36 @@ type Result struct {
 	Username string
 	Name     string
 	Mail     string
-	Role     string // admin | lead | user
-	HR       bool   // Mitglied der Personal-Gruppe
+	Role     string   // admin | lead | user
+	HR       bool     // Mitglied der Personal-Gruppe
+	Groups   []string // direkte Gruppen (memberOf, vollständige DNs) – für Teams aus dem Verzeichnis; verschachtelte nicht
+}
+
+// memberOf: direkte Gruppen-DNs des Eintrags (getrimmt, ohne Leere, höchstens 1000)
+func memberOf(e *ldap.Entry) []string {
+	out := []string{}
+	for _, m := range e.GetAttributeValues("memberOf") {
+		if m = strings.TrimSpace(m); m != "" && len(out) < 1000 {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// GroupCN: Name einer Gruppe aus ihrem DN (erster RDN cn=…); ein Wert ohne „=“ gilt schon als Name. "" = nicht lesbar.
+func GroupCN(dn string) string {
+	dn = strings.TrimSpace(dn)
+	if !strings.Contains(dn, "=") {
+		return dn
+	}
+	d, err := ldap.ParseDN(dn)
+	if err != nil || len(d.RDNs) == 0 || len(d.RDNs[0].Attributes) == 0 {
+		return ""
+	}
+	if at := d.RDNs[0].Attributes[0]; strings.EqualFold(at.Type, "cn") {
+		return at.Value
+	}
+	return ""
 }
 
 var templateUserRE = regexp.MustCompile(`^[A-Za-z0-9._@-]{1,64}$`)
@@ -262,7 +290,7 @@ func authenticate(cfg Config, username, password string) (*Result, error) {
 	if name == "" {
 		name = username
 	}
-	return &Result{ID: id, DN: entry.DN, Username: strings.ToLower(username), Name: name, Mail: strings.TrimSpace(entry.GetAttributeValue(cfg.AttrMail)), Role: role, HR: hr}, nil
+	return &Result{ID: id, DN: entry.DN, Username: strings.ToLower(username), Name: name, Mail: strings.TrimSpace(entry.GetAttributeValue(cfg.AttrMail)), Role: role, HR: hr, Groups: memberOf(entry)}, nil
 }
 
 func findUser(l *ldap.Conn, cfg Config, username string, attrs []string) (*ldap.Entry, error) {
@@ -393,7 +421,7 @@ func Recheck(ctx context.Context, cfg Config, username string) (res *Result, gon
 			return
 		}
 		name := strings.TrimSpace(e.GetAttributeValue(cfg.AttrName))
-		ch <- out{&Result{ID: idOf(e, cfg.AttrID), DN: e.DN, Username: strings.ToLower(username), Name: name, Mail: strings.TrimSpace(e.GetAttributeValue(cfg.AttrMail)), Role: role, HR: hr}, false, nil}
+		ch <- out{&Result{ID: idOf(e, cfg.AttrID), DN: e.DN, Username: strings.ToLower(username), Name: name, Mail: strings.TrimSpace(e.GetAttributeValue(cfg.AttrMail)), Role: role, HR: hr, Groups: memberOf(e)}, false, nil}
 	}()
 	select {
 	case o := <-ch:

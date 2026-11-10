@@ -129,7 +129,7 @@ Autosetup (P:765-833): schlägt `jira_new_project` (Präferenzen ZEIT, TIME, ZP,
 2. POST-URL endet mit `/worklogs/` (Slash), PUT/DELETE ohne Slash (P:687 vs. 682).
 3. `started` ohne Zeitzonenangabe, lokale Zeit des Nutzers; beim Lesen kommt `+0000`-Format (SV:1184), Leerzeichen statt `T` möglich (P:251, S:95). Tempo liefert oft 00:00 → Pseudo-Zeiten ab 08:00 (S:121-131). Beim Duplikat-Vergleich `Date.parse` der Roh-Zeitstrings (P:251; Zeitzonenabhängigkeit: unklar).
 4. Mindestdauer 60 s, Rundung auf Minuten; in Tempo wird die Stückelung nie zusammengefasst (1 Buchung = 1 Worklog).
-5. Account ist Pflichtattribut bei Beispiel; Fehlermeldung wird per Regex `/account/i` erkannt (P:690). Attribut-ID 2 = Standardannahme (wie Aviation `TEMPO_ACCOUNT_ATTRIBUTE_ID`). Auf eigenem Jira-Ticket wird Account bewusst nicht gesendet (Tempo nimmt Ticket-Account).
+5. Account ist Pflichtattribut bei Beispiel; Fehlermeldung wird per Regex `/account/i` erkannt (P:690). Attribut-ID 2 = Standardannahme. Auf eigenem Jira-Ticket wird Account bewusst nicht gesendet (Tempo nimmt Ticket-Account).
 6. Pflichtfeld Account beim Ticket-Anlegen als `customfield_N`: Wert-Format variiert (Zahl, String, `{id}`), daher 3 Versuche (P:414). Anlegen mit Assignee kann scheitern → zweiter Versuch ohne Assignee (P:404).
 7. Ticket-Summary-Suche per JQL `summary ~ "\"…\""` ist unscharf → Ergebnis wird zusätzlich lokal exakt/`startsWith` verglichen (P:437, 461, 485); JQL-Zeichen `"` und `\` werden ersetzt (J:50, P:460).
 8. Stundenzettel-Freigabe-Abfrage und Worklog-Suche schlucken Fehler (`catch (_)`); 401/403 dort führen nicht zur Sperre (P:245, 259). Eine Sperre kann nur durch Tempo-Fehlermeldung (Textmuster) erkannt werden: Sprachabhängig (de/en).

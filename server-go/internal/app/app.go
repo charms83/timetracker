@@ -178,6 +178,7 @@ func (a *App) Routes(mux *http.ServeMux) {
 	a.routesLocalAuth(mux)
 	a.routesOIDC(mux)
 	a.routesApproval(mux)
+	a.routesNachtrag(mux) // Nachtragen nach Monatsschluss (Teamleitung/Personal)
 	a.routesProfilePage(mux)
 	a.routesTeams(mux)
 	a.routesLocalUsers(mux)

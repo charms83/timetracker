@@ -49,3 +49,18 @@ func TestEmptyPasswordNeverSent(t *testing.T) {
 		}
 	}
 }
+
+func TestGroupCN(t *testing.T) {
+	for in, want := range map[string]string{
+		"CN=zp-team-Entwicklung,OU=Gruppen,DC=example,DC=local": "zp-team-Entwicklung",
+		"cn=zp-team-a\\,b,ou=g,dc=x":                             "zp-team-a,b",
+		"zp-team-support":                                        "zp-team-support",
+		"ou=zp-team-x,dc=x":                                      "",
+		"cn=":                                                    "",
+		"  ":                                                     "",
+	} {
+		if got := GroupCN(in); got != want {
+			t.Errorf("%q: %q, erwartet %q", in, got, want)
+		}
+	}
+}

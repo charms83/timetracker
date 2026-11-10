@@ -9,12 +9,12 @@ import (
 /* Projekte, Tickets – Verhalten wie backend/server.js, je Benutzer getrennt. */
 
 func (a *App) routesStammdaten(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/projects", a.auth(a.projectsList))
+	mux.HandleFunc("GET /api/projects", a.auth(a.asTarget(a.projectsList))) // ?user= nur lesend (z. B. Nachtragen durch Teamleitung)
 	mux.HandleFunc("GET /api/projects/{id}", a.auth(a.projectsGet))
 	mux.HandleFunc("POST /api/projects", a.auth(a.projectsCreate))
 	mux.HandleFunc("PUT /api/projects/{id}", a.auth(a.projectsUpdate))
 	mux.HandleFunc("DELETE /api/projects/{id}", a.auth(a.projectsDelete))
-	mux.HandleFunc("GET /api/tasks", a.auth(a.tasksList))
+	mux.HandleFunc("GET /api/tasks", a.auth(a.asTarget(a.tasksList)))
 	mux.HandleFunc("POST /api/tasks", a.auth(a.tasksCreate))
 	mux.HandleFunc("PUT /api/tasks/{id}", a.auth(a.tasksUpdate))
 	mux.HandleFunc("DELETE /api/tasks/{id}", a.auth(a.tasksDelete))
