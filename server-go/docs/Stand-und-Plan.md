@@ -19,12 +19,11 @@ Anmeldung: lokale Konten (Einzelbetrieb), Notfallzugang (nur Betrieb, nie Zeiten
 - **OpenShift:** `Containerfile`, `deploy/openshift/` (Deployment, Route, Netzwerkregeln …). Nicht gebaut/angewendet.
 - **Bereinigter Export für GitLab:** `export-sanitized.sh` im Projektwurzelordner (enthält die echten Namen, nicht im Export); der Stand im GitLab-Projekt ist eine Momentaufnahme vom 10.11. und muss nach größeren Änderungen neu erzeugt werden.
 
-## In Arbeit
-- Monatsschluss mit Nachfrist (1 Werktag), Nachtragen danach nur durch Teamleitung/Personal, Teams aus Verzeichnisgruppen oder lokal.
-- Übersichten für Teamleiter und Personal, restliche Mitarbeiter-Routen (Änderungsverlauf, Aufräumen, Ticket anlegen/starten).
+## Zuletzt fertig (10.11.)
+Monatsschluss nach einem Werktag, Nachtragen nur Teamleitung/Personal, Teams aus Verzeichnis oder lokal, Freigabe nur durch Personal, Übersichten und Bildschirme für Teamleiter und Personal, restliche Mitarbeiter-Routen. 19 Migrationen laufen lokal fehlerfrei. Nichts davon ist im Browser oder gegen echte Systeme abgenommen.
 
 ## Offen (Reihenfolge)
-1. Bildschirme Teamleiter (`/team`) und Personal (`/personal`) in der Oberfläche.
+1. Abnahme im Browser; Oberfläche: Nachtragen-Dialog, „geschlossen“-Anzeige, neue Hinweise.
 2. E-Mail-Erinnerungen (SMTP/Exchange-OAuth, abschaltbar) und Urlaubsantrag mit Genehmigung durch die Teamleitung (Vertretung Personal).
 3. Mehrere Plane-Workspaces (Admin legt fest), Abgleich von Tempo zurück + Grundimport, Exporte (Lohn/Kunden; später entschieden).
 4. Geräte-Token und Annahme-Schnittstelle für Client-Vorschläge; gemeinsame Zähler (Anmeldesperre, Plane-/Jira-Bremse) für Mehr-Pod-Betrieb; getrennte Datenbank-Rollen; `server rekey`.

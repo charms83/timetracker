@@ -29,22 +29,29 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - Cloudflare-„security-audit“-Skill installiert (global). Der volle Audit von `server-go` lief an, brach am 5-Stunden-Limit ab; die Vorarbeit liegt im Arbeitsordner der Sitzung, der Lauf ist **noch nicht abgeschlossen**. Der „apple-design“-Skill wurde vom Berechtigungssystem blockiert (Repository einer Einzelperson), nicht installiert.
 - Bereinigter Export ohne Firmen-/Personen-/Hostnamen nach GitLab (`opentracker-group1/OpenTracker-project`, privat zu halten): lokaler Tracker, Team-Server, Konzept, Dokumente. Skript `export-sanitized.sh` (enthält die echten Namen, nicht im Export). Stand dort: Mittag des 10.11.
 
+## 10.11. Nachmittag/Abend – Monatsschluss, Nachtragen, Teams, Übersichten
+- **Fertig und geprüft (Opus-Review je Baustein):** automatischer Monatsschluss nach einem Werktag (Einstellung `month_grace_workdays`), Nachtragen danach nur durch Teamleitung/Personal mit Begründung und Protokoll (Trigger-Bypass kontrolliert, Hash-Kette mit Akteur), Teams aus Verzeichnisgruppen (`zp-team-<name>`, `-lead`, optional `ldap_team_base`) oder lokal, Freigabe nur durch Personal (Standard `hr`, Selbstfreigabe nur für die einzige Person im Personal), Übersichten für Teamleiter und Personal, restliche Mitarbeiter-Routen (Änderungsverlauf mit Hash-Prüfung, Aufräumen, Dubletten, Ticket anlegen/starten).
+- **Oberfläche:** Bereiche „Team“ und „Personal“ gebaut (Navigation je Rolle, Übersicht, Personen-Detail, Freigeben/Ablehnen/Wiedereröffnen). Im Browser noch nicht abgenommen; Nachtragen-Dialog, „geschlossen“-Anzeige und neue Hinweise fehlen noch.
+- **Datenbank:** Migrationen 018 und 019 laufen auf der lokalen PostgreSQL-16-Datenbank fehlerfrei (insgesamt 19 Migrationen).
+- **Ziel des Projekts:** GitHub `charms83/timetracker` (privat zu halten); davor GitLab-Probe. Bereinigter Export ohne Firmen-, Personen- und Hostnamen, ohne „Aviation“ (Skript `export-sanitized.sh`, behält den Verlauf).
+
 ## Wo wir zuletzt waren
-- **Läuft gerade (zwei Opus-Agenten):** (1) Monatsschluss nach einem Werktag, Nachtragen nur Teamleitung/Personal, Teams aus Verzeichnisgruppen oder lokal, Standard „Personal gibt frei“; (2) Übersichten für Teamleiter und Personal sowie restliche Mitarbeiter-Routen (Änderungsverlauf, Aufräumen, Ticket anlegen/starten). Nach dem Limit-Reset am Nachmittag fortgesetzt.
-- **Server läuft lokal** (`scripts/dev.sh`, Port 8090) mit dem Stand von Schritt 2; Arbeitsstand danach noch nicht neu gebaut.
-- **Dein nächster Test:** Browser `http://localhost:8090/`, Anmeldung als produktive Person, Plane-Schlüssel unter Einstellungen → Plane eintragen, Plane-Import mit Vorschau.
+- **Server läuft lokal** (`scripts/dev.sh`, Port 8090) mit allen 19 Migrationen; Oberfläche mit Team/Personal ist gebaut (`scripts/build-web.sh`).
+- **Alle Agenten sind fertig.** Es läuft nichts mehr im Hintergrund; der Nutzer hat bewusst um eine Pause gebeten.
+- **Nächster Test (Nutzer):** Anmelden, Plane-Schlüssel eintragen, Plane-Import mit Vorschau, Monat einreichen, Team-/Personal-Bereich ansehen. Fehler als Meldung oder Screenshot zurückgeben.
 
 ## Offene Rückfragen
 - Logo und Icons im Export prüfen/ersetzen.
 - Importierte Plane-Zeiten übers Übergangs-Ticket nach Tempo (Empfehlung: ja, nur nach Bestätigung je Monat)?
 - Standard-Account/Plane-Modus in eingereichten Monaten sperren (Empfehlung: ja)?
+- `ldap_team_base` setzen (Empfehlung des Reviews), Logo/Icons im Export prüfen.
 - „Admin“ bei der Urlaubs-Vertretung = Personal (so angenommen)?
 - Exporte (Lohn/Kunden) und Urlaubsantrag-Details; E-Mail-Technik (SMTP/Exchange).
 
 ## Als Nächstes (Reihenfolge)
-1. Ergebnisse der zwei Agenten prüfen (Format, Tests, Server neu bauen, Migration 018 ff.), Opus-Review-Befunde.
-2. Bildschirme Teamleiter (`/team`) und Personal (`/personal`) in der Oberfläche.
-3. E-Mail-Erinnerungen, danach Urlaubsantrag mit Genehmigung.
+1. Abnahme im Browser und gegen echte Systeme (Plane, später Jira/Tempo, LDAP, authentik); gefundene Fehler beheben.
+2. Oberfläche: Nachtragen-Dialog, „geschlossen“-Anzeige, neue Hinweistexte.
+3. E-Mail-Erinnerungen (Platz `notifyApproval` vorbereitet), danach Urlaubsantrag mit Genehmigung durch die Teamleitung.
 4. Mehrere Plane-Workspaces; Tempo-Grundimport/Abgleich; Exporte.
 5. Web-Maske LDAP/OIDC; Geräte-Token und Annahme-Schnittstelle; gemeinsame Zähler; DB-Rollen; `govulncheck`.
 6. Sicherheits-Audit (Cloudflare-Skill) fortsetzen; Abnahme gegen echte Systeme; Client-Anbindung und Mac-Härtung; Cloud-Varianten.
