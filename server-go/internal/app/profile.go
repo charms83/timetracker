@@ -122,6 +122,14 @@ func (a *App) secretPut(w http.ResponseWriter, r *http.Request, u User) {
 		a.fail(w, err)
 		return
 	}
+	// Nach Schlüssel: Workspaces dieses Hosts zur Auswahl freigeben (noch ohne Zeilen → alle gewählt)
+	if wsRaw := r.URL.Query().Get("workspace"); wsRaw != "" {
+		if ws, err := a.planeWorkspaceByID(ctx, int64(asFloat(wsRaw))); err == nil {
+			_ = a.ensurePlaneWorkspaceSelection(ctx, u.ID, ws.BaseURL)
+		}
+	} else if prim, ok := a.primaryPlaneWorkspace(ctx); ok {
+		_ = a.ensurePlaneWorkspaceSelection(ctx, u.ID, prim.BaseURL)
+	}
 	a.clearPlaneMe(ctx, u.ID, kind)
 	a.audit(ctx, u.ID, "secret.set", kind)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "workspace_scope": scope})

@@ -3,7 +3,7 @@
 ═══════════════════════════════════════════════════════════════════ */
 import { useState, useEffect, useCallback } from "react";
 import { Upload, RefreshCw, EyeOff, Eye, ChevronDown, ChevronRight, Pencil, Trash2 } from "lucide-react";
-import { api, call, Box, lab, inpS, btn, hm, deleteEntry, dupIds, isServerMode, usePlaneWorkspaces, wsQ } from "./zp-ui.jsx";
+import { api, call, Box, lab, inpS, btn, hm, deleteEntry, dupIds, isServerMode, usePlaneWorkspacesActive, wsQ } from "./zp-ui.jsx";
 import { JiraInstancesPanel } from "./zp-servermode.jsx";
 
 const PILL = { new: ["Neu", "new"], changed: ["Geändert", "changed"], synced: ["In Tempo", "synced"], error: ["Fehler", "error"], skipped: ["Ausgenommen", ""],
@@ -586,7 +586,7 @@ const pct = s => `${Math.round(s * 100)} %`;
 
 export function TicketMapPanel() {
   const sm = isServerMode();
-  const workspaces = usePlaneWorkspaces();
+  const workspaces = usePlaneWorkspacesActive();
   const [wsId, setWsId] = useState("");
   const [data, setData] = useState(null);
   const [sugg, setSugg] = useState({});        // jira_key → [Kandidaten] | "…" | {error}

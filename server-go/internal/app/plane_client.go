@@ -103,7 +103,7 @@ func (a *App) planeCfg(ctx context.Context, uid int64) (planeCfg, error) {
 	}, nil
 }
 
-// planeCfgs: alle eingeschalteten Workspaces mit Schlüssel (für Scan/Sync über mehrere).
+// planeCfgs: von der Person gewählte, eingeschaltete Workspaces mit Schlüssel (für Scan/Sync über mehrere).
 func (a *App) planeCfgs(ctx context.Context, uid int64) ([]planeCfg, error) {
 	list, err := a.PlaneWorkspaces(ctx)
 	if err != nil {
@@ -111,7 +111,11 @@ func (a *App) planeCfgs(ctx context.Context, uid int64) ([]planeCfg, error) {
 	}
 	var out []planeCfg
 	for _, w := range list {
-		if !w.Enabled {
+		ok, err := a.planeUserSelected(ctx, uid, w)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
 			continue
 		}
 		c, err := a.planeCfgFor(ctx, uid, w)

@@ -37,6 +37,7 @@ func (a *App) routesPlaneWorkspaces(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/admin/plane-workspaces/{id}", a.strictAdmin(a.adminPlaneUpdate))
 	mux.HandleFunc("DELETE /api/admin/plane-workspaces/{id}", a.strictAdmin(a.adminPlaneDelete))
 	mux.HandleFunc("GET /api/plane/workspaces", a.auth(a.planeWorkspacesMine))
+	mux.HandleFunc("PUT /api/plane/workspaces/{id}/select", a.auth(a.planeWorkspaceSelect))
 }
 
 func (a *App) PlaneWorkspaces(ctx context.Context) ([]planeWorkspace, error) {
@@ -326,33 +327,178 @@ func (a *App) planeWorkspacesMine(w http.ResponseWriter, r *http.Request, u User
 		a.fail(w, err)
 		return
 	}
-	haveHost := map[string]bool{}
-	if key, err := a.secretFor(ctx, u.ID, "plane_key"); err == nil && key != "" {
-		if w, ok := a.primaryPlaneWorkspace(ctx); ok {
-			haveHost[planeScope(w.BaseURL)] = true
-		}
+	haveHost, err := a.planeHostsWithKey(ctx, u.ID)
+	if err != nil {
+		a.fail(w, err)
+		return
 	}
-	// zusätzliche Schlüssel je Workspace-Scope
-	if rows, err := a.DB.Query(ctx, `SELECT scope FROM user_secrets WHERE user_id=$1 AND kind='plane_key' AND scope<>0`, u.ID); err == nil {
-		for rows.Next() {
-			var sid int64
-			if rows.Scan(&sid) == nil {
-				if w, e := a.planeWorkspaceByID(ctx, sid); e == nil {
-					haveHost[planeScope(w.BaseURL)] = true
-				}
-			}
-		}
-		rows.Close()
+	sel, err := a.planeWorkspaceSelection(ctx, u.ID)
+	if err != nil {
+		a.fail(w, err)
+		return
 	}
 	out := []map[string]any{}
 	for _, i := range list {
 		if !i.Enabled {
 			continue
 		}
+		host := planeScope(i.BaseURL)
+		keyOK := haveHost[host]
+		chosen, hasRow := sel[i.ID]
+		// Ohne Auswahlzeile und mit Schlüssel: als gewählt behandeln (Abwärtskompatibilität)
+		selected := keyOK && (chosen || !hasRow)
 		out = append(out, map[string]any{"id": i.ID, "name": i.Name, "base_url": i.BaseURL, "workspace": i.Workspace,
-			"host": planeScope(i.BaseURL), "key_set": haveHost[planeScope(i.BaseURL)]})
+			"host": host, "key_set": keyOK, "selected": selected})
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// planeWorkspaceSelect: Person schaltet einen Workspace für sich ein/aus (nur mit Token für den Host).
+func (a *App) planeWorkspaceSelect(w http.ResponseWriter, r *http.Request, u User) {
+	id, ok := pathID(r)
+	if !ok {
+		notFound(w)
+		return
+	}
+	var in body
+	if !readJSON(w, r, &in) {
+		return
+	}
+	on := true
+	if v, ok := in["selected"]; ok {
+		on = truthy(v)
+	} else if v, ok := in["enabled"]; ok {
+		on = truthy(v)
+	}
+	ctx := r.Context()
+	ws, err := a.planeWorkspaceByID(ctx, id)
+	if err != nil || !ws.Enabled {
+		badRequest(w, "Workspace unbekannt oder ausgeschaltet")
+		return
+	}
+	have, err := a.planeHostsWithKey(ctx, u.ID)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	if !have[planeScope(ws.BaseURL)] {
+		badRequest(w, "Zuerst den API-Schlüssel für diese Plane-Adresse eintragen")
+		return
+	}
+	// Bestehende Host-Workspaces ohne Zeile einmalig als gewählt anlegen, dann die Änderung setzen
+	if err := a.ensurePlaneWorkspaceSelection(ctx, u.ID, ws.BaseURL); err != nil {
+		a.fail(w, err)
+		return
+	}
+	if _, err := a.DB.Exec(ctx, `INSERT INTO user_plane_workspaces(user_id,workspace_id,selected,updated_at) VALUES($1,$2,$3,now())
+		ON CONFLICT (user_id,workspace_id) DO UPDATE SET selected=EXCLUDED.selected, updated_at=now()`, u.ID, id, on); err != nil {
+		a.fail(w, err)
+		return
+	}
+	a.audit(ctx, u.ID, "plane.workspace.select", fmt.Sprintf("#%d „%s“ %v", id, ws.Name, on))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "id": id, "selected": on})
+}
+
+func (a *App) planeHostsWithKey(ctx context.Context, uid int64) (map[string]bool, error) {
+	have := map[string]bool{}
+	if key, err := a.secretFor(ctx, uid, "plane_key"); err != nil {
+		return nil, err
+	} else if key != "" {
+		if w, ok := a.primaryPlaneWorkspace(ctx); ok {
+			have[planeScope(w.BaseURL)] = true
+		}
+	}
+	rows, err := a.DB.Query(ctx, `SELECT scope FROM user_secrets WHERE user_id=$1 AND kind='plane_key' AND scope<>0`, uid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sid int64
+		if rows.Scan(&sid) != nil {
+			continue
+		}
+		if w, e := a.planeWorkspaceByID(ctx, sid); e == nil {
+			have[planeScope(w.BaseURL)] = true
+		}
+	}
+	return have, rows.Err()
+}
+
+// planeWorkspaceSelection: workspace_id → selected (nur vorhandene Zeilen).
+func (a *App) planeWorkspaceSelection(ctx context.Context, uid int64) (map[int64]bool, error) {
+	out := map[int64]bool{}
+	rows, err := a.DB.Query(ctx, `SELECT workspace_id, selected FROM user_plane_workspaces WHERE user_id=$1`, uid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var on bool
+		if rows.Scan(&id, &on) == nil {
+			out[id] = on
+		}
+	}
+	return out, rows.Err()
+}
+
+// ensurePlaneWorkspaceSelection: für alle Workspaces eines Hosts Zeilen anlegen (selected=true), falls noch keine.
+func (a *App) ensurePlaneWorkspaceSelection(ctx context.Context, uid int64, baseURL string) error {
+	host := planeScope(baseURL)
+	list, err := a.PlaneWorkspaces(ctx)
+	if err != nil {
+		return err
+	}
+	var ids []int64
+	for _, w := range list {
+		if !w.Enabled || planeScope(w.BaseURL) != host {
+			continue
+		}
+		ids = append(ids, w.ID)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	var n int
+	if err := a.DB.QueryRow(ctx, `SELECT COUNT(*) FROM user_plane_workspaces WHERE user_id=$1 AND workspace_id = ANY($2)`, uid, ids).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		// fehlende neue Workspaces auf dem Host nachziehen (standard: nicht gewählt → Nutzer entscheidet)
+		_, err := a.DB.Exec(ctx, `INSERT INTO user_plane_workspaces(user_id,workspace_id,selected)
+			SELECT $1, w.id, false FROM plane_workspaces w
+			WHERE w.enabled AND w.id = ANY($2)
+			  AND NOT EXISTS (SELECT 1 FROM user_plane_workspaces u WHERE u.user_id=$1 AND u.workspace_id=w.id)`, uid, ids)
+		return err
+	}
+	_, err = a.DB.Exec(ctx, `INSERT INTO user_plane_workspaces(user_id,workspace_id,selected)
+		SELECT $1, w.id, true FROM plane_workspaces w WHERE w.enabled AND w.id = ANY($2)
+		ON CONFLICT DO NOTHING`, uid, ids)
+	return err
+}
+
+// planeUserSelected: Workspace für die Person aktiv (Schlüssel + Auswahl).
+func (a *App) planeUserSelected(ctx context.Context, uid int64, w planeWorkspace) (bool, error) {
+	if !w.Enabled {
+		return false, nil
+	}
+	have, err := a.planeHostsWithKey(ctx, uid)
+	if err != nil {
+		return false, err
+	}
+	if !have[planeScope(w.BaseURL)] {
+		return false, nil
+	}
+	sel, err := a.planeWorkspaceSelection(ctx, uid)
+	if err != nil {
+		return false, err
+	}
+	on, has := sel[w.ID]
+	if !has {
+		return true, nil // Legacy: Schlüssel ohne Auswahlzeile = alle
+	}
+	return on, nil
 }
 
 func planeMeSettingKey(wsID int64) string {
@@ -390,7 +536,7 @@ func (a *App) planeCfgFor(ctx context.Context, uid int64, w planeWorkspace) (pla
 	}, nil
 }
 
-// planeCfgSelect: ?workspace=<id>; ohne Angabe Primär-Workspace (Abwärtskompatibilität).
+// planeCfgSelect: ?workspace=<id>; ohne Angabe Primär- bzw. erster gewählter Workspace.
 func (a *App) planeCfgSelect(ctx context.Context, uid int64, raw string) (planeCfg, error) {
 	raw = strings.TrimSpace(raw)
 	if raw != "" {
@@ -405,7 +551,18 @@ func (a *App) planeCfgSelect(ctx context.Context, uid int64, raw string) (planeC
 		if !w.Enabled {
 			return planeCfg{}, errUser("Plane-Workspace „" + w.Name + "“ ist ausgeschaltet")
 		}
+		ok, err := a.planeUserSelected(ctx, uid, w)
+		if err != nil {
+			return planeCfg{}, err
+		}
+		if !ok {
+			return planeCfg{}, errUser("Plane-Workspace „" + w.Name + "“ ist für dich nicht ausgewählt – unter Einstellungen › Plane einschalten")
+		}
 		return a.planeCfgFor(ctx, uid, w)
+	}
+	// ohne Angabe: erste gewählte Konfiguration, sonst Primär
+	if cfgs, err := a.planeCfgs(ctx, uid); err == nil && len(cfgs) > 0 {
+		return cfgs[0], nil
 	}
 	return a.planeCfg(ctx, uid)
 }

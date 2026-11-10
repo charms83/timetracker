@@ -88,7 +88,7 @@ async function planeState() {
       <button class="sec" onclick="delKey('plane_key')">Entfernen</button></div></div>`;
     return;
   }
-  // Eine Karte je Workspace (wie Jira-Instanzen); Schlüssel je Host nur einmal
+  // Eine Karte je Workspace; Schlüssel je Host; mit Token: Workspace einzeln nutzen
   const hostCount = {};
   for (const w of list) hostCount[w.host || w.base_url || ''] = (hostCount[w.host || w.base_url || ''] || 0) + 1;
   const keyShown = {};
@@ -98,19 +98,28 @@ async function planeState() {
     keyShown[host] = true;
     const hostShort = host.replace(/^https?:\/\//, '');
     const shared = hostCount[host] > 1;
+    const on = w.selected !== false;
     const pills = [
       w.workspace ? `<span class="badge">${esc(w.workspace)}</span>` : '',
       hostShort ? `<span class="badge">${esc(hostShort)}</span>` : '',
       `<span class="${w.key_set ? 'ok' : 'no'}">${w.key_set ? 'Schlüssel gespeichert' : 'Schlüssel fehlt'}</span>`,
+      w.key_set ? `<span class="${on ? 'ok' : 'no'}">${on ? 'Aktiv' : 'Nicht genutzt'}</span>` : '',
     ].filter(Boolean).join(' ');
+    const selBtn = w.key_set
+      ? `<button class="sec" style="margin-left:8px" onclick="selectWs(${w.id},${on ? 'false' : 'true'})">${on ? '● Nutzen' : '○ Nutzen'}</button>`
+      : '';
     const keyRow = showKey
-      ? `${shared ? '<div class="mut" style="margin:4px 0 6px">Dieser Schlüssel gilt für alle Workspaces auf derselben Plane-Adresse.</div>' : ''}
+      ? `${shared ? '<div class="mut" style="margin:4px 0 6px">Dieser Schlüssel gilt für alle Workspaces auf derselben Plane-Adresse. Danach wählst du, welche du nutzt.</div>' : ''}
          <div class="row"><input type="password" id="pk-${w.id}" autocomplete="off" placeholder="${w.key_set ? '•••• gespeichert – zum Ersetzen neuen Schlüssel eingeben' : 'Plane-API-Schlüssel'}">
          <button onclick="saveKey('plane_key','pk-${w.id}',null,${w.id})">Speichern</button>
          <button class="sec" onclick="delKey('plane_key',null,${w.id})">Entfernen</button></div>`
       : `<div class="mut" style="margin-top:6px">Schlüssel über denselben Host – gilt für diesen Workspace mit.</div>`;
-    return `<div class="card" style="margin-bottom:10px"><b>${esc(w.name)}</b> ${pills}${keyRow}</div>`;
+    return `<div class="card" style="margin-bottom:10px"><b>${esc(w.name)}</b> ${pills}${selBtn}${keyRow}</div>`;
   }).join('');
+}
+async function selectWs(id, on) {
+  try { await api('PUT', '/plane/workspaces/' + id + '/select', { selected: !!on }); msg(on ? 'Workspace aktiv' : 'Workspace aus'); await load(); }
+  catch (e) { msg(e.message, true); }
 }
 async function testPlane() {
   try { const j = await api('GET', '/integrations/plane/status'); msg(j.configured === false ? j.message : ('Plane verbunden' + (j.user ? ': ' + (j.user.display_name || j.user.email || j.user.name || '') : '')), j.configured === false); }

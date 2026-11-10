@@ -5,7 +5,7 @@
 ═══════════════════════════════════════════════════════════════════ */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Search, RefreshCw, ExternalLink, Play, Plus, X, Send, Link2 } from "lucide-react";
-import { api, call, Box, lab, inpS, btn, hm, durTxt, isServerMode, newRequestKey, usePlaneWorkspaces, wsQ } from "./zp-ui.jsx";
+import { api, call, Box, lab, inpS, btn, hm, durTxt, isServerMode, newRequestKey, usePlaneWorkspaces, usePlaneWorkspacesActive, wsQ } from "./zp-ui.jsx";
 import { JiraInstancesPanel } from "./zp-servermode.jsx";
 import { TempoOutboxView } from "./zp-tempo.jsx";
 
@@ -52,7 +52,7 @@ export function TicketBrowser({ kind = "jira", onOpenSettings }) { return <Ticke
 function Tickets({ onOpenSettings, kind = "jira" }) {
   const S = SRC[kind];
   const sm = isServerMode();
-  const workspaces = usePlaneWorkspaces();
+  const workspaces = usePlaneWorkspacesActive();
   const [wsId, setWsId] = useState("");
   const [q, setQ] = useState(""); const [mine, setMine] = useState(true); const [open, setOpen] = useState(true); const [jqlMode, setJqlMode] = useState(false);
   const [data, setData] = useState(null); const [sel, setSel] = useState(null); const [selScope, setSelScope] = useState(null); const [creating, setCreating] = useState(false); const [msg, setMsg] = useState(null);
@@ -218,7 +218,7 @@ function CreateDialog({ onClose, onDone }) {
 
 function PlaneCreateDialog({ workspaceId, onClose, onDone }) {
   const sm = isServerMode();
-  const workspaces = usePlaneWorkspaces();
+  const workspaces = usePlaneWorkspacesActive();
   const rk = useRef({ sig: "", key: newRequestKey() });
   const [wsPick, setWsPick] = useState(workspaceId ? String(workspaceId) : "");
   const [projects, setProjects] = useState([]); const [f, setF] = useState({ local_project_id: "", name: "", description: "", start: true }); const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);

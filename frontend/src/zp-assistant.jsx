@@ -314,7 +314,7 @@ function StepPlane({ f, reload }) {
   };
   const save = async () => { await call("PUT", "/settings", { ...v, plane_base_url: v.plane_base_url.trim().replace(/\/+$/, "").replace(/\/api(\/v1)?$/, ""), plane_workspace: v.plane_workspace.trim() }); await test(); reload(); };
   if (sm) return (<>
-    <Para>Plane ist das Hauptsystem. Adressen und Workspaces legt der Administrator fest. Du trägst je Workspace deinen API-Schlüssel ein (Plane › Profil › API Tokens). Workspaces auf derselben Adresse teilen ihn – analog zu Jira-Instanzen mit je einem Token.</Para>
+    <Para>Plane ist das Hauptsystem. Adressen und Workspaces legt der Administrator fest. Du trägst den API-Schlüssel ein (Plane › Profil › API Tokens) und schaltest danach einzeln ein, welche Workspaces du nutzt. Workspaces auf derselben Adresse teilen den Schlüssel.</Para>
     <PlaneWorkspacesPanel />
     <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
       <button style={btn(true)} onClick={async () => { await test(); reload(); }} disabled={busy}>{busy ? "Prüfe…" : "Verbindungen testen"}</button>

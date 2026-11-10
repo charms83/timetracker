@@ -247,7 +247,7 @@ async function loadMyItems(force, workspaceId) {
   // Servermodus ohne Filter: alle Workspaces mit Schlüssel (wie Jira über mehrere Instanzen)
   if (isServerMode() && !workspaceId) {
     const list = planeWsCache !== null ? planeWsCache : await reloadPlaneWorkspaces();
-    const withKey = (list || []).filter(w => w.key_set);
+    const withKey = (list || []).filter(w => w.key_set && w.selected !== false);
     if (withKey.length > 1) {
       const parts = await Promise.all(withKey.map(async w => {
         const q = ["workspace=" + w.id];
@@ -302,11 +302,16 @@ export function usePlaneWorkspaces() {
   }, []);
   return isServerMode() ? (list || []) : [];
 }
+/** Nur Workspaces mit Schlüssel und Auswahl (für Abgleich/Tickets/Suche). */
+export function usePlaneWorkspacesActive() {
+  return usePlaneWorkspaces().filter(w => w.key_set && w.selected !== false);
+}
 export function reloadPlaneWorkspaces() {
   if (!isServerMode()) return Promise.resolve([]);
   return api("GET", "/plane/workspaces").then(r => {
     planeWsCache = Array.isArray(r) ? r : [];
     planeWsSubs.forEach(f => f(planeWsCache));
+    planeCfgCache = planeWsCache.some(w => w.key_set && w.selected !== false);
     return planeWsCache;
   });
 }
@@ -319,7 +324,7 @@ export function usePlaneOn() {
         const list = Array.isArray(r) ? r : [];
         planeWsCache = list;
         planeWsSubs.forEach(f => f(list));
-        planeCfgCache = list.some(w => w.key_set);
+        planeCfgCache = list.some(w => w.key_set && w.selected !== false);
         setOn(planeCfgCache);
       });
       return;
@@ -792,12 +797,27 @@ function WorkspaceKey({ ws, sharedNote, onChanged }) {
 }
 export function PlaneWorkspacesPanel({ status, onChanged }) {
   const [list, setList] = useState(null);
+  const [busyId, setBusyId] = useState("");
   const load = useCallback(() => call("GET", "/plane/workspaces").then(r => {
     const arr = Array.isArray(r) ? r : (r?.error ? null : []);
     if (r?.error) setList({ error: r.error });
-    else { setList(arr); onChanged?.(arr); }
+    else {
+      setList(arr);
+      planeWsCache = arr;
+      planeWsSubs.forEach(f => f(arr));
+      onChanged?.(arr);
+    }
   }), [onChanged]);
   useEffect(() => { load(); }, [load]);
+  const toggle = async (w, on) => {
+    if (!w.key_set || busyId) return;
+    setBusyId(String(w.id));
+    const r = await call("PUT", `/plane/workspaces/${w.id}/select`, { selected: on });
+    setBusyId("");
+    if (r.error) { setList(cur => Array.isArray(cur) ? [...cur] : cur); return; }
+    await load();
+    resetPlaneCfg();
+  };
   if (!list) return <div style={{ color: "var(--text3)", fontSize: 12 }}>Lade…</div>;
   if (list.error) return <div style={{ color: "var(--text2)", fontSize: 12 }}>{list.error}</div>;
   if (!list.length) return <div style={{ color: "var(--text2)", fontSize: 12 }}>Es ist kein Plane-Workspace eingerichtet. Das legt der Administrator fest.</div>;
@@ -812,17 +832,26 @@ export function PlaneWorkspacesPanel({ status, onChanged }) {
         const showKey = !keyShown.has(host);
         if (showKey) keyShown.add(host);
         const shared = hostCount[host] > 1;
+        const on = w.selected !== false;
         return (
-          <div key={w.id} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px" }}>
+          <div key={w.id} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px", opacity: w.key_set && !on ? 0.72 : 1 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <b>{w.name}</b>
               {w.workspace && <span className="zp-pill">{w.workspace}</span>}
               {host && <span className="zp-pill" title={w.base_url || host}>{host.replace(/^https?:\/\//, "")}</span>}
               <span className={`zp-pill ${w.key_set ? "synced" : "changed"}`}>{w.key_set ? "Schlüssel gespeichert" : "Schlüssel fehlt"}</span>
+              {w.key_set && <span className={`zp-pill ${on ? "synced" : "changed"}`}>{on ? "Aktiv" : "Nicht genutzt"}</span>}
               {st && <span style={{ fontSize: 12, color: st.ok ? "var(--accent)" : "var(--stop)" }}>{st.ok ? "✓ " : "✗ "}{st.message}</span>}
+              <span style={{ flex: 1 }} />
+              {w.key_set && (
+                <button style={btn(on)} disabled={!!busyId} onClick={() => toggle(w, !on)} title={on ? "Workspace nicht mehr nutzen" : "Workspace für Sync und Tickets nutzen"}>
+                  {busyId === String(w.id) ? "…" : on ? "● Nutzen" : "○ Nutzen"}
+                </button>
+              )}
             </div>
+            {!w.key_set && <div style={{ marginTop: 6, fontSize: 12, color: "var(--text2)" }}>Mit API-Schlüssel kannst du diesen Workspace für dich einschalten und nutzen.</div>}
             {showKey
-              ? <div style={{ marginTop: 6 }}><WorkspaceKey ws={w} sharedNote={shared ? "Dieser Schlüssel gilt für alle Workspaces auf derselben Plane-Adresse." : null} onChanged={load} /></div>
+              ? <div style={{ marginTop: 6 }}><WorkspaceKey ws={w} sharedNote={shared ? "Dieser Schlüssel gilt für alle Workspaces auf derselben Plane-Adresse. Danach wählst du, welche du nutzt." : null} onChanged={load} /></div>
               : <div style={{ marginTop: 6, fontSize: 12, color: "var(--text2)" }}>Schlüssel über „{list.find(x => (x.host || x.base_url || "") === host)?.name || host}“ – gilt für diesen Workspace mit.</div>}
           </div>);
       })}
@@ -875,7 +904,7 @@ export function PlaneSettingsTab() {
     <div>
       <Box title="Plane-Zugang" sub={sm ? "Plane ist das Hauptsystem. Adressen und Workspaces legt der Administrator fest; du trägst je Workspace deinen API-Schlüssel ein (verschlüsselt, nie wieder angezeigt)." : "Die Zugangsdaten bleiben lokal auf diesem Mac (SQLite). Der API-Key wird danach nur noch maskiert angezeigt."}>
         {sm ? (<>
-          <div style={{ fontSize: 12, color: "var(--text2)", margin: "0 0 8px" }}>Workspaces auf derselben Plane-Adresse teilen einen Schlüssel – wie Jira-Instanzen mit je einem Token.</div>
+          <div style={{ fontSize: 12, color: "var(--text2)", margin: "0 0 8px" }}>Workspaces auf derselben Plane-Adresse teilen einen Schlüssel. Mit Token schaltest du einzeln ein, welche Workspaces du nutzt (Sync, Tickets, Quellen).</div>
           <div style={{ marginBottom: 10 }}>
             <PlaneWorkspacesPanel status={wsStatus} onChanged={() => { resetPlaneCfg(); reloadPlaneWorkspaces(); }} />
           </div>
@@ -1030,7 +1059,7 @@ function PlaneImportPanel({ onDone, onClose }) {
 
 export function PlaneSyncView({ onOpenSettings }) {
   const sm = isServerMode();
-  const workspaces = usePlaneWorkspaces();
+  const workspaces = usePlaneWorkspacesActive();
   const [wsId, setWsId] = useState("");
   const [importOpen, setImportOpen] = useState(false);
   const [data, setData] = useState(null);
