@@ -31,7 +31,7 @@ Ziel: Der Go-Server liefert die bestehende Oberfläche aus (`ZP_STATIC_DIR`) und
 | `/jira/projects` | GET | zp-jira | gebaut 09.11. (+ `instance_id` je Projekt) |
 | `/jira/search` | GET | zp-ui | gebaut 09.11. (ohne `?instance=` alle nutzbaren Instanzen) |
 | `/jira/status` | GET | zp-jira | gebaut 09.11. (Modul aus → `{enabled:false}`) |
-| `/tempo-csv-import` | POST | App |  |
+| `/tempo-csv-import` | POST | App | bewusst Node-only; am Team-Server: `/tempo-sync` |
 | `/tempo-sync` | GET/POST | zp-tempo-sync | gebaut (`tempo_sync.go`, 12‑h-Cron); CSV-Import lokal bleibt Node-only, Server nutzt API-Abgleich |
 
 ## C Plane (Schritt 1) – 2
