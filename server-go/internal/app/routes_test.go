@@ -17,6 +17,7 @@ func TestRoutesRegister(t *testing.T) {
 		{"GET", "/api/admin/update"}, {"GET", "/api/admin/status"},
 		{"GET", "/api/admin/integrations"}, {"GET", "/api/integrations/projects"}, {"GET", "/api/integrations/payroll"},
 		{"POST", "/api/timer/assign"},
+		{"GET", "/api/meetings/now"}, {"GET", "/api/meetings/suggestions"}, {"POST", "/api/meetings/calendar"},
 		{"GET", "/api/plane/workspaces"}, {"PUT", "/api/plane/workspaces/1/select"}, {"GET", "/api/admin/ldap"}, {"PUT", "/api/admin/oidc"},
 	} {
 		req, _ := http.NewRequest(p[0], p[1], nil)

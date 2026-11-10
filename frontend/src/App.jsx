@@ -557,8 +557,8 @@ function TimerView({ timer, elapsed, onStart, onStop, onSwitch, workday, todayDa
       {/* ══ JETZT · SCHNELLSTART · PAUSE/STOPP (wie Schnellfenster) ══ */}
       <MissingBanner/>
       {isToday&&<AssistantHint/>}
-      {isToday&&!isServerMode()&&<CurrentMeetingBar timer={timer} onChanged={onRefresh}/>}
-      {isToday&&!isServerMode()&&<MeetingSuggestions projects={projects} onChanged={onRefresh}/>}
+      {isToday&&<CurrentMeetingBar timer={timer} onChanged={onRefresh}/>}
+      {isToday&&<MeetingSuggestions projects={projects} onChanged={onRefresh}/>}
       <div className="zp-panel">
         {isToday&&<BrowserTicketBar timer={timer} onChanged={onRefresh}/>}
         <NowCard timer={timer} pauseState={pauseState}/>
@@ -1785,7 +1785,7 @@ function VorschlaegeView({ projects, onChanged }) {
       <b>Vorschläge sind noch keine Buchungen.</b> <span style={{color:"var(--text2)"}}>Termine, erkannte Meetings und SSH-Sitzungen sammelt das System nur als Hinweis. Erst wenn du „Buchen“ wählst, wird daraus Zeit – sonst einfach ignorieren.</span>
     </div>
     <div style={{display:"flex",gap:6,marginBottom:12}}>{chip("termine","Termine & Meetings")}{chip("ssh","SSH-Sitzungen")}</div>
-    {tab==="termine" && (isServerMode() ? <ClientHint title="Termine und Meetings brauchen den Mac-Client">Meetings und Kalendertermine erkennt der Mac-Client auf deinem Rechner und schlägt sie dort vor. Im Browser gibt es diese Vorschläge nicht.</ClientHint> : <MeetingSuggestions projects={projects} onChanged={onChanged} days={14} emptyText="Keine offenen Termine oder Meetings der letzten 14 Tage."/>)}
+    {tab==="termine" && <MeetingSuggestions projects={projects} onChanged={onChanged} days={14} emptyText={isServerMode() ? "Keine offenen Termine oder Meetings. Läuft die Mac-App und ist der Kalender freigegeben?" : "Keine offenen Termine oder Meetings der letzten 14 Tage."}/>}
     {tab==="ssh" && (isServerMode() ? <ClientHint title="SSH-Sitzungen brauchen den Mac-Client"/> : <SshView/>)}
   </div>);
 }
@@ -2276,7 +2276,7 @@ function EinstellungenView() {
       {tab==="verbindungen" && conn!=="plane" && <JiraTempoSettings initial={conn==="tempo"?"tempo":conn==="tempocsvimport"?"csv":"jira"}/>}
       {tab==="arbeitszeit" && <ArbeitszeitSettings/>}
       {tab==="erkennung" && (sm
-        ? <><DevicesPanel/><div style={{height:12}}/><ClientHint title="Erkennung braucht den Mac-Client">Meetings, SSH-Sitzungen, Zeit am Mac (Anwesenheit), Browser-Add-on und Kopplung laufen auf deinem Rechner im Mac-Client. Hier legst du Geräte-Token an; der Client meldet Vorschläge an den Server. Zeiterfassung, Freigabe und Übertragung funktionieren im Browser vollständig.</ClientHint></>
+        ? <><DevicesPanel/><PresenceToggle/><BrowserToggle/><MeetingSettingsTab/><div style={{height:12}}/><ClientHint title="SSH und Browser-Add-on brauchen den Mac-Client">SSH-Sitzungen und die Browser-Erweiterung laufen lokal. Meetings/Kalender und Anwesenheit meldet die Mac-App an den Server – Einstellungen und Vorschläge siehst du hier wie im Einzelplatz.</ClientHint></>
         : <><PresenceToggle/><AddonSettings/><BrowserToggle/><MeetingSettingsTab/></>)}
       {tab==="wartung" && !sm && wt==="audit" && <AuditTab/>}
       {tab==="wartung" && !sm && wt==="server" && <ServerView/>}

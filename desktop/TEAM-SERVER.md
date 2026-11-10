@@ -1,5 +1,7 @@
 # Mac-Client am Team-Server (Go)
 
+**Maßstab:** Das vollständige lokale Mac-System (Node + Mini + Tray + Erkennung) – Alltag (Timer, Meetings, Anwesenheit, Tempo/Plane) soll am Team-Server genauso wirken. Team/Personal/Admin sind Zusatz, ersetzen den lokalen Alltag nicht.
+
 ## Alltag (so arbeitet man damit)
 
 1. In `~/.zeitprotokoll/desktop.json` nur setzen:
@@ -48,8 +50,10 @@ Zurück zum Einzelplatz: `"mode": "local"`.
 - Schnellfenster (Mini) spricht den Team-Server über die Electron-Session an (gleiche Login-Sitzung wie das Hauptfenster) – kein extra Geräte-Token.
 - Tray zeigt Modus/Server-Host und öffnet Einstellungen.
 - Anwesenheit („am Mac“): mit Login-Sitzung `POST /presence` → Gaps/Heute/Tempo-Ausgang; nur Geräte-Token: Hint, Server legt `presence_min` an.
+- Meetings/Kalender: Mac-App meldet Signale und Termine an den Server (`/meetings/*`); Mini fragt nach wie lokal; Browser zeigt Vorschläge/Einstellungen › Erkennung.
 
 ## Noch offen
 
 - Add-on auf Server-URL
+- SSH bleibt lokal (bewusst)
 - Server-URL im Tray editieren (heute nur Anzeige + Einstellungen öffnen)

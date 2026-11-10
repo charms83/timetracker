@@ -3,7 +3,7 @@
 Chronologie und letzter Stand der Arbeit: `Verlauf.md`.
 
 ## Ziel
-Das Zeitprotokoll (Einzelplatz: Mac, Browser-Oberfläche, Add-on, bucht nach Plane und Jira/Tempo) wird zum Team-Server, der Tempo Timesheets ablöst. Es hält die Zeiten selbst und genau; Plane und Jira sind Buchungsziele. Vier Oberflächen je Rolle: Administration, Mitarbeiter, Teamleiter, Personal. Konzept und Entscheidungen: `Gesamt-Spezifikation.md`, Vergleich ähnlicher Systeme: `Systemvergleich-und-Struktur.md`.
+Das Zeitprotokoll (Einzelplatz: Mac, Browser-Oberfläche, Add-on, bucht nach Plane und Jira/Tempo) wird zum Team-Server, der Tempo Timesheets ablöst. **Maßstab für den Alltag ist das fertige lokale Mac-System** (Timer, Mini, Meetings, Anwesenheit, Tempo/Plane) – Team/Personal/Admin kommen dazu, ersetzen diesen Alltag nicht. Es hält die Zeiten selbst und genau; Plane und Jira sind Buchungsziele. Vier Oberflächen je Rolle: Administration, Mitarbeiter, Teamleiter, Personal. Konzept und Entscheidungen: `Gesamt-Spezifikation.md`, Vergleich ähnlicher Systeme: `Systemvergleich-und-Struktur.md`.
 
 ## Aufbau
 - **Lokaler Tracker** (Node.js, React/Vite, Electron, Browser-Add-on): läuft unverändert weiter.
@@ -28,6 +28,7 @@ Monatsschluss nach einem Werktag, Nachtragen nur Teamleitung/Personal, Teams aus
 - Tempo→lokal Abgleich (`GET/POST /api/tempo-sync`, Spiegel `source=tempo`, 12‑h-Automatik, Grundimport).
 - Urlaubsantrag mit Genehmigung Teamleitung / Vertretung Personal (Migration 021 `leave_requests`, UI Abwesenheiten + Team/Personal).
 - Geräte-Token + Client-Hinweise (Migration 021 `client_hints`, `device_tokens.kind`, UI Einstellungen › Erkennung; Ingest `POST /api/client/hints`).
+- Meetings/Kalender-Parität (`meetings.go`): Mac liefert Signale/Termine, Server speichert und schlägt vor – Alltag wie lokales Mac-System.
 - Tempo-Abwesenheitsvorschläge nach Abgleich (`is_absence` + `absence_hints`); gemeinsame Zähler Mehr-Pod (Migration 022 `rate_events`/`rate_blocks` für Login/Plane/Jira).
 - Mehrere Plane-Workspaces (Migration 023/024/025): Admin `/admin` nur Adresse/Kennung (**ohne** Plane-Token); Nutzer Schlüssel je Host + Auswahl je Workspace; Scan, Tickets, Import, Push, Status und To-do über gewählte Workspaces; `plane_workspace_id` an Projekt/Aufgabe/Buchung; `plane_me_id` je Workspace.
 - Web-Maske LDAP/OIDC in `/admin` (neben CLI); `server rekey`; DB-Rollen-Skript `deploy/postgres/roles.sql`.

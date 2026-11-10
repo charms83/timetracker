@@ -479,7 +479,7 @@ function StepMeetings({ reload }) {
   const [v, setV] = useState(null); const [st, setSt] = useState(null);
   const load = () => { api("GET", "/meetings/config").then(r => r && !r.error && setV(r)); api("GET", "/meetings/status").then(r => r && !r.error && setSt(r)); };
   useEffect(load, []);
-  if (!v) return isServerMode() ? <ClientHint title="Meeting-Erkennung braucht den Mac-Client" /> : null;
+  if (!v) return null;
   const set = async (k, x) => { await call("PUT", "/settings", { [k]: x ? "1" : "0" }); load(); reload(); };
   const age = st?.signal_age_s;
   return (<>

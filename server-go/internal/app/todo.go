@@ -24,7 +24,7 @@ import (
      werden gespeichert und angezeigt, es wird aber nichts übertragen (offen).
    • Vorschläge sind die „Light“-Variante und dreifach abschaltbar (suggestAllowedFor); Termin-Vorbereitung entfällt
      (Kalender bleibt im Client).
-   • Kapazität: „meetings“ immer 0 (Kalender bleibt im Client). */
+   • Kapazität: „meetings“ aus calendar_events (Mac liefert Termine). */
 
 const todoSelect = `SELECT p.*, pr.name AS project_name, t.jira_ticket AS task_ticket, t.title AS task_title,
 	(SELECT COALESCE(SUM(e.duration_seconds),0) FROM time_entries e WHERE e.plan_task_id=p.id AND e.user_id=p.user_id) AS tracked_seconds
@@ -466,7 +466,10 @@ func (a *App) todoCapacity(ctx context.Context, uid int64, st map[string]string,
 			return nil, err
 		}
 	}
-	return map[string]any{"date": d, "available": int(math.Round(free)), "meetings": 0, "booked": int(math.Round(booked / 60))}, nil
+	meetings := 0.0
+	_ = a.DB.QueryRow(ctx, `SELECT COALESCE(SUM((EXTRACT(EPOCH FROM (end_time::timestamptz - start_time::timestamptz))/60)),0)
+		FROM calendar_events WHERE user_id=$1 AND date=$2`, uid, d).Scan(&meetings)
+	return map[string]any{"date": d, "available": int(math.Round(free)), "meetings": int(math.Round(meetings)), "booked": int(math.Round(booked / 60))}, nil
 }
 
 /* ── Kalender: geplante und fällige To-dos im Zeitraum ───────────── */

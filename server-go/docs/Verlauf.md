@@ -98,7 +98,9 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - Tracken ohne Ticket: Timer ohne Projekt/Ticket starten, später zuweisen (`POST /api/timer/assign`); Dauerbuchung wie Tempo (nur Stunden) → Server legt Uhrzeit in freie Lücke (`time_precise=false`).
 - User „Daten prüfen“ auch im Servermodus (Einstellungen › Allgemein); Überschneidungen bleiben unter Heute – Assistent nicht vermischt. Mini/Tray: Team-Server-Session für Timer.
 - Team-Anwesenheit: Mac schreibt `POST /presence` (Session) bzw. Hint→`presence_min`; Tempo-Outbox `gaps` aus `dayOverview` (wie Node).
-- Offen bleibt: „exportiert“-Sperre/Formate; Add-on Server-URL; echte Systemtests.
+- Mac Team-Modus: Meeting-Nachfragen im Mini wieder wie lokal (Hint + Erinnerung); Maßstab = lokales Referenzsystem.
+- Meetings/Kalender am Go-Server (`meetings.go`): config/signal/calendar/now/suggestions/book – Alltag wie lokal; Frontend zeigt Vorschläge auch im Servermodus.
+- Offen bleibt: Add-on Server-URL; SSH lokal; echte Systemtests.
 
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik, SMTP); gefundene Fehler beheben.

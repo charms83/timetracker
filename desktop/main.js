@@ -459,16 +459,14 @@ function remind(reason) {
 }
 async function onMeetingEvent(ev) {
   log("meeting", ev.type, ev.app);
-  // Team-Server: Meeting nur als Hinweis ablegen (keine Buchung); lokale Meeting-API gibt es dort nicht
+  // Maßstab = lokales Mac-System: Mini fragt nach. Team: optional Hint + /meetings/now wie lokal.
   if (isTeamMode()) {
-    // Sitzung vom Login im Fenster reicht; Geräte-Token nur Fallback
     if (!(await hasTeamSession()) && !deviceTokenMem) return;
     const day = new Date();
     const d = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
     await api("POST", "/client/hints", { hints: [{ kind: "meeting", day: d, title: `${ev.app || "Meeting"} (${ev.type})`,
       dedupe_key: `meeting:${ev.type}:${ev.app || ""}:${d}:${Math.floor(Date.now() / 60000)}`,
       payload: { type: ev.type, app: ev.app } }] });
-    return;
   }
   const now = await api("GET", "/meetings/now");
   if (now && now.ask === false) return;
@@ -487,11 +485,12 @@ async function onMeetingEvent(ev) {
   remind({ kind: "meeting", app: ev.app, title, rule: pick, start_time: now?.event?.start_time || null, timerActive: !!t.active,
     text: `${label}${title ? ": „" + title + "“" : ""} – Timer starten?${pick?.project_name ? " (" + (pick.key ? pick.key + " · " : "") + pick.project_name + ")" : ""}` });
 }
-/* Termin beginnt (auch ohne Meeting-Programm) → einmal nachfragen, vorbelegt */
+/* Termin beginnt (auch ohne Meeting-Programm) → einmal nachfragen, vorbelegt.
+   Team wie lokal: /meetings/now am Go-Server (Kalender liefert die Mac-App). */
 const calAsked = new Set();
 async function calendarTick() {
-  if (isTeamMode()) return; // Kalender-Erkennung am Team-Server nur über client_hints
   const now = await api("GET", "/meetings/now");
+  if (!now || now.error) return;
   const ev = now?.event; if (!ev || now.ask === false || now.state || calAsked.has(ev.uid)) return;
   const since = Date.now() - Date.parse(ev.start_time);
   if (since < -2 * 60e3 || since > 10 * 60e3) return;                 // 2 min vorher bis 10 min nach Beginn

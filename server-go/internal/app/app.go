@@ -160,6 +160,7 @@ func (a *App) Routes(mux *http.ServeMux) {
 	a.routesTagwerk(mux)
 	a.routesChecks(mux)
 	a.routesPresence(mux)
+	a.routesMeetings(mux) // Meetings/Kalender vom Mac-Client (Parität zu Node)
 	a.routesReports(mux)
 	a.routesHolidays(mux)
 	a.routesPlane(mux)

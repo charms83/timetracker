@@ -5,21 +5,29 @@ Grundlage: alle `api(METHODE, Pfad)`-Aufrufe in `frontend/src/*.jsx` (86 Pfade),
 Ziel: Der Go-Server liefert die bestehende Oberfläche aus (`ZP_STATIC_DIR`) und beantwortet dieselben Pfade; die Oberfläche bekommt nur Anmeldung und „braucht Client“-Hinweise. Der Client (Electron/Mac) behält nur lokale Teile (A).
 
 
-## A Bleibt im Client (lokaler Helfer, nicht im Server) – 11
+## A Bleibt im Client (lokaler Helfer, nicht im Server) – 5
 
 | Pfad | Methode | Genutzt in | Go heute |
 |---|---|---|---|
-| `/meetings/config` | GET | zp-assistant |  |
-| `/meetings/events` | GET | zp-calendar, zp-meetings |  |
-| `/meetings/now` | GET | zp-meetings |  |
-| `/meetings/status` | GET | zp-assistant, zp-meetings |  |
-| `/meetings/suggest-task` | GET | zp-calendar |  |
-| `/meetings/suggestions` | GET | zp-meetings |  |
 | `/pair/clients` | GET | zp-addon |  |
 | `/pair/info` | GET | zp-addon |  |
 | `/security/tls` | GET | zp-jira, zp-tempo |  |
 | `/ssh-sessions` | GET/PUT | App |  |
 | `/ssh-tracking` | GET/POST | App |  |
+
+## A2 Meetings/Kalender (Mac liefert Daten, Server hält Zustand) – gebaut
+
+| Pfad | Methode | Genutzt in | Go heute |
+|---|---|---|---|
+| `/meetings/config` | GET | zp-assistant, Mac | gebaut (`meetings.go`) |
+| `/meetings/signal` | POST | Mac | gebaut |
+| `/meetings/calendar` | POST | Mac | gebaut |
+| `/meetings/events` | GET | zp-calendar, zp-meetings | gebaut |
+| `/meetings/now` | GET | zp-meetings, Mac Mini | gebaut |
+| `/meetings/status` | GET | zp-assistant, zp-meetings | gebaut |
+| `/meetings/suggest-task` | GET | zp-calendar | gebaut |
+| `/meetings/suggestions` | GET | zp-meetings | gebaut |
+| `/meetings/book`, `/meetings/dismiss`, `/meetings/resync`, `/meetings/rules/{pattern}` | POST/DELETE | zp-meetings | gebaut |
 
 ## B Jira/Tempo (Schritt 1) – 8
 
