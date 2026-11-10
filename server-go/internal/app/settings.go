@@ -143,7 +143,7 @@ func (a *App) settingsPut(w http.ResponseWriter, r *http.Request, u User) {
 			}
 			continue
 		}
-		if key == "plane_me_id" || key == "gapfill_ok" || key == "gaps_todo_dismissed" { // wird nur vom Server gepflegt (gapfill_ok: Monatssperre in /month-end/ok)
+		if key == "plane_me_id" || strings.HasPrefix(key, "plane_me_id:") || key == "gapfill_ok" || key == "gaps_todo_dismissed" { // wird nur vom Server gepflegt (gapfill_ok: Monatssperre in /month-end/ok)
 			continue
 		}
 		if key == "plane_base_url" || key == "plane_workspace" { // gelten für alle: nur über /api/admin/config (Administrator, protokolliert)
@@ -214,6 +214,6 @@ func (a *App) settingsPut(w http.ResponseWriter, r *http.Request, u User) {
 // clearPlaneMe: bei neuem/gelöschtem Plane-Schlüssel die gemerkte Plane-Benutzer-Id verwerfen (sie gehört zum alten Schlüssel)
 func (a *App) clearPlaneMe(ctx context.Context, uid int64, kind string) {
 	if kind == "plane_key" {
-		_, _ = a.DB.Exec(ctx, `DELETE FROM user_settings WHERE user_id=$1 AND key='plane_me_id'`, uid)
+		_, _ = a.DB.Exec(ctx, `DELETE FROM user_settings WHERE user_id=$1 AND (key='plane_me_id' OR key LIKE 'plane_me_id:%')`, uid)
 	}
 }

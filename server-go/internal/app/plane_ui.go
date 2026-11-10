@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"sort"
@@ -116,7 +117,7 @@ func myItemsFilter(list []map[string]any, states map[string][2]string, meID stri
 
 func (a *App) planeMyItems(w http.ResponseWriter, r *http.Request, u User) {
 	ctx := r.Context()
-	c, err := a.planeCfg(ctx, u.ID)
+	c, err := a.planeCfgSelect(ctx, u.ID, r.URL.Query().Get("workspace"))
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -125,7 +126,7 @@ func (a *App) planeMyItems(w http.ResponseWriter, r *http.Request, u User) {
 		writeJSON(w, http.StatusOK, []any{})
 		return
 	}
-	ck := c.Base + "|" + c.WS + "|" + descHash(c.Key)[:8] // Fingerabdruck, nie der Schlüssel selbst
+	ck := fmt.Sprintf("%d|%s|%s|%s", c.ID, c.Base, c.WS, descHash(c.Key)[:8]) // Fingerabdruck, nie der Schlüssel selbst
 	v, _ := myItemsByUser.LoadOrStore(u.ID, &myItemsState{})
 	ms := v.(*myItemsState)
 	ms.mu.Lock()
@@ -233,7 +234,7 @@ func (a *App) loadMyItems(ctx context.Context, uid int64, c planeCfg) ([]map[str
 // planeMap = Node GET /api/integrations/plane/map: {configured, open, skipped, mapped, projects}
 func (a *App) planeMap(w http.ResponseWriter, r *http.Request, u User) {
 	ctx := r.Context()
-	c, err := a.planeCfg(ctx, u.ID)
+	c, err := a.planeCfgSelect(ctx, u.ID, r.URL.Query().Get("workspace"))
 	if err != nil {
 		a.fail(w, err)
 		return

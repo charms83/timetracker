@@ -67,26 +67,28 @@ type srcRow struct {
 	System, ExtID string
 	Key, Name     string
 	ProjectID     *int64
+	WorkspaceID   *int64
 }
 
 func (a *App) loadSource(ctx context.Context, tx pgx.Tx, uid, id int64) (*srcRow, error) {
 	var s srcRow
-	err := tx.QueryRow(ctx, `SELECT id, system, external_id, COALESCE(key,''), COALESCE(name,''), project_id FROM project_sources WHERE id=$1 AND user_id=$2`, id, uid).
-		Scan(&s.ID, &s.System, &s.ExtID, &s.Key, &s.Name, &s.ProjectID)
+	err := tx.QueryRow(ctx, `SELECT id, system, external_id, COALESCE(key,''), COALESCE(name,''), project_id, workspace_id FROM project_sources WHERE id=$1 AND user_id=$2`, id, uid).
+		Scan(&s.ID, &s.System, &s.ExtID, &s.Key, &s.Name, &s.ProjectID, &s.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
 	return &s, nil
 }
 
-// mirror spiegelt die Verknüpfung in die Felder am Projekt (plane_project_id, plane_identifier, jira_project)
+// mirror spiegelt die Verknüpfung in die Felder am Projekt (plane_project_id, plane_identifier, plane_workspace_id, jira_project)
 func (a *App) mirror(ctx context.Context, tx pgx.Tx, uid int64, s *srcRow, pid *int64) error {
 	if s.System == "plane" {
-		if _, err := tx.Exec(ctx, `UPDATE projects SET plane_project_id=NULL, plane_identifier=NULL WHERE user_id=$1 AND plane_project_id=$2`, uid, s.ExtID); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE projects SET plane_project_id=NULL, plane_identifier=NULL, plane_workspace_id=NULL WHERE user_id=$1 AND plane_project_id=$2`, uid, s.ExtID); err != nil {
 			return err
 		}
 		if pid != nil {
-			_, err := tx.Exec(ctx, `UPDATE projects SET plane_project_id=$3, plane_identifier=$4 WHERE id=$1 AND user_id=$2`, *pid, uid, s.ExtID, nz(s.Key))
+			_, err := tx.Exec(ctx, `UPDATE projects SET plane_project_id=$3, plane_identifier=$4, plane_workspace_id=$5 WHERE id=$1 AND user_id=$2`,
+				*pid, uid, s.ExtID, nz(s.Key), s.WorkspaceID)
 			return err
 		}
 		return nil

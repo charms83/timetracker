@@ -93,13 +93,23 @@ func (a *App) statesOf(ctx context.Context, uid int64, c planeCfg, pid string) m
 }
 
 type localProj struct {
-	ID                                 int64
+	ID, WorkspaceID                    int64
 	Name, PlaneProject, Ident, JiraKey string
 }
 
 func (a *App) planeProjectsLocal(ctx context.Context, uid int64) ([]localProj, error) {
-	rows, err := a.DB.Query(ctx, `SELECT id, name, COALESCE(plane_project_id,''), COALESCE(plane_identifier,''), COALESCE(jira_key,'')
-		FROM projects WHERE user_id=$1 AND plane_project_id IS NOT NULL AND COALESCE(muted,0)=0`, uid)
+	return a.planeProjectsLocalWS(ctx, uid, 0)
+}
+
+func (a *App) planeProjectsLocalWS(ctx context.Context, uid, workspaceID int64) ([]localProj, error) {
+	sql := `SELECT id, name, COALESCE(plane_project_id,''), COALESCE(plane_identifier,''), COALESCE(jira_key,''), COALESCE(plane_workspace_id,0)
+		FROM projects WHERE user_id=$1 AND plane_project_id IS NOT NULL AND COALESCE(muted,0)=0`
+	args := []any{uid}
+	if workspaceID > 0 {
+		sql += ` AND (plane_workspace_id=$2 OR plane_workspace_id IS NULL)`
+		args = append(args, workspaceID)
+	}
+	rows, err := a.DB.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -107,12 +117,51 @@ func (a *App) planeProjectsLocal(ctx context.Context, uid int64) ([]localProj, e
 	var out []localProj
 	for rows.Next() {
 		var p localProj
-		if err := rows.Scan(&p.ID, &p.Name, &p.PlaneProject, &p.Ident, &p.JiraKey); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.PlaneProject, &p.Ident, &p.JiraKey, &p.WorkspaceID); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// planeCfgForKey: Workspace aus Query, sonst aus lokaler Aufgabe, sonst Primär; Work-Item laden (bei Miss alle Workspaces).
+func (a *App) planeCfgForKey(ctx context.Context, uid int64, key, workspaceRaw string) (planeCfg, map[string]any, string, *localProj, error) {
+	try := func(c planeCfg) (map[string]any, string, *localProj, error) {
+		if !c.ok() {
+			return nil, "", nil, &planeErr{Status: 400, Msg: "Plane ist nicht eingerichtet"}
+		}
+		return a.workItemByKey(ctx, uid, c, key)
+	}
+	if strings.TrimSpace(workspaceRaw) != "" {
+		c, err := a.planeCfgSelect(ctx, uid, workspaceRaw)
+		if err != nil {
+			return planeCfg{}, nil, "", nil, err
+		}
+		wi, pid, p, err := try(c)
+		return c, wi, pid, p, err
+	}
+	c, err := a.planeCfgForTicket(ctx, uid, key)
+	if err != nil {
+		return planeCfg{}, nil, "", nil, err
+	}
+	wi, pid, p, err := try(c)
+	if err == nil {
+		return c, wi, pid, p, nil
+	}
+	cfgs, cerr := a.planeCfgs(ctx, uid)
+	if cerr != nil {
+		return c, nil, "", nil, err
+	}
+	for _, alt := range cfgs {
+		if alt.ID == c.ID && alt.WS == c.WS {
+			continue
+		}
+		if wi, pid, p, e2 := try(alt); e2 == nil {
+			return alt, wi, pid, p, nil
+		}
+	}
+	return c, nil, "", nil, err
 }
 
 func findProj(ps []localProj, ppid string) *localProj {
@@ -227,88 +276,165 @@ func (a *App) planeSearch(w http.ResponseWriter, r *http.Request, u User) {
 		return
 	}
 	ctx := r.Context()
-	c, err := a.planeCfg(ctx, u.ID)
+	cfgs, err := a.planeCfgsForQuery(ctx, u.ID, r.URL.Query().Get("workspace"))
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	res, err := a.planeDo(ctx, u.ID, c, "GET", c.wsPath()+"/work-items/search/?search="+url.QueryEscape(q)+"&limit=15&workspace_search=true", nil, planeOpts{Interactive: true})
-	if err != nil {
-		a.planeFail(w, err)
-		return
-	}
 	locals, _ := a.planeProjectsLocal(ctx, u.ID)
 	out := []map[string]any{}
-	for _, i := range listOf(res) {
-		ident := asStr(i["project__identifier"])
-		p := findProj(locals, asStr(i["project_id"]))
-		if p == nil {
-			for k := range locals {
-				if strings.EqualFold(firstNonEmpty(locals[k].Ident, locals[k].JiraKey), ident) && ident != "" {
-					p = &locals[k]
-					break
+	seen := map[string]bool{}
+	for _, c := range cfgs {
+		if !c.ok() {
+			continue
+		}
+		res, err := a.planeDo(ctx, u.ID, c, "GET", c.wsPath()+"/work-items/search/?search="+url.QueryEscape(q)+"&limit=15&workspace_search=true", nil, planeOpts{Interactive: true})
+		if err != nil {
+			if len(cfgs) == 1 {
+				a.planeFail(w, err)
+				return
+			}
+			continue
+		}
+		for _, i := range listOf(res) {
+			ident := asStr(i["project__identifier"])
+			key := strings.ToUpper(ident + "-" + asStr(i["sequence_id"]))
+			id := asStr(i["id"])
+			if id == "" || seen[id] {
+				continue
+			}
+			seen[id] = true
+			p := findProj(locals, asStr(i["project_id"]))
+			if p == nil {
+				for k := range locals {
+					if strings.EqualFold(firstNonEmpty(locals[k].Ident, locals[k].JiraKey), ident) && ident != "" {
+						p = &locals[k]
+						break
+					}
 				}
 			}
+			var lid any
+			if p != nil {
+				lid = p.ID
+			}
+			row := map[string]any{"id": i["id"], "key": key, "name": i["name"], "plane_project_id": i["project_id"], "local_project_id": lid}
+			if c.ID > 0 {
+				row["workspace_id"] = c.ID
+			}
+			out = append(out, row)
+			if len(out) >= 30 {
+				writeJSON(w, http.StatusOK, out)
+				return
+			}
 		}
-		var lid any
-		if p != nil {
-			lid = p.ID
-		}
-		out = append(out, map[string]any{"id": i["id"], "key": ident + "-" + asStr(i["sequence_id"]), "name": i["name"], "plane_project_id": i["project_id"], "local_project_id": lid})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
+// planeCfgsForQuery: ein Workspace aus ?workspace=, sonst alle mit Schlüssel (leer → Primär-Versuch).
+func (a *App) planeCfgsForQuery(ctx context.Context, uid int64, workspaceRaw string) ([]planeCfg, error) {
+	if strings.TrimSpace(workspaceRaw) != "" {
+		c, err := a.planeCfgSelect(ctx, uid, workspaceRaw)
+		if err != nil {
+			return nil, err
+		}
+		return []planeCfg{c}, nil
+	}
+	cfgs, err := a.planeCfgs(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	if len(cfgs) == 0 {
+		c, err := a.planeCfg(ctx, uid)
+		if err != nil {
+			return nil, err
+		}
+		return []planeCfg{c}, nil
+	}
+	return cfgs, nil
+}
+
 func (a *App) planeTickets(w http.ResponseWriter, r *http.Request, u User) {
 	ctx := r.Context()
-	c, err := a.planeCfg(ctx, u.ID)
+	wsRaw := r.URL.Query().Get("workspace")
+	cfgs, err := a.planeCfgsForQuery(ctx, u.ID, wsRaw)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	mine, open := r.URL.Query().Get("mine") != "0", r.URL.Query().Get("open") != "0"
-	ctx, cancel := context.WithTimeout(ctx, 90*time.Second) // Gesamt-Zeitlimit: die Bremse kann bei vielen Projekten lange warten
+	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	cacheKey := fmt.Sprintf("%d|%v|%v", u.ID, mine, open)
+	cacheKey := fmt.Sprintf("%d|%s|%v|%v", u.ID, wsRaw, mine, open)
 	if q == "" {
 		if v, ok := ticketListCache.Load(cacheKey); ok && time.Since(v.(listCached).at) < 2*time.Minute {
 			writeJSON(w, http.StatusOK, v.(listCached).v)
 			return
 		}
 	}
-	meID := a.planeMeID(ctx, u.ID, c)
 	projects, err := a.planeProjectsLocal(ctx, u.ID)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
 	var items []map[string]any
+	seen := map[string]bool{}
+	primary := cfgs[0]
 	if q != "" {
-		res, err := a.planeDo(ctx, u.ID, c, "GET", c.wsPath()+"/work-items/search/?search="+url.QueryEscape(q)+"&limit=15&workspace_search=true", nil, planeOpts{Interactive: true})
-		if err != nil {
-			a.planeFail(w, err)
-			return
-		}
-		hits := listOf(res)
-		if len(hits) > 15 {
-			hits = hits[:15]
-		}
-		for _, hit := range hits {
-			ppid := asStr(hit["project_id"])
-			p := findProj(projects, ppid)
-			wi := hit
-			if uuidRE.MatchString(ppid) && uuidRE.MatchString(asStr(hit["id"])) {
-				if full, err := a.planeDo(ctx, u.ID, c, "GET", c.wsPath()+"/projects/"+ppid+"/work-items/"+asStr(hit["id"])+"/", nil, planeOpts{}); err == nil && jm(full) != nil {
-					wi = jm(full)
-				}
+		for _, c := range cfgs {
+			if !c.ok() {
+				continue
 			}
-			wi["project__identifier"] = hit["project__identifier"]
-			items = append(items, a.shapeItem(ctx, u.ID, c, wi, p, ppid, asStr(hit["project__identifier"]), meID))
+			meID := a.planeMeID(ctx, u.ID, c)
+			res, err := a.planeDo(ctx, u.ID, c, "GET", c.wsPath()+"/work-items/search/?search="+url.QueryEscape(q)+"&limit=15&workspace_search=true", nil, planeOpts{Interactive: true})
+			if err != nil {
+				if len(cfgs) == 1 {
+					a.planeFail(w, err)
+					return
+				}
+				continue
+			}
+			hits := listOf(res)
+			if len(hits) > 15 {
+				hits = hits[:15]
+			}
+			for _, hit := range hits {
+				id := asStr(hit["id"])
+				if id != "" && seen[id] {
+					continue
+				}
+				seen[id] = true
+				ppid := asStr(hit["project_id"])
+				p := findProj(projects, ppid)
+				wi := hit
+				if uuidRE.MatchString(ppid) && uuidRE.MatchString(id) {
+					if full, err := a.planeDo(ctx, u.ID, c, "GET", c.wsPath()+"/projects/"+ppid+"/work-items/"+id+"/", nil, planeOpts{}); err == nil && jm(full) != nil {
+						wi = jm(full)
+					}
+				}
+				wi["project__identifier"] = hit["project__identifier"]
+				row := a.shapeItem(ctx, u.ID, c, wi, p, ppid, asStr(hit["project__identifier"]), meID)
+				if c.ID > 0 {
+					row["workspace_id"] = c.ID
+				}
+				items = append(items, row)
+			}
 		}
 	} else {
 		for k := range projects {
 			p := &projects[k]
+			if wsRaw != "" && p.WorkspaceID > 0 && int64(asFloat(wsRaw)) != p.WorkspaceID {
+				continue
+			}
+			c, err := a.planeCfgForProject(ctx, u.ID, p.ID)
+			if err != nil || !c.ok() {
+				continue
+			}
+			if wsRaw != "" && c.ID > 0 && int64(asFloat(wsRaw)) != c.ID {
+				continue
+			}
+			meID := a.planeMeID(ctx, u.ID, c)
 			cursor := ""
 			for page := 0; page < 4; page++ {
 				path := c.wsPath() + "/projects/" + url.PathEscape(p.PlaneProject) + "/work-items/?per_page=100&order_by=-updated_at"
@@ -317,11 +443,23 @@ func (a *App) planeTickets(w http.ResponseWriter, r *http.Request, u User) {
 				}
 				res, err := a.planeDo(ctx, u.ID, c, "GET", path, nil, planeOpts{})
 				if err != nil {
-					a.planeFail(w, err)
-					return
+					if len(projects) == 1 {
+						a.planeFail(w, err)
+						return
+					}
+					break
 				}
 				for _, i := range listOf(res) {
-					items = append(items, a.shapeItem(ctx, u.ID, c, i, p, p.PlaneProject, "", meID))
+					id := asStr(i["id"])
+					if id != "" && seen[id] {
+						continue
+					}
+					seen[id] = true
+					row := a.shapeItem(ctx, u.ID, c, i, p, p.PlaneProject, "", meID)
+					if c.ID > 0 {
+						row["workspace_id"] = c.ID
+					}
+					items = append(items, row)
 				}
 				m := jm(res)
 				if m == nil || m["next_page_results"] != true || asStr(m["next_cursor"]) == "" {
@@ -360,7 +498,7 @@ func (a *App) planeTickets(w http.ResponseWriter, r *http.Request, u User) {
 	if items == nil {
 		items = []map[string]any{}
 	}
-	out := map[string]any{"total": len(items), "issues": items, "base": c.Base, "ws": c.WS}
+	out := map[string]any{"total": len(items), "issues": items, "base": primary.Base, "ws": primary.WS}
 	if q == "" {
 		ticketListCache.Store(cacheKey, listCached{time.Now(), out})
 	}
@@ -390,12 +528,7 @@ func (a *App) planeTicket(w http.ResponseWriter, r *http.Request, u User) {
 		return
 	}
 	ctx := r.Context()
-	c, err := a.planeCfg(ctx, u.ID)
-	if err != nil {
-		a.fail(w, err)
-		return
-	}
-	wi, pid, p, err := a.workItemByKey(ctx, u.ID, c, key)
+	c, wi, pid, p, err := a.planeCfgForKey(ctx, u.ID, key, r.URL.Query().Get("workspace"))
 	if err != nil {
 		a.planeFail(w, err)
 		return
@@ -474,12 +607,7 @@ func (a *App) planeComment(w http.ResponseWriter, r *http.Request, u User) {
 		return
 	}
 	ctx := r.Context()
-	c, err := a.planeCfg(ctx, u.ID)
-	if err != nil {
-		a.fail(w, err)
-		return
-	}
-	wi, pid, _, err := a.workItemByKey(ctx, u.ID, c, key)
+	c, wi, pid, _, err := a.planeCfgForKey(ctx, u.ID, key, r.URL.Query().Get("workspace"))
 	if err != nil {
 		a.planeFail(w, err)
 		return
@@ -508,12 +636,7 @@ func (a *App) planeState(w http.ResponseWriter, r *http.Request, u User) {
 		return
 	}
 	ctx := r.Context()
-	c, err := a.planeCfg(ctx, u.ID)
-	if err != nil {
-		a.fail(w, err)
-		return
-	}
-	wi, pid, _, err := a.workItemByKey(ctx, u.ID, c, key)
+	c, wi, pid, _, err := a.planeCfgForKey(ctx, u.ID, key, r.URL.Query().Get("workspace"))
 	if err != nil {
 		a.planeFail(w, err)
 		return
@@ -550,19 +673,19 @@ func (a *App) ensurePlaneTask(ctx context.Context, uid int64, key string) (int64
 	if err := a.DB.QueryRow(ctx, `SELECT id, project_id FROM tasks WHERE user_id=$1 AND UPPER(jira_ticket)=$2 AND plane_work_item_id IS NOT NULL ORDER BY id LIMIT 1`, uid, key).Scan(&tid, &projID); err == nil {
 		return tid, projID, "", nil
 	}
-	c, err := a.planeCfg(ctx, uid)
-	if err != nil {
-		return 0, 0, "", err
-	}
-	wi, pid, p, err := a.workItemByKey(ctx, uid, c, key)
+	c, wi, pid, p, err := a.planeCfgForKey(ctx, uid, key, "")
 	if err != nil {
 		return 0, 0, "", err
 	}
 	if p == nil {
 		return 0, 0, "Das Plane-Projekt ist noch keinem lokalen Projekt zugeordnet (Projekte › Quellen)", nil
 	}
-	if err := a.DB.QueryRow(ctx, `INSERT INTO tasks(user_id,project_id,title,jira_ticket,status,plane_work_item_id,plane_project_id) VALUES($1,$2,$3,$4,'open',$5,$6) RETURNING id`,
-		uid, p.ID, asStr(wi["name"]), key, asStr(wi["id"]), pid).Scan(&tid); err != nil {
+	var ws any
+	if c.ID > 0 {
+		ws = c.ID
+	}
+	if err := a.DB.QueryRow(ctx, `INSERT INTO tasks(user_id,project_id,title,jira_ticket,status,plane_work_item_id,plane_project_id,plane_workspace_id) VALUES($1,$2,$3,$4,'open',$5,$6,$7) RETURNING id`,
+		uid, p.ID, asStr(wi["name"]), key, asStr(wi["id"]), pid, ws).Scan(&tid); err != nil {
 		return 0, 0, "", err
 	}
 	return tid, p.ID, "", nil
@@ -643,27 +766,40 @@ func (a *App) planeResolve(w http.ResponseWriter, r *http.Request, u User) {
 		writeJSON(w, http.StatusOK, v)
 		return
 	}
-	c, err := a.planeCfg(ctx, u.ID)
+	cfgs, err := a.planeCfgsForQuery(ctx, u.ID, r.URL.Query().Get("workspace"))
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
 	var wi map[string]any
 	found := pid
-	if pid != "" {
-		res, err := a.planeDo(ctx, u.ID, c, "GET", c.wsPath()+"/projects/"+pid+"/work-items/"+iid+"/", nil, planeOpts{})
-		if err != nil {
-			a.planeFail(w, err)
-			return
+	var c planeCfg
+	for _, cand := range cfgs {
+		if !cand.ok() {
+			continue
 		}
-		wi = jm(res)
-	} else {
-		locals, _ := a.planeProjectsLocal(ctx, u.ID)
+		c = cand
+		if pid != "" {
+			res, err := a.planeDo(ctx, u.ID, c, "GET", c.wsPath()+"/projects/"+pid+"/work-items/"+iid+"/", nil, planeOpts{})
+			if err != nil {
+				if len(cfgs) == 1 {
+					a.planeFail(w, err)
+					return
+				}
+				continue
+			}
+			wi = jm(res)
+			break
+		}
+		locals, _ := a.planeProjectsLocalWS(ctx, u.ID, c.ID)
 		for _, p := range locals {
 			if res, err := a.planeDo(ctx, u.ID, c, "GET", c.wsPath()+"/projects/"+url.PathEscape(p.PlaneProject)+"/work-items/"+iid+"/", nil, planeOpts{}); err == nil && jm(res) != nil {
 				wi, found = jm(res), p.PlaneProject
 				break
 			}
+		}
+		if wi != nil {
+			break
 		}
 	}
 	if wi == nil {
@@ -692,15 +828,20 @@ func (a *App) planeResolve(w http.ResponseWriter, r *http.Request, u User) {
 
 type planeProject struct {
 	ID                                 int64
+	WorkspaceID                        int64
 	Name, PlaneProject, Ident, JiraKey string
 }
 
 func (a *App) planeProjectOf(ctx context.Context, uid, id int64) (*planeProject, error) {
 	var p planeProject
-	err := a.DB.QueryRow(ctx, `SELECT id, name, plane_project_id, COALESCE(plane_identifier,''), COALESCE(jira_key,'') FROM projects
-		WHERE id=$1 AND user_id=$2 AND plane_project_id IS NOT NULL`, id, uid).Scan(&p.ID, &p.Name, &p.PlaneProject, &p.Ident, &p.JiraKey)
+	var ws *int64
+	err := a.DB.QueryRow(ctx, `SELECT id, name, plane_project_id, COALESCE(plane_identifier,''), COALESCE(jira_key,''), plane_workspace_id FROM projects
+		WHERE id=$1 AND user_id=$2 AND plane_project_id IS NOT NULL`, id, uid).Scan(&p.ID, &p.Name, &p.PlaneProject, &p.Ident, &p.JiraKey, &ws)
 	if err != nil {
 		return nil, err
+	}
+	if ws != nil {
+		p.WorkspaceID = *ws
 	}
 	return &p, nil
 }
@@ -757,7 +898,7 @@ func (a *App) linkTaskToPlane(ctx context.Context, uid, taskID int64) (bool, err
 	if blocked, err := a.blockedPlane(ctx, uid, st); err != nil || containsID(blocked, projectID) {
 		return false, err // Regel des Projekts erlaubt Plane nicht
 	}
-	c, err := a.planeCfg(ctx, uid)
+	c, err := a.planeCfgForProject(ctx, uid, projectID)
 	if err != nil || !c.ok() {
 		return false, err
 	}
@@ -777,8 +918,12 @@ func (a *App) linkTaskToPlane(ctx context.Context, uid, taskID int64) (bool, err
 		release()
 		return false, err
 	}
-	tag, err := a.DB.Exec(ctx, `UPDATE tasks SET title=$3, jira_ticket=$4, plane_work_item_id=$5, plane_project_id=$6, local_only=false WHERE id=$1 AND user_id=$2 AND plane_work_item_id=$7`,
-		taskID, uid, it.Name, nz(it.Key), it.ID, p.PlaneProject, claim)
+	var wsID any
+	if c.ID > 0 {
+		wsID = c.ID
+	}
+	tag, err := a.DB.Exec(ctx, `UPDATE tasks SET title=$3, jira_ticket=$4, plane_work_item_id=$5, plane_project_id=$6, plane_workspace_id=$8, local_only=false WHERE id=$1 AND user_id=$2 AND plane_work_item_id=$7`,
+		taskID, uid, it.Name, nz(it.Key), it.ID, p.PlaneProject, claim, wsID)
 	if err != nil || tag.RowsAffected() == 0 {
 		// Work-Item existiert in Plane, die Verknüpfung konnte nicht gespeichert werden: nicht verlieren
 		a.sysLog(ctx, uid, "error", "plane", fmt.Sprintf("Work-Item %s (%s) in Plane angelegt, Verknüpfung mit Aufgabe #%d nicht gespeichert – bitte manuell zuordnen", it.Key, it.ID, taskID))
@@ -825,7 +970,7 @@ func (a *App) planeWorkItemCreate(w http.ResponseWriter, r *http.Request, u User
 		badRequest(w, "Projekt ist nicht mit Plane verknüpft (Projekte › Quellen)")
 		return
 	}
-	c, err := a.planeCfg(ctx, u.ID)
+	c, err := a.planeCfgForProject(ctx, u.ID, p.ID)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -835,9 +980,13 @@ func (a *App) planeWorkItemCreate(w http.ResponseWriter, r *http.Request, u User
 		a.planeFail(w, err)
 		return
 	}
+	var ws any
+	if c.ID > 0 {
+		ws = c.ID
+	}
 	var tid int64
-	if err := a.DB.QueryRow(ctx, `INSERT INTO tasks(user_id,project_id,title,jira_ticket,status,plane_work_item_id,plane_project_id) VALUES($1,$2,$3,$4,'open',$5,$6) RETURNING id`,
-		u.ID, p.ID, it.Name, nz(it.Key), it.ID, p.PlaneProject).Scan(&tid); err != nil {
+	if err := a.DB.QueryRow(ctx, `INSERT INTO tasks(user_id,project_id,title,jira_ticket,status,plane_work_item_id,plane_project_id,plane_workspace_id) VALUES($1,$2,$3,$4,'open',$5,$6,$7) RETURNING id`,
+		u.ID, p.ID, it.Name, nz(it.Key), it.ID, p.PlaneProject, ws).Scan(&tid); err != nil {
 		a.sysLog(ctx, u.ID, "error", "plane", fmt.Sprintf("Work-Item %s (%s) in Plane angelegt, Aufgabe nicht gespeichert – bitte manuell zuordnen", it.Key, it.ID))
 		a.fail(w, err)
 		return

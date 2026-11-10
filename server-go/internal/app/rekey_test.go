@@ -8,6 +8,15 @@ import (
 	"example/zeitprotokoll-server/internal/crypto"
 )
 
+func TestPlaneMeSettingKey(t *testing.T) {
+	if planeMeSettingKey(0) != "plane_me_id" {
+		t.Fatal("legacy key")
+	}
+	if planeMeSettingKey(7) != "plane_me_id:7" {
+		t.Fatal("scoped key")
+	}
+}
+
 // Rekey-Pfad ohne Datenbank: Seal mit altem Schlüssel, Open+Seal mit neuem, Open mit neuem muss Klartext liefern.
 func TestRekeyAADRoundtrip(t *testing.T) {
 	oldKey := make([]byte, 32)

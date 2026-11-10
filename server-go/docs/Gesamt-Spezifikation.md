@@ -77,7 +77,7 @@ Stand 10.11.2026 (Entscheidungen §16). Rollenklarstellung: **Technischer Admin 
 **Benachrichtigungen:** In-App-Hinweise und E-Mail über `notifyApproval` (SMTP, abschaltbar in `/admin`, Migration 020; Ereignisse closing_soon, closed, rejected, nachtrag, pending; Inhalt ohne Zeiten; Entprellung in `notify_sent`). Exchange-OAuth/Graph offen. Für Jira/Tempo-Buchungen bleibt der Tempo-Stundenzettel-Status maßgeblich.
 
 ## 7. Plane (Modul, nicht abschaltbar)
-**Mehrere Plane-Workspaces (Entscheidung 10.11.):** Der Administrator legt mehrere Plane-Workspaces fest (Name, Adresse, Workspace-Kennung, ein/aus; änderbar, mehrere Einträge – wie die Jira-Instanzen). Migration 023 + Admin `/admin`, Nutzer `/profile` (Schlüssel je Host). Quellen/Scan über eingeschaltete Workspaces; Primär-Workspace spiegelt `plane_base_url`/`plane_workspace` für Tempo-Links. Status: **gebaut, Abnahme offen**.
+**Mehrere Plane-Workspaces (Entscheidung 10.11.):** Der Administrator legt mehrere Plane-Workspaces fest (Name, Adresse, Workspace-Kennung, ein/aus; änderbar, mehrere Einträge – wie die Jira-Instanzen). Migration 023/024 + Admin `/admin`, Nutzer `/profile` (Schlüssel je Host). Quellen, Tickets, Import, Push und Status über Workspaces (`?workspace=` oder aus Projekt/Ticket); FK `plane_workspace_id`; Primär-Workspace spiegelt `plane_base_url`/`plane_workspace` für Tempo-Links. Status: **gebaut, Abnahme offen**.
 
 Persönlicher API-Schlüssel je Person (verschlüsselt, an Host gebunden), Adresse/Workspace für alle. Bleibt so (keine Plane-App/OAuth).
 | Funktion | Status |

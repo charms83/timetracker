@@ -70,8 +70,16 @@ func (a *App) assistantFacts(ctx context.Context, uid int64, st map[string]strin
 	if done == nil {
 		done = map[string]any{}
 	}
-	pc, err := a.planeCfg(ctx, uid)
-	f.plane = err == nil && pc.ok()
+	if cfgs, err := a.planeCfgs(ctx, uid); err == nil {
+		for _, pc := range cfgs {
+			if pc.ok() {
+				f.plane = true
+				break
+			}
+		}
+	} else if pc, err := a.planeCfg(ctx, uid); err == nil && pc.ok() {
+		f.plane = true
+	}
 	f.jiraOn = jiraOn(st) && a.tempoModuleOn(ctx)
 	var user, account, since, issue any = nz(st["jira_username"]), "", "", ""
 	if s, _, err := a.tempoSetup(ctx, uid); err == nil {

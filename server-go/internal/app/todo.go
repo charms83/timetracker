@@ -960,10 +960,21 @@ func (a *App) todoTickets(ctx context.Context, uid int64) []map[string]any {
 	var out []map[string]any
 	pctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	if c, err := a.planeCfg(pctx, uid); err == nil && c.ok() {
-		for _, i := range a.planeMineCached(pctx, uid, c) {
-			out = append(out, map[string]any{"system": "plane", "key": strings.ToUpper(asStr(i["key"])), "summary": i["name"], "project_id": i["local_project_id"],
-				"project_name": nil, "due": "", "priority": ""})
+	if cfgs, err := a.planeCfgs(pctx, uid); err == nil {
+		seen := map[string]bool{}
+		for _, c := range cfgs {
+			if !c.ok() {
+				continue
+			}
+			for _, i := range a.planeMineCached(pctx, uid, c) {
+				k := strings.ToUpper(asStr(i["key"]))
+				if k == "" || seen[k] {
+					continue
+				}
+				seen[k] = true
+				out = append(out, map[string]any{"system": "plane", "key": k, "summary": i["name"], "project_id": i["local_project_id"],
+					"project_name": nil, "due": "", "priority": ""})
+			}
 		}
 	}
 	if !a.tempoModuleOn(ctx) {

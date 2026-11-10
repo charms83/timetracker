@@ -457,7 +457,7 @@ func (a *App) planeListAll(ctx context.Context, uid int64, c planeCfg, path stri
 	return out, nil
 }
 
-// planeMe fragt den angemeldeten Plane-Benutzer ab und merkt sich dessen Id
+// planeMe fragt den angemeldeten Plane-Benutzer ab und merkt sich dessen Id (je Workspace, Legacy zusätzlich global).
 func (a *App) planeMe(ctx context.Context, uid int64, c planeCfg, o planeOpts) (map[string]any, error) {
 	r, err := a.planeDo(ctx, uid, c, "GET", "/api/v1/users/me/", nil, o)
 	if err != nil {
@@ -465,7 +465,16 @@ func (a *App) planeMe(ctx context.Context, uid int64, c planeCfg, o planeOpts) (
 	}
 	m := jm(r)
 	if id := asStr(m["id"]); id != "" {
-		_, _ = a.DB.Exec(ctx, `INSERT INTO user_settings(user_id,key,value) VALUES($1,'plane_me_id',$2) ON CONFLICT (user_id,key) DO UPDATE SET value=EXCLUDED.value`, uid, id)
+		key := planeMeSettingKey(c.ID)
+		_, _ = a.DB.Exec(ctx, `INSERT INTO user_settings(user_id,key,value) VALUES($1,$2,$3) ON CONFLICT (user_id,key) DO UPDATE SET value=EXCLUDED.value`, uid, key, id)
+		if c.ID == 0 || key != "plane_me_id" {
+			// Primär/Legacy: auch unter plane_me_id halten, bis alle Leser umgestellt sind
+			if c.ID == 0 {
+				_, _ = a.DB.Exec(ctx, `INSERT INTO user_settings(user_id,key,value) VALUES($1,'plane_me_id',$2) ON CONFLICT (user_id,key) DO UPDATE SET value=EXCLUDED.value`, uid, id)
+			} else if prim, ok := a.primaryPlaneWorkspace(ctx); ok && prim.ID == c.ID {
+				_, _ = a.DB.Exec(ctx, `INSERT INTO user_settings(user_id,key,value) VALUES($1,'plane_me_id',$2) ON CONFLICT (user_id,key) DO UPDATE SET value=EXCLUDED.value`, uid, id)
+			}
+		}
 	}
 	return m, nil
 }

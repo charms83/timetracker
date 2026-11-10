@@ -80,7 +80,7 @@ func (a *App) planeMapSuggest(w http.ResponseWriter, r *http.Request, u User) {
 	}
 	title := strings.TrimSpace(r.URL.Query().Get("title"))
 	ctx := r.Context()
-	c, err := a.planeCfg(ctx, u.ID)
+	cfgs, err := a.planeCfgsForQuery(ctx, u.ID, r.URL.Query().Get("workspace"))
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -95,31 +95,39 @@ func (a *App) planeMapSuggest(w http.ResponseWriter, r *http.Request, u User) {
 			found[id] = h
 		}
 	}
-	if wi, err := a.planeDo(ctx, u.ID, c, "GET", c.wsPath()+"/work-items/"+url.PathEscape(key)+"/", nil, planeOpts{Interactive: true}); err == nil {
-		add(asStr(jm(wi)["id"]), key, asStr(jm(wi)["name"]), "gleicher Key in Plane", 0.2)
-	} else {
-		var pe *planeErr
-		if !errors.As(err, &pe) || pe.Status != 404 {
-			a.planeFail(w, err)
-			return
-		}
-	}
 	queries := []string{key}
 	if ws := nodeWords(title); len(ws) > 0 {
 		queries = append(queries, strings.Join(firstN(ws, 6), " "))
 	}
-	for _, q := range queries {
-		res, err := a.planeDo(ctx, u.ID, c, "GET", c.wsPath()+"/work-items/search/?search="+url.QueryEscape(q)+"&limit=6&workspace_search=true", nil, planeOpts{Interactive: true})
-		if err != nil {
-			a.planeFail(w, err)
-			return
+	for _, c := range cfgs {
+		if !c.ok() {
+			continue
 		}
-		for _, i := range listOf(res) {
-			via := "ähnlicher Titel"
-			if q == key {
-				via = "Key im Text"
+		if wi, err := a.planeDo(ctx, u.ID, c, "GET", c.wsPath()+"/work-items/"+url.PathEscape(key)+"/", nil, planeOpts{Interactive: true}); err == nil {
+			add(asStr(jm(wi)["id"]), key, asStr(jm(wi)["name"]), "gleicher Key in Plane", 0.2)
+		} else {
+			var pe *planeErr
+			if (!errors.As(err, &pe) || pe.Status != 404) && len(cfgs) == 1 {
+				a.planeFail(w, err)
+				return
 			}
-			add(asStr(i["id"]), strings.ToUpper(asStr(i["project__identifier"]))+"-"+asStr(i["sequence_id"]), asStr(i["name"]), via, 0)
+		}
+		for _, q := range queries {
+			res, err := a.planeDo(ctx, u.ID, c, "GET", c.wsPath()+"/work-items/search/?search="+url.QueryEscape(q)+"&limit=6&workspace_search=true", nil, planeOpts{Interactive: true})
+			if err != nil {
+				if len(cfgs) == 1 {
+					a.planeFail(w, err)
+					return
+				}
+				continue
+			}
+			for _, i := range listOf(res) {
+				via := "ähnlicher Titel"
+				if q == key {
+					via = "Key im Text"
+				}
+				add(asStr(i["id"]), strings.ToUpper(asStr(i["project__identifier"]))+"-"+asStr(i["sequence_id"]), asStr(i["name"]), via, 0)
+			}
 		}
 	}
 	out := make([]mapHit, 0, len(found))
@@ -183,7 +191,15 @@ func (a *App) planeMapApply(w http.ResponseWriter, r *http.Request, u User) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
-	c, err := a.planeCfg(ctx, u.ID)
+	var c planeCfg
+	var err error
+	if lid := asID(in["local_project_id"]); lid != nil {
+		c, err = a.planeCfgForProject(ctx, u.ID, lid.(int64))
+	} else if ws := asStr(in["workspace_id"]); ws != "" {
+		c, err = a.planeCfgSelect(ctx, u.ID, ws)
+	} else {
+		c, err = a.planeCfg(ctx, u.ID)
+	}
 	if err != nil {
 		a.fail(w, err)
 		return

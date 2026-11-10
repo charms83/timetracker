@@ -355,6 +355,13 @@ func (a *App) planeWorkspacesMine(w http.ResponseWriter, r *http.Request, u User
 	writeJSON(w, http.StatusOK, out)
 }
 
+func planeMeSettingKey(wsID int64) string {
+	if wsID > 0 {
+		return fmt.Sprintf("plane_me_id:%d", wsID)
+	}
+	return "plane_me_id"
+}
+
 // planeCfgFor: Konfiguration für einen Workspace (Schlüssel über Host teilen).
 func (a *App) planeCfgFor(ctx context.Context, uid int64, w planeWorkspace) (planeCfg, error) {
 	st, err := a.userSettings(ctx, uid)
@@ -369,14 +376,77 @@ func (a *App) planeCfgFor(ctx context.Context, uid int64, w planeWorkspace) (pla
 	if st["plane_sync_mode"] == "auto" {
 		mode = "auto"
 	}
+	me := st[planeMeSettingKey(w.ID)]
+	if me == "" {
+		me = st["plane_me_id"] // Legacy (global)
+	}
 	return planeCfg{
 		Base: strings.TrimRight(strings.TrimSpace(w.BaseURL), "/"),
 		Key:  strings.TrimSpace(key),
 		WS:   normWS(w.Workspace),
 		Mode: mode,
-		MeID: st["plane_me_id"],
+		MeID: me,
 		ID:   w.ID,
 	}, nil
+}
+
+// planeCfgSelect: ?workspace=<id>; ohne Angabe Primär-Workspace (Abwärtskompatibilität).
+func (a *App) planeCfgSelect(ctx context.Context, uid int64, raw string) (planeCfg, error) {
+	raw = strings.TrimSpace(raw)
+	if raw != "" {
+		id := int64(asFloat(raw))
+		if id <= 0 {
+			return planeCfg{}, errUser("workspace: Id des Plane-Workspace")
+		}
+		w, err := a.planeWorkspaceByID(ctx, id)
+		if err != nil {
+			return planeCfg{}, err
+		}
+		if !w.Enabled {
+			return planeCfg{}, errUser("Plane-Workspace „" + w.Name + "“ ist ausgeschaltet")
+		}
+		return a.planeCfgFor(ctx, uid, w)
+	}
+	return a.planeCfg(ctx, uid)
+}
+
+// planeCfgForProject: Workspace aus projects.plane_workspace_id bzw. verknüpfter Quelle.
+func (a *App) planeCfgForProject(ctx context.Context, uid, projectID int64) (planeCfg, error) {
+	var wsID int64
+	_ = a.DB.QueryRow(ctx, `SELECT COALESCE(p.plane_workspace_id, (
+		SELECT s.workspace_id FROM project_sources s
+		WHERE s.user_id=$1 AND s.project_id=$2 AND s.system='plane' AND s.status='linked' AND s.workspace_id IS NOT NULL
+		ORDER BY s.id LIMIT 1), 0)
+		FROM projects p WHERE p.id=$2 AND p.user_id=$1`, uid, projectID).Scan(&wsID)
+	if wsID > 0 {
+		w, err := a.planeWorkspaceByID(ctx, wsID)
+		if err != nil {
+			return planeCfg{}, err
+		}
+		return a.planeCfgFor(ctx, uid, w)
+	}
+	return a.planeCfg(ctx, uid)
+}
+
+// planeCfgForTicket: Workspace der lokalen Aufgabe mit diesem Plane-Kürzel, sonst Primär.
+func (a *App) planeCfgForTicket(ctx context.Context, uid int64, ticket string) (planeCfg, error) {
+	ticket = strings.ToUpper(strings.TrimSpace(ticket))
+	if ticket == "" {
+		return a.planeCfg(ctx, uid)
+	}
+	var wsID int64
+	_ = a.DB.QueryRow(ctx, `SELECT COALESCE(t.plane_workspace_id, p.plane_workspace_id, 0)
+		FROM tasks t LEFT JOIN projects p ON p.id=t.project_id
+		WHERE t.user_id=$1 AND UPPER(TRIM(t.jira_ticket))=$2 AND t.plane_work_item_id IS NOT NULL
+		ORDER BY t.id DESC LIMIT 1`, uid, ticket).Scan(&wsID)
+	if wsID > 0 {
+		w, err := a.planeWorkspaceByID(ctx, wsID)
+		if err != nil {
+			return planeCfg{}, err
+		}
+		return a.planeCfgFor(ctx, uid, w)
+	}
+	return a.planeCfg(ctx, uid)
 }
 
 // planeKeyForHost: Primärschlüssel (scope=0) wenn Host passt, sonst scope=Workspace-Id mit passendem Host.

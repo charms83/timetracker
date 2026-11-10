@@ -61,6 +61,7 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 
 ## Weiterbau (Plane-Workspaces / Admin-Auth / Rekey)
 - Migration 023 `plane_workspaces`; Admin-CRUD, Nutzer-Profil je Host; Quellen/Scan über mehrere Workspaces; Primär-Spiegel in `server_config`.
+- Migration 024: `plane_workspace_id` an projects/tasks/time_entries; Sync/Tickets/Import/Push/Status/To-do auflösen per Workspace (`?workspace=` oder Projekt/Ticket); `plane_me_id:<id>`.
 - `/admin`: LDAP/OIDC-Maske (`admin_auth.go`) inkl. LDAP-Test; Secrets nie in GET.
 - `server rekey` (`RekeySecrets` + CLI); DB-Rollen `deploy/postgres/roles.sql`.
 - Exchange/Multi-Mail bewusst zurückgestellt.

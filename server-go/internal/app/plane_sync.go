@@ -537,7 +537,7 @@ func (a *App) pushTicketInner(ctx context.Context, uid int64, c planeCfg, t *tsu
 	return map[string]any{"ticket": key, "status": "synced", "minutes": t.Minutes}, nil
 }
 
-func (a *App) processPlaneDeletions(ctx context.Context, uid int64, c planeCfg) []map[string]any {
+func (a *App) processPlaneDeletions(ctx context.Context, uid int64, cfgs []planeCfg) []map[string]any {
 	rows, err := a.maps(ctx, `SELECT * FROM plane_deletions WHERE user_id=$1 ORDER BY id`, uid)
 	if err != nil {
 		return nil
@@ -545,9 +545,26 @@ func (a *App) processPlaneDeletions(ctx context.Context, uid int64, c planeCfg) 
 	res := []map[string]any{}
 	for _, d := range rows {
 		id := d["id"]
-		if err := a.planeDel404(ctx, uid, c, c.wlPath(asStr(d["project_id"]), asStr(d["work_item_id"]), asStr(d["worklog_id"]))); err != nil {
-			_, _ = a.DB.Exec(ctx, `UPDATE plane_deletions SET error=$3 WHERE id=$1 AND user_id=$2`, id, uid, shortErr(err))
-			res = append(res, map[string]any{"id": id, "status": "error", "error": err.Error()})
+		var last error
+		ok := false
+		for _, c := range cfgs {
+			if !c.ok() {
+				continue
+			}
+			if err := a.planeDel404(ctx, uid, c, c.wlPath(asStr(d["project_id"]), asStr(d["work_item_id"]), asStr(d["worklog_id"]))); err != nil {
+				last = err
+				continue
+			}
+			ok = true
+			break
+		}
+		if !ok {
+			msg := "kein Plane-Workspace"
+			if last != nil {
+				msg = last.Error()
+			}
+			_, _ = a.DB.Exec(ctx, `UPDATE plane_deletions SET error=$3 WHERE id=$1 AND user_id=$2`, id, uid, shortErr(last))
+			res = append(res, map[string]any{"id": id, "status": "error", "error": msg})
 			continue
 		}
 		_, _ = a.DB.Exec(ctx, `DELETE FROM plane_deletions WHERE id=$1 AND user_id=$2`, id, uid)
@@ -578,12 +595,19 @@ func (a *App) planePush(ctx context.Context, uid int64, tickets []string, create
 		}
 	}()
 
-	c, err := a.planeCfg(ctx, uid)
+	cfgs, err := a.planeCfgs(ctx, uid)
 	if err != nil {
 		return nil, err
 	}
-	if !c.ok() {
-		return nil, &planeErr{Status: 400, Msg: "Plane ist nicht eingerichtet (Adresse/Workspace in der Servereinrichtung, API-Schlüssel im Profil)"}
+	if len(cfgs) == 0 {
+		c, err := a.planeCfg(ctx, uid)
+		if err != nil {
+			return nil, err
+		}
+		if !c.ok() {
+			return nil, &planeErr{Status: 400, Msg: "Plane ist nicht eingerichtet (Adresse/Workspace in der Servereinrichtung, API-Schlüssel im Profil)"}
+		}
+		cfgs = []planeCfg{c}
 	}
 	st, err := a.userSettings(ctx, uid)
 	if err != nil {
@@ -664,7 +688,16 @@ func (a *App) planePush(ctx context.Context, uid int64, tickets []string, create
 			t.Sync.Err = ""
 		}
 		if ticketStatus(t) != "synced" {
-			results = append(results, a.pushTicket(ctx, uid, c, t))
+			tc, err := a.planeCfgForTicket(ctx, uid, t.Ticket)
+			if err != nil || !tc.ok() {
+				msg := "Plane-Workspace für Ticket nicht erreichbar"
+				if err != nil {
+					msg = err.Error()
+				}
+				results = append(results, map[string]any{"ticket": t.Ticket, "status": "error", "error": msg})
+			} else {
+				results = append(results, a.pushTicket(ctx, uid, tc, t))
+			}
 			if ctx.Err() != nil {
 				break
 			}
@@ -672,7 +705,7 @@ func (a *App) planePush(ctx context.Context, uid int64, tickets []string, create
 	}
 	deletions := []map[string]any{}
 	if len(want) == 0 {
-		deletions = a.processPlaneDeletions(ctx, uid, c)
+		deletions = a.processPlaneDeletions(ctx, uid, cfgs)
 	}
 	ok, bad, del := 0, 0, 0
 	for _, r := range results {
@@ -727,20 +760,21 @@ func (a *App) autoPush(_ *pgxpool.Pool, uid int64) {
 
 func (a *App) planeStatus(w http.ResponseWriter, r *http.Request, u User) {
 	ctx := r.Context()
-	c, err := a.planeCfg(ctx, u.ID)
+	cfgs, err := a.planeCfgsForQuery(ctx, u.ID, r.URL.Query().Get("workspace"))
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
+	c := cfgs[0]
 	if !c.ok() {
 		msg := "Noch nicht eingerichtet"
 		switch {
 		case c.Base == "" || c.WS == "":
-			msg = "Plane-Adresse und Workspace fehlen in der Servereinrichtung"
+			msg = "Plane-Adresse und Workspace fehlen (Administrator: Plane-Workspaces)"
 		case c.Key == "":
 			msg = "Plane-API-Schlüssel fehlt – bitte im Profil eintragen"
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"configured": false, "mode": c.Mode, "message": msg})
+		writeJSON(w, http.StatusOK, map[string]any{"configured": false, "mode": c.Mode, "message": msg, "workspace_id": c.ID})
 		return
 	}
 	me, err := a.planeMe(ctx, u.ID, c, planeOpts{Interactive: true})
@@ -761,62 +795,81 @@ func (a *App) planeStatus(w http.ResponseWriter, r *http.Request, u User) {
 	if name == "" {
 		name = asStr(me["email"])
 	}
+	all, _ := a.planeCfgs(ctx, u.ID)
 	writeJSON(w, http.StatusOK, map[string]any{"configured": true, "connected": true, "mode": c.Mode,
+		"workspace_id": c.ID, "workspaces": len(all),
 		"user":     map[string]any{"id": me["id"], "name": name, "email": me["email"]},
 		"projects": n, "message": fmt.Sprintf("Verbunden als %s – %d Projekte im Workspace „%s“", name, n, c.WS)})
 }
 
 func (a *App) planeProjects(w http.ResponseWriter, r *http.Request, u User) {
 	ctx := r.Context()
-	c, err := a.planeCfg(ctx, u.ID)
+	cfgs, err := a.planeCfgsForQuery(ctx, u.ID, r.URL.Query().Get("workspace"))
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	pr, err := a.planeDo(ctx, u.ID, c, "GET", c.wsPath()+"/projects/", nil, planeOpts{Interactive: true})
-	if err != nil {
-		a.planeFail(w, err)
-		return
-	}
-	locals, err := a.maps(ctx, `SELECT id,name,jira_key,plane_project_id,plane_identifier,status FROM projects WHERE user_id=$1`, u.ID)
+	locals, err := a.maps(ctx, `SELECT id,name,jira_key,plane_project_id,plane_identifier,status,COALESCE(plane_workspace_id,0) AS plane_workspace_id FROM projects WHERE user_id=$1`, u.ID)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
 	out := []map[string]any{}
-	for _, p := range listOf(pr) {
-		var local map[string]any
-		for _, l := range locals {
-			if asStr(l["plane_project_id"]) == asStr(p["id"]) {
-				local = l
-				break
-			}
+	seen := map[string]bool{}
+	for _, c := range cfgs {
+		if !c.ok() {
+			continue
 		}
-		if local == nil {
+		pr, err := a.planeDo(ctx, u.ID, c, "GET", c.wsPath()+"/projects/", nil, planeOpts{Interactive: true})
+		if err != nil {
+			if len(cfgs) == 1 {
+				a.planeFail(w, err)
+				return
+			}
+			continue
+		}
+		for _, p := range listOf(pr) {
+			id := asStr(p["id"])
+			if id == "" || seen[id] {
+				continue
+			}
+			seen[id] = true
+			var local map[string]any
 			for _, l := range locals {
-				ident := asStr(l["plane_identifier"])
-				if ident == "" {
-					ident = asStr(l["jira_key"])
-				}
-				if asStr(l["plane_project_id"]) == "" && strings.EqualFold(ident, asStr(p["identifier"])) {
+				if asStr(l["plane_project_id"]) == id {
 					local = l
 					break
 				}
 			}
+			if local == nil {
+				for _, l := range locals {
+					ident := asStr(l["plane_identifier"])
+					if ident == "" {
+						ident = asStr(l["jira_key"])
+					}
+					if asStr(l["plane_project_id"]) == "" && strings.EqualFold(ident, asStr(p["identifier"])) {
+						local = l
+						break
+					}
+				}
+			}
+			e := map[string]any{"id": p["id"], "name": p["name"], "identifier": p["identifier"], "local_id": nil, "local_name": nil, "linked": false}
+			if c.ID > 0 {
+				e["workspace_id"] = c.ID
+			}
+			if local != nil {
+				e["local_id"], e["local_name"] = local["id"], local["name"]
+				e["linked"] = asStr(local["plane_project_id"]) == id
+			}
+			out = append(out, e)
 		}
-		e := map[string]any{"id": p["id"], "name": p["name"], "identifier": p["identifier"], "local_id": nil, "local_name": nil, "linked": false}
-		if local != nil {
-			e["local_id"], e["local_name"] = local["id"], local["name"]
-			e["linked"] = asStr(local["plane_project_id"]) == asStr(p["id"])
-		}
-		out = append(out, e)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
 func (a *App) planeOutbox(w http.ResponseWriter, r *http.Request, u User) {
 	ctx := r.Context()
-	c, err := a.planeCfg(ctx, u.ID)
+	c, err := a.planeCfgSelect(ctx, u.ID, r.URL.Query().Get("workspace"))
 	if err != nil {
 		a.fail(w, err)
 		return
