@@ -8,7 +8,7 @@ Das Zeitprotokoll (Einzelplatz: Mac, Browser-Oberfläche, Add-on, bucht nach Pla
 ## Aufbau
 - **Lokaler Tracker** (Node.js, React/Vite, Electron, Browser-Add-on): läuft unverändert weiter.
 - **Team-Server** `server-go/` (Go, PostgreSQL, eine Programmdatei): Mehrbenutzer, Sitzungen, Rollen, Freigabe, Plane/Jira/Tempo. Liefert dieselbe React-Oberfläche aus (`scripts/build-web.sh`), im „Servermodus“ angepasst.
-- **Betrieb:** lokal `scripts/dev.sh` (Postgres über Homebrew, Test auf Port 8090), Linux-Paket `scripts/package.sh` + `deploy/linux/install.sh` (systemd), OpenShift `Containerfile` + `deploy/openshift/`. Umzug/Cluster: `Betrieb-Migration.md`.
+- **Betrieb (ohne Ansible):** lokal `scripts/dev.sh`; **Binary+systemd** (empfohlen) `install/zp-install --profile linux-server` / `deploy/linux/`; **Docker Compose** `deploy/docker/` / `--profile docker`; **OpenShift** `deploy/openshift/`. Überblick: `deploy/BETRIEBSARTEN.md`. Umzug: `Betrieb-Migration.md`.
 
 ## Fertig (Go-Server)
 Anmeldung: lokale Konten (Einzelbetrieb), Notfallzugang (nur Betrieb, nie Zeiten), LDAP/AD, OIDC (authentik/Keycloak/Entra). Rollen kombinierbar, Teams, Sichtbarkeit je Rolle. Monatsfreigabe mit Sperre in der Datenbank. Plane: Buchung als Summe je Ticket, Quellen, Tickets, Import (auf Anforderung). Jira Data Center + Tempo: mehrere Instanzen, Push, Ticket-Vorschlag (Light), Übergangs-Ticket. Arbeitsalltag: To-do, Arbeitstag, Monatsende/Lücken, Assistent (regelbasiert), alles abschaltbar (Vorschläge in vier Stufen). Admin-Oberfläche, Befehlszeile (`server help`), Selbsttest, Audit mit Hash-Kette. Sicherheit: mehrere unabhängige Reviews je Baustein, siehe `Sicherheit-Server-ISO27001.md`.

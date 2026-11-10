@@ -7,7 +7,11 @@ trap 'rm -rf "$ROOT"' EXIT
 
 out="$("$HERE/zp-install" --list)"
 echo "$out" | grep -q 'linux-server'
+echo "$out" | grep -q 'docker'
 echo "$out" | grep -q '^  check'
+echo "$out" | grep -q '^  docker'
+# Docker-Profil dry-run (ohne Daemon ok)
+"$HERE/zp-install" --dry-run --yes --profile docker >/dev/null
 # Profil dry-run (postgres ohne psql wird übersprungen)
 "$HERE/zp-install" --dry-run --yes --root "$ROOT" --profile linux-server >/dev/null
 # Echter Testroot ohne systemd/postgres

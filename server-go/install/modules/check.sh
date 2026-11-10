@@ -20,6 +20,13 @@ module_check_run() {
     if pg_isready -q 2>/dev/null; then zp_ok "PostgreSQL erreichbar (pg_isready)"
     else zp_warn "PostgreSQL antwortet nicht (pg_isready)"; fi
   fi
+  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    zp_ok "Docker Compose vorhanden"
+  elif command -v docker >/dev/null 2>&1; then
+    zp_warn "docker ohne compose-Plugin – Docker-Profil braucht „docker compose“"
+  else
+    zp_warn "docker fehlt – Docker-Profil nicht nutzbar (Binary/OpenShift ok)"
+  fi
   if command -v oc >/dev/null 2>&1; then zp_ok "OpenShift-CLI (oc) vorhanden"
   elif command -v kubectl >/dev/null 2>&1; then zp_ok "kubectl vorhanden"
   else zp_warn "oc/kubectl fehlen – OpenShift-Modul nur als Anleitung"; fi

@@ -49,7 +49,7 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - Exporte (Lohn/Kunden) und Urlaubsantrag-Details; E-Mail-Technik (SMTP/Exchange).
 
 ## Modularer Installer
-- `server-go/install/zp-install`: Module (check, postgres, binary, web, config, systemd, verify, openshift, uninstall), Profile, Menü mit Auswahldialogen; stiller `deploy/linux/install.sh` bleibt; `package.sh` nimmt beides mit. Vorgabe: kein Ansible/Semaphore.
+- `server-go/install/zp-install`: Module inkl. **docker**, Profile `linux-server` / `docker` / `openshift`; Menü mit Auswahldialogen. `deploy/docker/` (Compose + Dockerfile), `deploy/BETRIEBSARTEN.md` (Binary empfohlen, Docker schnell, OpenShift Cluster). Kein Ansible.
 
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, später Jira/Tempo, LDAP, authentik); gefundene Fehler beheben.

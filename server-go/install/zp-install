@@ -18,7 +18,7 @@ INSTALL_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/ui.sh
 . "$INSTALL_HOME/lib/ui.sh"
 
-MODULE_ORDER=(check postgres binary web config systemd verify openshift uninstall)
+MODULE_ORDER=(check postgres binary web config systemd docker verify openshift uninstall)
 declare -A MODULE_FILE=(
   [check]=check.sh
   [postgres]=postgres.sh
@@ -26,6 +26,7 @@ declare -A MODULE_FILE=(
   [web]=web.sh
   [config]=config.sh
   [systemd]=systemd.sh
+  [docker]=docker.sh
   [verify]=verify.sh
   [openshift]=openshift.sh
   [uninstall]=uninstall.sh
@@ -87,12 +88,15 @@ usage() {
 Zeitprotokoll-Server – modularer Installer
 
   sudo $0                         Menü
-  sudo $0 --profile linux-server  typische VM-Installation
+  sudo $0 --profile linux-server  Binary+systemd (empfohlen)
+  $0 --profile docker             Docker Compose (+ Postgres)
+  $0 --profile openshift          OpenShift-Hilfe
   sudo $0 --profile upgrade       Binary + UI + Dienst
-  sudo $0 --profile openshift     OpenShift-Hilfe
   sudo $0 --modules check,verify  einzelne Module
   $0 --list                       Module und Profile
   $0 --dry-run --root /tmp/zp …   Simulation / Testroot
+
+Betriebsarten: deploy/BETRIEBSARTEN.md (Binary | Docker | OpenShift – kein Ansible)
 
 Optionen:
   --yes / -y          ohne Rückfragen (für Profile)
@@ -103,7 +107,7 @@ Optionen:
   --purge             bei uninstall auch /etc/zeitprotokoll löschen
   --help
 
-Bestehender stiller Installer im Paket: deploy/linux/install.sh
+Stiller Installer im Paket: deploy/linux/install.sh
 EOF
 }
 
@@ -175,10 +179,11 @@ fi
 
 # Interaktives Hauptmenü
 while true; do
-  if ! zp_menu "Was möchtest du tun?" \
-    "profile-linux:Linux-Server komplett (Profil linux-server)" \
-    "profile-upgrade:Aktualisieren (Binary + UI + Dienst)" \
-    "profile-openshift:OpenShift-Hilfe" \
+  if ! zp_menu "Betriebsart wählen (ohne Ansible)" \
+    "profile-linux:1) Binary + systemd – empfohlen (eine VM, am sichersten)" \
+    "profile-docker:2) Docker Compose – schnell inkl. PostgreSQL" \
+    "profile-openshift:3) OpenShift – wenn Cluster schon da" \
+    "profile-upgrade:Binary aktualisieren (upgrade)" \
     "pick:Module einzeln auswählen" \
     "list:Module/Profile auflisten" \
     "uninstall:Deinstallieren" \
@@ -189,6 +194,11 @@ while true; do
   case "$ZP_MENU_CHOICE" in
     profile-linux)
       mapfile -t mods < <(read_profile linux-server)
+      run_list "${mods[@]}"
+      exit 0
+      ;;
+    profile-docker)
+      mapfile -t mods < <(read_profile docker)
       run_list "${mods[@]}"
       exit 0
       ;;
@@ -218,6 +228,7 @@ while true; do
         "web:Oberfläche" \
         "config:Konfiguration" \
         "systemd:systemd-Dienst" \
+        "docker:Docker Compose" \
         "verify:Prüfen" \
         "openshift:OpenShift"
       # In fester Modulreihenfolge ausführen

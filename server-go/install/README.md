@@ -1,6 +1,7 @@
 # Modularer Server-Installer
 
-Auswahldialoge in der Shell – **kein** Ansible/Semaphore (Vorgabe Übergabe).
+Auswahldialoge in der Shell – **kein** Ansible (Tracking-System, absichtlich schlank).  
+Betriebsarten: [../deploy/BETRIEBSARTEN.md](../deploy/BETRIEBSARTEN.md)
 
 ## Einstieg
 
@@ -8,8 +9,9 @@ Auswahldialoge in der Shell – **kein** Ansible/Semaphore (Vorgabe Übergabe).
 cd server-go
 chmod +x install/zp-install
 ./install/zp-install --list
-sudo ./install/zp-install                          # Menü
-sudo ./install/zp-install --profile linux-server   # typische VM
+sudo ./install/zp-install                          # Menü: Binary | Docker | OpenShift
+sudo ./install/zp-install --profile linux-server   # Binary+systemd (empfohlen)
+./install/zp-install --profile docker              # Compose inkl. Postgres
 sudo ./install/zp-install --profile upgrade        # Update
 ./install/zp-install --profile openshift           # Cluster-Hilfe
 ```
@@ -30,6 +32,7 @@ Simulation ohne Root:
 | `web` | Oberfläche nach `/usr/share/zeitprotokoll/web` |
 | `config` | `/etc/zeitprotokoll/zeitprotokoll.env` (Schlüssel, URL) |
 | `systemd` | Unit + enable/start |
+| `docker` | Docker Compose (App + Postgres) |
 | `verify` | healthz / `server check` |
 | `openshift` | Manifest-Check, optional `oc apply -k` |
 | `uninstall` | Dienst + Binary weg (`--purge` auch Config) |
