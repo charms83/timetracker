@@ -1,0 +1,237 @@
+#!/usr/bin/env bash
+# Zeitprotokoll-Server – modularer Installer mit Auswahldialogen
+# (kein Ansible/Semaphore – siehe UEBERGABE.md)
+#
+# Aufruf:
+#   sudo ./zp-install                     interaktives Menü
+#   sudo ./zp-install --profile linux-server
+#   sudo ./zp-install --modules check,binary,web,config
+#   sudo ./zp-install --profile upgrade --yes
+#   ./zp-install --dry-run --profile linux-server --root /tmp/zp-root
+#   ./zp-install --list
+#
+set -euo pipefail
+
+INSTALL_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/common.sh
+. "$INSTALL_HOME/lib/common.sh"
+# shellcheck source=lib/ui.sh
+. "$INSTALL_HOME/lib/ui.sh"
+
+MODULE_ORDER=(check postgres binary web config systemd verify openshift uninstall)
+declare -A MODULE_FILE=(
+  [check]=check.sh
+  [postgres]=postgres.sh
+  [binary]=binary.sh
+  [web]=web.sh
+  [config]=config.sh
+  [systemd]=systemd.sh
+  [verify]=verify.sh
+  [openshift]=openshift.sh
+  [uninstall]=uninstall.sh
+)
+
+load_module() {
+  local id="$1" f="$INSTALL_HOME/modules/${MODULE_FILE[$id]:-}"
+  [ -f "$f" ] || zp_die "Moduldatei fehlt: $id"
+  # shellcheck disable=SC1090
+  . "$f"
+}
+
+run_module() {
+  local id="$1"
+  load_module "$id"
+  local fn="module_${id}_run"
+  if ! declare -F "$fn" >/dev/null; then
+    zp_die "Modul $id: Funktion $fn fehlt"
+  fi
+  "$fn"
+}
+
+list_modules() {
+  echo "Verfügbare Module:"
+  local id
+  for id in "${MODULE_ORDER[@]}"; do
+    load_module "$id"
+    local meta="module_${id}_meta"
+    MODULE_NAME="" MODULE_DESC=""
+    "$meta"
+    printf '  %-12s %s – %s\n' "$id" "$MODULE_NAME" "$MODULE_DESC"
+  done
+  echo ""
+  echo "Profile:"
+  local p
+  for p in "$INSTALL_HOME"/profiles/*.conf; do
+    [ -f "$p" ] || continue
+    printf '  %s\n' "$(basename "$p" .conf)"
+  done
+}
+
+read_profile() {
+  local name f line
+  local -a mods=()
+  name="$1"
+  f="$INSTALL_HOME/profiles/${name}.conf"
+  [ -f "$f" ] || zp_die "Profil unbekannt: $name (siehe --list)"
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"
+    line="$(printf '%s' "$line" | tr -d '[:space:]')"
+    [ -n "$line" ] || continue
+    mods+=("$line")
+  done < "$f"
+  printf '%s\n' "${mods[@]}"
+}
+
+usage() {
+  cat <<EOF
+Zeitprotokoll-Server – modularer Installer
+
+  sudo $0                         Menü
+  sudo $0 --profile linux-server  typische VM-Installation
+  sudo $0 --profile upgrade       Binary + UI + Dienst
+  sudo $0 --profile openshift     OpenShift-Hilfe
+  sudo $0 --modules check,verify  einzelne Module
+  $0 --list                       Module und Profile
+  $0 --dry-run --root /tmp/zp …   Simulation / Testroot
+
+Optionen:
+  --yes / -y          ohne Rückfragen (für Profile)
+  --quiet             wenig Ausgabe
+  --dry-run           nichts schreiben
+  --root DIR          Installationswurzel (Tests, kein echter systemd-Start)
+  --package-dir DIR   Verzeichnis mit Binary/web aus dem tar.gz
+  --purge             bei uninstall auch /etc/zeitprotokoll löschen
+  --help
+
+Bestehender stiller Installer im Paket: deploy/linux/install.sh
+EOF
+}
+
+# ── Argumente ──────────────────────────────────────────────────────
+PROFILE=""
+MODULES_CSV=""
+DO_LIST=0
+DO_MENU=1
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --profile) PROFILE="${2:-}"; shift 2; DO_MENU=0 ;;
+    --modules) MODULES_CSV="${2:-}"; shift 2; DO_MENU=0 ;;
+    --list) DO_LIST=1; shift ;;
+    --yes|-y) ZP_INSTALL_YES=1; shift ;;
+    --quiet) ZP_INSTALL_QUIET=1; shift ;;
+    --dry-run) ZP_INSTALL_DRY=1; shift ;;
+    --root) ZP_INSTALL_ROOT="${2:-}"; shift 2 ;;
+    --package-dir) ZP_PACKAGE_DIR="${2:-}"; shift 2 ;;
+    --purge) ZP_INSTALL_PURGE=1; shift ;;
+    --help|-h) usage; exit 0 ;;
+    *) zp_die "Unbekannte Option: $1 (siehe --help)" ;;
+  esac
+done
+
+export ZP_INSTALL_YES ZP_INSTALL_QUIET ZP_INSTALL_DRY ZP_INSTALL_ROOT ZP_PACKAGE_DIR ZP_INSTALL_PURGE
+
+# Pfade neu setzen, falls --root gesetzt wurde
+if [ -n "${ZP_INSTALL_ROOT:-}" ]; then
+  ZP_BIN="${ZP_INSTALL_ROOT}/usr/local/bin/zeitprotokoll-server"
+  ZP_CONF_DIR="${ZP_INSTALL_ROOT}/etc/zeitprotokoll"
+  ZP_ENV="${ZP_CONF_DIR}/zeitprotokoll.env"
+  ZP_WEB="${ZP_INSTALL_ROOT}/usr/share/zeitprotokoll/web"
+  ZP_UNIT_DIR="${ZP_INSTALL_ROOT}/etc/systemd/system"
+  ZP_UNIT="${ZP_UNIT_DIR}/zeitprotokoll.service"
+fi
+
+if [ "$DO_LIST" = 1 ]; then
+  list_modules
+  exit 0
+fi
+
+zp_banner
+[ "$ZP_INSTALL_DRY" = 1 ] && zp_warn "Dry-run – es wird nichts verändert."
+[ -n "${ZP_INSTALL_ROOT:-}" ] && zp_log "Installationswurzel: $ZP_INSTALL_ROOT"
+
+run_list() {
+  local -a mods=("$@")
+  local m
+  for m in "${mods[@]}"; do
+    [ -n "$m" ] || continue
+    run_module "$m" || zp_die "Modul $m fehlgeschlagen"
+  done
+  zp_log ""
+  zp_ok "Fertig."
+}
+
+if [ -n "$PROFILE" ]; then
+  mapfile -t mods < <(read_profile "$PROFILE")
+  run_list "${mods[@]}"
+  exit 0
+fi
+
+if [ -n "$MODULES_CSV" ]; then
+  IFS=',' read -r -a mods <<< "$MODULES_CSV"
+  run_list "${mods[@]}"
+  exit 0
+fi
+
+# Interaktives Hauptmenü
+while true; do
+  if ! zp_menu "Was möchtest du tun?" \
+    "profile-linux:Linux-Server komplett (Profil linux-server)" \
+    "profile-upgrade:Aktualisieren (Binary + UI + Dienst)" \
+    "profile-openshift:OpenShift-Hilfe" \
+    "pick:Module einzeln auswählen" \
+    "list:Module/Profile auflisten" \
+    "uninstall:Deinstallieren" \
+    "quit:Beenden"
+  then
+    exit 0
+  fi
+  case "$ZP_MENU_CHOICE" in
+    profile-linux)
+      mapfile -t mods < <(read_profile linux-server)
+      run_list "${mods[@]}"
+      exit 0
+      ;;
+    profile-upgrade)
+      mapfile -t mods < <(read_profile upgrade)
+      run_list "${mods[@]}"
+      exit 0
+      ;;
+    profile-openshift)
+      mapfile -t mods < <(read_profile openshift)
+      run_list "${mods[@]}"
+      exit 0
+      ;;
+    uninstall)
+      run_module uninstall
+      exit 0
+      ;;
+    list)
+      list_modules
+      ;;
+    pick)
+      ZP_PRESELECT="check binary web config systemd verify"
+      zp_multi_select "Module (Reihenfolge wie in der Liste)" \
+        "check:Voraussetzungen" \
+        "postgres:PostgreSQL" \
+        "binary:Programm" \
+        "web:Oberfläche" \
+        "config:Konfiguration" \
+        "systemd:systemd-Dienst" \
+        "verify:Prüfen" \
+        "openshift:OpenShift"
+      # In fester Modulreihenfolge ausführen
+      selected=()
+      for id in "${MODULE_ORDER[@]}"; do
+        [[ " $ZP_SELECTED " == *" $id "* ]] && selected+=("$id")
+      done
+      if [ "${#selected[@]}" -eq 0 ]; then
+        zp_warn "Nichts ausgewählt."
+        continue
+      fi
+      run_list "${selected[@]}"
+      exit 0
+      ;;
+    quit|"") exit 0 ;;
+  esac
+done

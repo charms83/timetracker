@@ -14,4 +14,7 @@ Dateisystem ist schreibgeschützt, Prozess ohne Root und ohne Rechte; es gibt ke
 Test, Umzug auf den Server und Cluster: siehe `docs/Betrieb-Migration.md`.
 
 ## Linux ohne OpenShift
-`scripts/package.sh` baut das Paket, `deploy/linux/install.sh` installiert es als systemd-Dienst (siehe `docs/Stand-und-Plan.md`).
+`scripts/package.sh` baut das Paket (Binary amd64/arm64, web/, stiller + modularer Installer).
+
+- **Stiller Installer:** `./install.sh` / `--upgrade` / `--uninstall` (`deploy/linux/install.sh`)
+- **Modularer Installer (Auswahldialoge):** `sudo ./install/zp-install` – Profile `linux-server`, `upgrade`, `openshift`; Module einzeln wählbar; `--dry-run` / `--root` für Tests. Siehe `install/README.md`. Kein Ansible/Semaphore.

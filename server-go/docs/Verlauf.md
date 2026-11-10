@@ -48,6 +48,9 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - „Admin“ bei der Urlaubs-Vertretung = Personal (so angenommen)?
 - Exporte (Lohn/Kunden) und Urlaubsantrag-Details; E-Mail-Technik (SMTP/Exchange).
 
+## Modularer Installer
+- `server-go/install/zp-install`: Module (check, postgres, binary, web, config, systemd, verify, openshift, uninstall), Profile, Menü mit Auswahldialogen; stiller `deploy/linux/install.sh` bleibt; `package.sh` nimmt beides mit. Vorgabe: kein Ansible/Semaphore.
+
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, später Jira/Tempo, LDAP, authentik); gefundene Fehler beheben.
 2. Oberfläche: Nachtragen-Dialog, „geschlossen“-Anzeige, neue Hinweistexte.

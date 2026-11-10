@@ -15,6 +15,10 @@ curl localhost:8090/healthz           # zweiter Tab
 ## Umgebungsvariablen
 - `DATABASE_URL` (Pflicht), `ZP_ADDR` (`:8080`), `ZP_STATIC_DIR` (Pfad zu `frontend/dist`), `ZP_SECRET_KEY` (ab Phase 1c)
 
+## Installation (Linux)
+- Modular (Auswahldialoge): `install/zp-install` – siehe `install/README.md`
+- Paket: `scripts/package.sh` → `dist/…tar.gz` (stiller `install.sh` + modularer Installer)
+- OpenShift: `deploy/README.md`
+
 ## Stand
-- Gerüst, Migrationen (`internal/db/migrations/`, nummeriert, automatisch beim Start), `/healthz`.
-- Noch offen: Tabellen für Tempo-/Plane-/Quellen-/Meeting-Logik, Anmeldung per OIDC, API.
+Aktuell: `docs/Stand-und-Plan.md`. Migrationen, Mehrbenutzer, Plane/Jira/Tempo, Freigabe; Installer modular.

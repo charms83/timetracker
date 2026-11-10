@@ -1,8 +1,9 @@
 #!/bin/sh
-# Installer für Linux (systemd). Aufruf als root im entpackten Paket:
+# Stiller Installer für Linux (systemd). Aufruf als root im entpackten Paket:
 #   ./install.sh              Erstinstallation
 #   ./install.sh --upgrade    Programm austauschen (Konfiguration und Daten bleiben)
 #   ./install.sh --uninstall  Dienst und Programm entfernen (Konfiguration bleibt; mit --purge auch sie)
+# Modular mit Auswahldialogen:  sudo ./install/zp-install   (siehe install/README.md)
 set -eu
 [ "$(id -u)" -eq 0 ] || { echo "Bitte als root ausführen." >&2; exit 1; }
 HERE="$(cd "$(dirname "$0")" && pwd)"
