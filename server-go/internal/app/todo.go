@@ -821,7 +821,7 @@ func (a *App) todoStart(w http.ResponseWriter, r *http.Request, u User) {
 			return
 		}
 		if sys.of(key) == "plane" {
-			nt, np, msg, err := a.ensurePlaneTask(ctx, u.ID, key)
+			nt, np, msg, err := a.ensurePlaneTask(ctx, u.ID, key, "")
 			if err != nil {
 				a.planeFail(w, err)
 				return

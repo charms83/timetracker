@@ -6,7 +6,7 @@
 ═══════════════════════════════════════════════════════════════════ */
 import { useState, useEffect, useCallback } from "react";
 import { Check, ChevronLeft, ChevronRight, Compass, X, ExternalLink, RefreshCw } from "lucide-react";
-import { api, call, btn, lab, inpS, isServerMode } from "./zp-ui.jsx";
+import { api, call, btn, lab, inpS, isServerMode, PlaneWorkspacesPanel } from "./zp-ui.jsx";
 import { JiraInstancesPanel, ClientHint } from "./zp-servermode.jsx";
 import { TlsTrust } from "./zp-jira.jsx";
 import { ProjectSourcesPanel, DuplicatesPanel, PendingPanel } from "./zp-projects.jsx";
@@ -294,15 +294,40 @@ function StepPlane({ f, reload }) {
   const sm = isServerMode();
   const [v, setV] = useState({ plane_base_url: "", plane_workspace: "", plane_api_key: "" }); const [st, setSt] = useState(null); const [busy, setBusy] = useState(false);
   useEffect(() => { api("GET", "/settings").then(s => s && setV({ plane_base_url: s.plane_base_url || "", plane_workspace: s.plane_workspace || "", plane_api_key: s.plane_api_key || "" })); if (f.plane.configured) test(); }, []);   // eslint-disable-line
-  const test = async () => { setBusy(true); setSt(await call("GET", "/integrations/plane/status")); setBusy(false); };
-  const save = async () => { await call("PUT", "/settings", sm ? { plane_api_key: v.plane_api_key } : { ...v, plane_base_url: v.plane_base_url.trim().replace(/\/+$/, "").replace(/\/api(\/v1)?$/, ""), plane_workspace: v.plane_workspace.trim() }); await test(); reload(); };
+  const test = async () => {
+    setBusy(true);
+    if (sm) {
+      const list = await api("GET", "/plane/workspaces");
+      const arr = Array.isArray(list) ? list : [];
+      if (!arr.length) { setSt({ connected: false, message: "Kein Workspace eingerichtet" }); setBusy(false); return; }
+      let ok = 0; let msg = "";
+      for (const w of arr) {
+        const r = await call("GET", `/integrations/plane/status?workspace=${w.id}`);
+        if (r.configured && r.connected) { ok++; if (!msg) msg = r.message; }
+        else if (!msg) msg = r.error || r.message || `„${w.name}“ nicht verbunden`;
+      }
+      setSt(ok ? { connected: true, message: arr.length === 1 ? msg : `${ok} von ${arr.length} Workspaces verbunden` } : { connected: false, message: msg || "Keine Verbindung" });
+    } else {
+      setSt(await call("GET", "/integrations/plane/status"));
+    }
+    setBusy(false);
+  };
+  const save = async () => { await call("PUT", "/settings", { ...v, plane_base_url: v.plane_base_url.trim().replace(/\/+$/, "").replace(/\/api(\/v1)?$/, ""), plane_workspace: v.plane_workspace.trim() }); await test(); reload(); };
+  if (sm) return (<>
+    <Para>Plane ist das Hauptsystem. Adressen und Workspaces legt der Administrator fest; du trägst je Plane-Adresse deinen API-Schlüssel ein (Plane › Profil › API Tokens).</Para>
+    <PlaneWorkspacesPanel />
+    <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+      <button style={btn(true)} onClick={async () => { await test(); reload(); }} disabled={busy}>{busy ? "Prüfe…" : "Verbindungen testen"}</button>
+      <button style={btn(false)} onClick={() => go("einstellungen/plane")}><ExternalLink size={13} /> Alle Plane-Einstellungen</button>
+    </div>
+    {st && <Msg m={st.connected ? { text: st.message } : { err: 1, text: st.error || st.message || "Keine Verbindung" }} />}
+  </>);
   return (<>
-    <Para>{sm ? "Plane ist das Hauptsystem. Adresse und Workspace legt der Administrator fest; du trägst nur deinen persönlichen API-Token ein (Plane › Profil › API Tokens)." : "Plane ist das Hauptsystem. Adresse, Workspace (steht in der URL, z. B. „example“) und ein API-Token (Plane › Profil › API Tokens)."}</Para>
-    {sm ? <div style={{ fontSize: 12, color: "var(--text2)", padding: "8px 10px", borderRadius: 8, background: "var(--bg)" }}>Adresse: <b style={{ color: "var(--text)" }}>{v.plane_base_url || "(noch nicht eingetragen)"}</b>{v.plane_workspace ? <> · Workspace <b style={{ color: "var(--text)" }}>{v.plane_workspace}</b></> : null} – legt der Administrator fest.</div> : (<>
+    <Para>Plane ist das Hauptsystem. Adresse, Workspace (steht in der URL, z. B. „example“) und ein API-Token (Plane › Profil › API Tokens).</Para>
     <label style={lab}>Plane-Adresse</label>
-    <input style={inpS} placeholder="https://plane.example.com" value={v.plane_base_url} onChange={e => setV({ ...v, plane_base_url: e.target.value })} /></>)}
-    <div style={{ display: "grid", gridTemplateColumns: sm ? "1fr" : "1fr 1fr", gap: 10 }}>
-      {!sm && <div><label style={lab}>Workspace</label><input style={inpS} placeholder="example" value={v.plane_workspace} onChange={e => setV({ ...v, plane_workspace: e.target.value })} /></div>}
+    <input style={inpS} placeholder="https://plane.example.com" value={v.plane_base_url} onChange={e => setV({ ...v, plane_base_url: e.target.value })} />
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div><label style={lab}>Workspace</label><input style={inpS} placeholder="example" value={v.plane_workspace} onChange={e => setV({ ...v, plane_workspace: e.target.value })} /></div>
       <div><label style={lab}>API-Token</label><input style={inpS} type="password" value={v.plane_api_key} onChange={e => setV({ ...v, plane_api_key: e.target.value })} /></div>
     </div>
     <div style={{ display: "flex", gap: 8, marginTop: 10 }}>

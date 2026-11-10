@@ -2,7 +2,7 @@
    Bausteine im Stil des Schnellfensters + Plane-Anbindung (UI)
 ═══════════════════════════════════════════════════════════════════ */
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Play, Pause, Square, Plus, Coffee, RefreshCw, Check, Upload, Download, EyeOff, Eye, Trash2, Link2, AlertTriangle, X, Clock } from "lucide-react";
+import { Play, Pause, Square, Plus, Coffee, RefreshCw, Check, Upload, Download, EyeOff, Eye, Trash2, Link2, AlertTriangle, X, Clock, KeyRound } from "lucide-react";
 
 /* Plausibilitätsprüfung: Server antwortet 409 + needs_confirm → Nachfrage mit Begründung, dann erneut senden.
    Bei einer Überschneidung (v6.29): „Zeiten anpassen“ – beide Buchungen zusammen ändern, mit Vorschlägen
@@ -239,12 +239,37 @@ export function ticketLabel(key, title) {
   return title && title.toUpperCase() !== key.toUpperCase() ? `${key} ${title}` : key;
 }
 
-/* Meine offenen Work-Items aus Plane (Server cached 5 Min.) */
-let myItemsCache = null, myItemsAt = 0;
-async function loadMyItems(force) {
-  if (!force && myItemsCache && Date.now() - myItemsAt < 120e3) return myItemsCache;
-  const r = await api("GET", `/integrations/plane/my-items${force ? "?refresh=1" : ""}`);
-  if (Array.isArray(r)) { myItemsCache = r; myItemsAt = Date.now(); }
+/* Meine offenen Work-Items aus Plane (Server cached 5 Min.; Cache-Key inkl. Workspace) */
+let myItemsCache = null, myItemsAt = 0, myItemsKey = "";
+async function loadMyItems(force, workspaceId) {
+  const ck = String(workspaceId || "");
+  if (!force && myItemsCache && myItemsKey === ck && Date.now() - myItemsAt < 120e3) return myItemsCache;
+  // Servermodus ohne Filter: alle Workspaces mit Schlüssel (wie Jira über mehrere Instanzen)
+  if (isServerMode() && !workspaceId) {
+    const list = planeWsCache !== null ? planeWsCache : await reloadPlaneWorkspaces();
+    const withKey = (list || []).filter(w => w.key_set);
+    if (withKey.length > 1) {
+      const parts = await Promise.all(withKey.map(async w => {
+        const q = ["workspace=" + w.id];
+        if (force) q.unshift("refresh=1");
+        const r = await api("GET", `/integrations/plane/my-items?${q.join("&")}`);
+        return Array.isArray(r) ? r.map(i => ({ ...i, workspace_id: i.workspace_id || w.id, workspace: i.workspace || w.name })) : [];
+      }));
+      const seen = new Set(), merged = [];
+      for (const row of parts.flat()) {
+        const k = (row.key || "").toUpperCase() + ":" + (row.workspace_id || "");
+        if (!row.key || seen.has(k)) continue;
+        seen.add(k); merged.push(row);
+      }
+      myItemsCache = merged; myItemsAt = Date.now(); myItemsKey = ck;
+      return merged;
+    }
+  }
+  const q = [];
+  if (force) q.push("refresh=1");
+  if (isServerMode() && workspaceId) q.push("workspace=" + workspaceId);
+  const r = await api("GET", `/integrations/plane/my-items${q.length ? "?" + q.join("&") : ""}`);
+  if (Array.isArray(r)) { myItemsCache = r; myItemsAt = Date.now(); myItemsKey = ck; }
   return myItemsCache || [];
 }
 
@@ -257,17 +282,53 @@ export function useActivities() {
   return list;
 }
 
-/* ── Plane-Status (einmal laden, gecacht) ─────────────────────────── */
+/* ── Plane-Workspaces / „eingeschaltet?“ (Server: Schlüssel je Host) ── */
+export const wsQ = (ws, first = true) => (isServerMode() && ws ? `${first ? "?" : "&"}workspace=${ws}` : "");
 let planeCfgCache = null;
+let planeWsCache = null;
+const planeWsSubs = new Set();
+export function usePlaneWorkspaces() {
+  const [list, setList] = useState(planeWsCache || []);
+  useEffect(() => {
+    if (!isServerMode()) return;
+    planeWsSubs.add(setList);
+    if (planeWsCache === null) {
+      api("GET", "/plane/workspaces").then(r => {
+        planeWsCache = Array.isArray(r) ? r : [];
+        planeWsSubs.forEach(f => f(planeWsCache));
+      });
+    }
+    return () => planeWsSubs.delete(setList);
+  }, []);
+  return isServerMode() ? (list || []) : [];
+}
+export function reloadPlaneWorkspaces() {
+  if (!isServerMode()) return Promise.resolve([]);
+  return api("GET", "/plane/workspaces").then(r => {
+    planeWsCache = Array.isArray(r) ? r : [];
+    planeWsSubs.forEach(f => f(planeWsCache));
+    return planeWsCache;
+  });
+}
 export function usePlaneOn() {
   const [on, setOn] = useState(planeCfgCache);
   useEffect(() => {
-    if (planeCfgCache !== null) return;
+    if (planeCfgCache !== null) { setOn(planeCfgCache); return; }
+    if (isServerMode()) {
+      api("GET", "/plane/workspaces").then(r => {
+        const list = Array.isArray(r) ? r : [];
+        planeWsCache = list;
+        planeWsSubs.forEach(f => f(list));
+        planeCfgCache = list.some(w => w.key_set);
+        setOn(planeCfgCache);
+      });
+      return;
+    }
     api("GET", "/settings").then(s => { planeCfgCache = !!(s?.plane_base_url && s?.plane_api_key && s?.plane_workspace); setOn(planeCfgCache); });
   }, []);
   return !!on;
 }
-const resetPlaneCfg = () => { planeCfgCache = null; };
+const resetPlaneCfg = () => { planeCfgCache = null; myItemsCache = null; myItemsAt = 0; };
 
 /* ── Neues Work-Item in Plane anlegen ─────────────────────────────── */
 /* Neues Ticket anlegen – das System wählt Plane oder Jira je nach Projekt:
@@ -352,6 +413,8 @@ const NO_TASKS = [];   // fester Standardwert – ein neues [] bei jedem Rendern
 export function TicketInput({ value, onChange, onPick, onEnter, placeholder = "Ticket, z.B. PRJB-123", localTasks = NO_TASKS, projectId, onCreatedStart, jira = false, hint }) {
   const locSig = (localTasks || NO_TASKS).map(t => `${t.id}:${t.status}`).join(",");
   const planeOn = usePlaneOn();
+  const workspaces = usePlaneWorkspaces();
+  const wsName = id => workspaces.find(w => String(w.id) === String(id))?.name;
   const [creating, setCreating] = useState(null);
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
@@ -376,17 +439,18 @@ export function TicketInput({ value, onChange, onPick, onEnter, placeholder = "T
     }
     if ((!planeOn && !jira) || q.length < 2) { setItems(loc); return; }
     tRef.current = setTimeout(async () => {
-      // Plane und (falls gewünscht) Jira gleichzeitig durchsuchen
+      // Plane und (falls gewünscht) Jira gleichzeitig durchsuchen (Plane: alle Workspaces, wie Jira über Instanzen)
       const [r, j] = await Promise.all([planeOn ? api("GET", `/integrations/plane/search?q=${encodeURIComponent(q)}`) : [], jira ? api("GET", `/jira/search?q=${encodeURIComponent(q)}&open=1`).catch(() => null) : null]);
       if (dead) return;
       const jr = (j?.issues || []).slice(0, 10).map(i => ({ key: i.key, name: i.summary, jira: true, due: i.due, state: i.status, instance_id: i.instance_id, instance: i.instance }));
-      const pk = new Set((Array.isArray(r) ? r : []).map(i => i.key.toUpperCase()));
-      const remote = [...(Array.isArray(r) ? r : []), ...jr.filter(i => !pk.has(i.key.toUpperCase()))];
+      const pr = (Array.isArray(r) ? r : []).map(i => ({ ...i, workspace: i.workspace || wsName(i.workspace_id) }));
+      const pk = new Set(pr.map(i => i.key.toUpperCase()));
+      const remote = [...pr, ...jr.filter(i => !pk.has(i.key.toUpperCase()))];
       const keys = new Set(remote.map(i => i.key.toUpperCase()));
       setItems([...remote, ...loc.filter(l => !keys.has((l.key || "").toUpperCase()))]);
     }, 250);
     return () => { dead = true; clearTimeout(tRef.current); };
-  }, [value, planeOn, locSig]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [value, planeOn, locSig, workspaces]);   // eslint-disable-line react-hooks/exhaustive-deps
   // „+ Neues Work-Item …“ anbieten, wenn Text eingegeben wurde, der keine Ticketnummer ist
   const q = (value || "").trim();
   const shown = q.length >= 3 && !KEY_RE.test(q) ? [...items, { create: true, key: "+ Neu", name: q }] : items;
@@ -400,6 +464,11 @@ export function TicketInput({ value, onChange, onPick, onEnter, placeholder = "T
     const it = { key: r.key, name: r.name, local_project_id: r.local_project_id, task_id: r.task_id, created: true };
     onChange(r.key); onPick?.(it);
     if (start) onCreatedStart?.(it);
+  };
+  const planeLbl = it => {
+    const n = it.workspace || wsName(it.workspace_id);
+    if (it.mine) return n ? `${n} · ${it.state || "mir zugewiesen"}` : (it.state || "mir zugewiesen");
+    return n ? `Plane · ${n}` : "Plane";
   };
   return (
     <div className="zp-suggest">
@@ -425,8 +494,8 @@ export function TicketInput({ value, onChange, onPick, onEnter, placeholder = "T
               <b><Plus size={11} style={{ verticalAlign: -1 }} /> Neu</b><span>Ticket „{it.name}“ anlegen (Plane oder Jira – je nach Projekt)</span>
             </button>
           ) : (
-            <button key={(it.id || it.key) + i} className={i === hi ? "on" : ""} onMouseDown={e => { e.preventDefault(); pick(it); }}>
-              <b>{it.key}</b><span>{it.name}</span><small>{it.mine ? (it.state || "mir zugewiesen") : it.local ? "lokal" : it.jira ? (it.instance ? `Jira · ${it.instance}` : "Jira") : "Plane"}</small>
+            <button key={(it.id || it.key) + ":" + (it.workspace_id || "") + i} className={i === hi ? "on" : ""} onMouseDown={e => { e.preventDefault(); pick(it); }}>
+              <b>{it.key}</b><span>{it.name}</span><small>{it.local ? "lokal" : it.jira ? (it.instance ? `Jira · ${it.instance}` : "Jira") : planeLbl(it)}</small>
             </button>
           ))}
         </div>
@@ -690,65 +759,152 @@ export const inpS = { width: "100%", padding: "7px 9px" };
 export const btn = (primary) => ({ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 7, fontWeight: 600,
   border: primary ? "none" : "1px solid var(--line)", background: primary ? "var(--accent-fill)" : "var(--card)", color: primary ? "#fff" : "var(--text)" });
 
+/* Plane-Workspaces (Server): wie Jira-Instanzen – Schlüssel je Host */
+function WorkspaceKey({ ws, onChanged }) {
+  const [val, setVal] = useState(""); const [msg, setMsg] = useState(null); const [busy, setBusy] = useState(false);
+  const save = async () => {
+    if (!val.trim() || busy) return;
+    setBusy(true); setMsg(null);
+    const r = await call("PUT", `/profile/secrets/plane_key?workspace=${ws.id}`, { value: val.trim() });
+    setBusy(false);
+    if (r.error) { setMsg({ err: true, text: r.error }); return; }
+    setVal(""); setMsg({ text: "Schlüssel gespeichert" }); onChanged();
+  };
+  const del = async () => {
+    if (!confirm(`Plane-Schlüssel für „${ws.name}“ entfernen?`)) return;
+    setBusy(true); setMsg(null);
+    const r = await call("DELETE", `/profile/secrets/plane_key?workspace=${ws.id}`);
+    setBusy(false);
+    if (r.error) { setMsg({ err: true, text: r.error }); return; }
+    setMsg({ text: "Schlüssel entfernt" }); onChanged();
+  };
+  return (
+    <div>
+      <label style={lab}>API-Schlüssel (Plane › Profil › API Tokens – verschlüsselt, nie wieder angezeigt)</label>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input style={inpS} type="password" autoComplete="new-password" placeholder={ws.key_set ? "•••• gespeichert – zum Ersetzen neuen Schlüssel eingeben" : "Schlüssel einfügen"} value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => e.key === "Enter" && save()} />
+        <button style={btn(true)} disabled={!val.trim() || busy} onClick={save}><KeyRound size={14} /> Speichern</button>
+        {ws.key_set && <button style={btn(false)} disabled={busy} onClick={del} title="Schlüssel entfernen"><Trash2 size={14} /></button>}
+      </div>
+      {msg && <div style={{ fontSize: 12, marginTop: 6, color: msg.err ? "var(--stop)" : "var(--accent)" }}>{msg.err ? "✗ " : "✓ "}{msg.text}</div>}
+    </div>);
+}
+export function PlaneWorkspacesPanel({ status, onChanged }) {
+  const [list, setList] = useState(null);
+  const load = useCallback(() => call("GET", "/plane/workspaces").then(r => {
+    const arr = Array.isArray(r) ? r : (r?.error ? null : []);
+    if (r?.error) setList({ error: r.error });
+    else { setList(arr); onChanged?.(arr); }
+  }), [onChanged]);
+  useEffect(() => { load(); }, [load]);
+  if (!list) return <div style={{ color: "var(--text3)", fontSize: 12 }}>Lade…</div>;
+  if (list.error) return <div style={{ color: "var(--text2)", fontSize: 12 }}>{list.error}</div>;
+  if (!list.length) return <div style={{ color: "var(--text2)", fontSize: 12 }}>Es ist kein Plane-Workspace eingerichtet. Das legt der Administrator unter /admin fest.</div>;
+  const byHost = {};
+  for (const w of list) {
+    const h = w.host || w.base_url || "";
+    if (!byHost[h]) byHost[h] = { host: h, key_set: false, items: [] };
+    byHost[h].key_set = byHost[h].key_set || !!w.key_set;
+    byHost[h].items.push(w);
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ fontSize: 12, color: "var(--text2)" }}>Der Schlüssel gilt je Plane-Adresse; Workspaces auf demselben Host teilen ihn.</div>
+      {Object.values(byHost).map(g => {
+        const rep = g.items[0];
+        const st = (status || []).find(x => g.items.some(i => i.id === x.id));
+        return (
+          <div key={g.host || rep.id} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "12px 14px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <b>{g.host || rep.name}</b>
+              <span className={`zp-pill ${g.key_set ? "synced" : "changed"}`}>{g.key_set ? "Schlüssel gespeichert" : "Schlüssel fehlt"}</span>
+              {st && <span style={{ fontSize: 12, color: st.ok ? "var(--accent)" : "var(--stop)" }}>{st.ok ? "✓ " : "✗ "}{st.message}</span>}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--text2)", margin: "4px 0 8px" }}>{g.items.map(i => `${i.name} (${i.workspace})`).join(" · ")}</div>
+            <WorkspaceKey ws={{ ...rep, key_set: g.key_set, name: g.items.map(i => i.name).join(", ") }} onChanged={load} />
+          </div>);
+      })}
+    </div>);
+}
+
 /* ═══ Einstellungen → Plane ═══ */
 export function PlaneSettingsTab() {
   const sm = isServerMode();
   const [f, setF] = useState({ plane_base_url: "", plane_workspace: "", plane_api_key: "", plane_sync_mode: "manual", plane_insecure_tls: "0" });
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [projects, setProjects] = useState(null);
-  const [locals, setLocals] = useState([]);
-  const [links, setLinks] = useState({});
+  const [wsStatus, setWsStatus] = useState([]);
 
   useEffect(() => {
     api("GET", "/settings").then(s => s && setF(v => ({ ...v,
       plane_base_url: s.plane_base_url || "", plane_workspace: s.plane_workspace || "", plane_api_key: s.plane_api_key || "",
       plane_sync_mode: s.plane_sync_mode || "manual", plane_insecure_tls: s.plane_insecure_tls || "0" })));
-    api("GET", "/projects").then(p => setLocals(Array.isArray(p) ? p : []));
   }, []);
   const set = k => e => setF(v => ({ ...v, [k]: e.target.value }));
 
-  const save = async () => {
+  const saveLocal = async () => {
     setBusy(true); setMsg(null);
-    const body = sm   // Servermodus: Adresse/Workspace legt der Administrator fest; Schlüssel wird vom Server verschlüsselt (maskierter Wert bleibt unverändert)
-      ? { plane_api_key: f.plane_api_key, plane_sync_mode: f.plane_sync_mode }
-      : { ...f, plane_base_url: f.plane_base_url.trim().replace(/\/+$/, "").replace(/\/api(\/v1)?$/, ""), plane_workspace: f.plane_workspace.trim() };
+    const body = { ...f, plane_base_url: f.plane_base_url.trim().replace(/\/+$/, "").replace(/\/api(\/v1)?$/, ""), plane_workspace: f.plane_workspace.trim() };
     const put = await call("PUT", "/settings", body);
-    if (sm && put.error) { setMsg({ err: true, text: put.error }); setBusy(false); return; }
+    if (put.error) { setMsg({ err: true, text: put.error }); setBusy(false); return; }
     resetPlaneCfg();
     const st = await call("GET", "/integrations/plane/status");
     setMsg(st.error ? { err: true, text: st.error } : { text: st.message || "Gespeichert" });
-    if (!st.error && st.configured) loadProjects();
     setBusy(false);
   };
-  const loadProjects = async () => {
-    const r = await call("GET", "/integrations/plane/projects");
-    if (r.error) { setMsg({ err: true, text: r.error }); return; }
-    setProjects(r);
-    setLinks(Object.fromEntries(r.map(p => [p.id, p.local_id ? String(p.local_id) : ""])));
+  const saveMode = async () => {
+    setBusy(true); setMsg(null);
+    const put = await call("PUT", "/settings", { plane_sync_mode: f.plane_sync_mode });
+    resetPlaneCfg();
+    setMsg(put.error ? { err: true, text: put.error } : { text: "Übertragungsmodus gespeichert" });
+    setBusy(false);
   };
-  const saveLinks = async () => {
-    const payload = projects.map(p => ({ plane_project_id: p.id, identifier: p.identifier, name: p.name,
-      local_id: links[p.id] && links[p.id] !== "new" ? +links[p.id] : null, create: links[p.id] === "new" })).filter(l => l.local_id || l.create);
-    const r = await call("POST", "/integrations/plane/projects/link", { links: payload });
-    setMsg(r.error ? { err: true, text: r.error } : { text: `${r.linked} Projekte verknüpft${r.created ? `, ${r.created} neu angelegt` : ""}` });
-    api("GET", "/projects").then(p => setLocals(Array.isArray(p) ? p : []));
-    loadProjects();
+  const testAll = async () => {
+    setBusy(true); setMsg(null);
+    const list = await reloadPlaneWorkspaces();
+    const st = [];
+    for (const w of list) {
+      const r = await call("GET", `/integrations/plane/status?workspace=${w.id}`);
+      st.push({ id: w.id, ok: !!(r.configured && r.connected), message: r.message || r.error || (r.configured ? "ok" : "nicht eingerichtet") });
+    }
+    setWsStatus(st);
+    resetPlaneCfg();
+    const ok = st.filter(x => x.ok).length;
+    setMsg(ok ? { text: `${ok} von ${st.length} Workspace${st.length === 1 ? "" : "s"} verbunden` } : { err: true, text: st[0]?.message || "Keine Verbindung" });
+    setBusy(false);
   };
 
   return (
     <div>
-      <Box title="Plane-Zugang" sub={sm ? "Der API-Key gehört dir: Er wird verschlüsselt auf dem Server gespeichert und danach nur noch maskiert angezeigt." : "Die Zugangsdaten bleiben lokal auf diesem Mac (SQLite). Der API-Key wird danach nur noch maskiert angezeigt."}>
-        {sm ? (
-          <div style={{ fontSize: 12, color: "var(--text2)", padding: "8px 10px", borderRadius: 8, background: "var(--bg)", marginBottom: 4 }}>
-            Plane-Adresse und Workspace legt der Administrator fest{f.plane_base_url ? <>: <b style={{ color: "var(--text)" }}>{f.plane_base_url}</b>{f.plane_workspace ? <> · Workspace <b style={{ color: "var(--text)" }}>{f.plane_workspace}</b></> : null}</> : " (noch nicht eingetragen)"}.
+      <Box title="Plane-Zugang" sub={sm ? "Adresse und Workspace legt der Administrator fest. Du trägst je Plane-Adresse deinen API-Schlüssel ein (verschlüsselt, nie wieder angezeigt)." : "Die Zugangsdaten bleiben lokal auf diesem Mac (SQLite). Der API-Key wird danach nur noch maskiert angezeigt."}>
+        {sm ? (<>
+          <div style={{ marginBottom: 10 }}>
+            <PlaneWorkspacesPanel status={wsStatus} onChanged={() => { resetPlaneCfg(); reloadPlaneWorkspaces(); }} />
           </div>
-        ) : (<>
+          <label style={lab}>Übertragung nach Plane</label>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {[["manual", "Manuell freigeben (empfohlen)", "Buchungen bleiben lokal, bis du sie im Reiter „Plane“ freigibst."],
+              ["auto", "Automatisch", "Abgeschlossene Buchungen mit Ticket werden nach kurzer Zeit selbst übertragen."]].map(([k, l, d]) => (
+              <button key={k} onClick={() => setF(v => ({ ...v, plane_sync_mode: k }))}
+                style={{ flex: 1, minWidth: 220, textAlign: "left", padding: "10px 12px", borderRadius: 8,
+                  border: `1px solid ${f.plane_sync_mode === k ? "var(--accent)" : "var(--line)"}`,
+                  background: f.plane_sync_mode === k ? "var(--accent-soft)" : "var(--card)" }}>
+                <div style={{ fontWeight: 600 }}>{f.plane_sync_mode === k ? "● " : "○ "}{l}</div>
+                <div style={{ color: "var(--text2)", fontSize: 11, marginTop: 2 }}>{d}</div>
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 14 }}>
+            <button style={btn(true)} onClick={saveMode} disabled={busy}><Check size={14} /> Modus speichern</button>
+            <button style={btn(false)} onClick={testAll} disabled={busy}>{busy ? "Prüfe…" : "Verbindungen testen"}</button>
+            {msg && <span style={{ fontSize: 12, color: msg.err ? "var(--stop)" : "var(--accent)" }}>{msg.err ? "✗ " : "✓ "}{msg.text}</span>}
+          </div>
+        </>) : (<>
         <label style={lab}>Plane-Adresse</label>
-        <input style={inpS} placeholder="https://plane.example.com" value={f.plane_base_url} onChange={set("plane_base_url")} /></>)}
-        <div style={{ display: "grid", gridTemplateColumns: sm ? "1fr" : "1fr 1fr", gap: 10 }}>
-          {!sm && <div><label style={lab}>Workspace (aus der URL, z.B. „example“)</label>
-            <input style={inpS} placeholder="example" value={f.plane_workspace} onChange={set("plane_workspace")} /></div>}
+        <input style={inpS} placeholder="https://plane.example.com" value={f.plane_base_url} onChange={set("plane_base_url")} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div><label style={lab}>Workspace (aus der URL, z.B. „example“)</label>
+            <input style={inpS} placeholder="example" value={f.plane_workspace} onChange={set("plane_workspace")} /></div>
           <div><label style={lab}>API-Key (Plane → Profil → Personal Access Tokens)</label>
             <input style={inpS} type="password" placeholder="plane_api_…" value={f.plane_api_key} onChange={set("plane_api_key")} /></div>
         </div>
@@ -765,14 +921,15 @@ export function PlaneSettingsTab() {
             </button>
           ))}
         </div>
-        {!sm && <label style={{ ...lab, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+        <label style={{ ...lab, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
           <input type="checkbox" checked={f.plane_insecure_tls === "1"} onChange={e => setF(v => ({ ...v, plane_insecure_tls: e.target.checked ? "1" : "0" }))} />
           Selbstsigniertes Zertifikat erlauben (nur für interne Instanzen ohne gültiges Zertifikat)
-        </label>}
+        </label>
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 14 }}>
-          <button style={btn(true)} onClick={save} disabled={busy}><Check size={14} /> {busy ? "Prüfe…" : "Speichern & Verbindung testen"}</button>
+          <button style={btn(true)} onClick={saveLocal} disabled={busy}><Check size={14} /> {busy ? "Prüfe…" : "Speichern & Verbindung testen"}</button>
           {msg && <span style={{ fontSize: 12, color: msg.err ? "var(--stop)" : "var(--accent)" }}>{msg.err ? "✗ " : "✓ "}{msg.text}</span>}
         </div>
+        </>)}
       </Box>
 
       <Box title="Projekte verknüpfen" sub="Verknüpft wird jetzt an genau einer Stelle: Projekte › Quellen. Dort siehst du Plane- und Jira-Projekte nebeneinander, übernimmst neue, schaltest ungenutzte stumm und legst fest, wohin die Zeit geht.">
@@ -876,12 +1033,17 @@ function PlaneImportPanel({ onDone, onClose }) {
 
 export function PlaneSyncView({ onOpenSettings }) {
   const sm = isServerMode();
+  const workspaces = usePlaneWorkspaces();
+  const [wsId, setWsId] = useState("");
   const [importOpen, setImportOpen] = useState(false);
   const [data, setData] = useState(null);
   const [est, setEst] = useState({});
   const [editEst, setEditEst] = useState(null);
   const loadEst = useCallback(() => api("GET", "/ticket-estimates").then(r => r && !r.error && setEst(r)), []);
   useEffect(() => { loadEst(); }, [loadEst]);
+  useEffect(() => {
+    if (sm && workspaces.length === 1 && !wsId) setWsId(String(workspaces[0].id));
+  }, [sm, workspaces, wsId]);
   const saveEst = async (ticket, val) => {
     const r = await call("PUT", `/ticket-estimates/${encodeURIComponent(ticket)}`, { hours: val });
     setEditEst(null);
@@ -902,9 +1064,9 @@ export function PlaneSyncView({ onOpenSettings }) {
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState(null);
   const load = useCallback(async () => {
-    const r = await api("GET", "/integrations/plane/outbox");
+    const r = await api("GET", `/integrations/plane/outbox${wsQ(wsId)}`);
     setData(r && !r.error ? r : { failed: true, error: r?.error || "Server nicht erreichbar" });
-  }, []);
+  }, [wsId]);
   useEffect(() => { load(); }, [load]);
 
   if (!data) return <div style={{ color: "var(--text3)", padding: 30, textAlign: "center" }}>Lade…</div>;
@@ -917,10 +1079,11 @@ export function PlaneSyncView({ onOpenSettings }) {
   if (!data.configured) return (
     <div className="zp-card" style={{ padding: 30, textAlign: "center" }}>
       <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 6 }}>Plane ist noch nicht eingerichtet</div>
-      <div style={{ color: "var(--text2)", marginBottom: 14 }}>Trage Adresse, Workspace und API-Key unter Einstellungen → Plane ein.</div>
+      <div style={{ color: "var(--text2)", marginBottom: 14 }}>{sm ? "API-Schlüssel unter Einstellungen → Plane je Workspace eintragen." : "Trage Adresse, Workspace und API-Key unter Einstellungen → Plane ein."}</div>
       <button style={btn(true)} onClick={onOpenSettings}>Zu den Einstellungen</button>
     </div>
   );
+  const wsName = workspaces.find(w => String(w.id) === String(wsId))?.name;
 
   const c = data.counts || {};
   const pending = (c.new || 0) + (c.changed || 0) + (c.error || 0);
@@ -953,7 +1116,7 @@ export function PlaneSyncView({ onOpenSettings }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div className="zp-card" style={{ padding: "14px 16px", display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
         <div style={{ flex: 1, minWidth: 260 }}>
-          <div style={{ fontWeight: 600, fontSize: 14 }}>Plane-Abgleich · Summe pro Ticket</div>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>Plane-Abgleich · Summe pro Ticket{wsName ? ` · ${wsName}` : ""}</div>
           <div style={{ color: "var(--text2)", fontSize: 12 }}>
             In Plane steht je Ticket genau ein Eintrag mit deiner Gesamtzeit. Wer wann wie lange gearbeitet hat, bleibt hier im Zeitprotokoll.
           </div>
@@ -962,6 +1125,12 @@ export function PlaneSyncView({ onOpenSettings }) {
             {data.deletions.length ? ` · ${data.deletions.length} Löschung(en) vorgemerkt` : ""}
           </div>
         </div>
+        {sm && workspaces.length > 1 && (
+          <select value={wsId} onChange={e => setWsId(e.target.value)} style={{ ...inpS, width: "auto", minWidth: 160 }} title="Plane-Workspace">
+            <option value="">Primär-Workspace</option>
+            {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}{w.key_set ? "" : " (Schlüssel fehlt)"}</option>)}
+          </select>
+        )}
         {sm
           ? <button style={btn(false)} onClick={() => setImportOpen(o => !o)} disabled={!!busy}><Download size={14} /> Zeiten aus Plane importieren</button>
           : <button style={btn(false)} onClick={pull} disabled={!!busy}><Download size={14} /> {busy === "pull" ? "Hole…" : "Aus Plane holen"}</button>}

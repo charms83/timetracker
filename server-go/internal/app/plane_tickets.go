@@ -656,7 +656,7 @@ func (a *App) planeTicketTask(w http.ResponseWriter, r *http.Request, u User) {
 		badRequest(w, "Ticketnummer ungültig")
 		return
 	}
-	tid, projID, msg, err := a.ensurePlaneTask(r.Context(), u.ID, key)
+	tid, projID, msg, err := a.ensurePlaneTask(r.Context(), u.ID, key, r.URL.Query().Get("workspace"))
 	switch {
 	case err != nil:
 		a.planeFail(w, err) // Nicht-Plane-Fehler gehen dort an a.fail
@@ -668,12 +668,12 @@ func (a *App) planeTicketTask(w http.ResponseWriter, r *http.Request, u User) {
 }
 
 // ensurePlaneTask: lokale Aufgabe zum Plane-Ticket finden oder anlegen (auch für den To-do-Start). msg ≠ "" = fachlich abgelehnt (400).
-func (a *App) ensurePlaneTask(ctx context.Context, uid int64, key string) (int64, int64, string, error) {
+func (a *App) ensurePlaneTask(ctx context.Context, uid int64, key, workspaceRaw string) (int64, int64, string, error) {
 	var tid, projID int64
 	if err := a.DB.QueryRow(ctx, `SELECT id, project_id FROM tasks WHERE user_id=$1 AND UPPER(jira_ticket)=$2 AND plane_work_item_id IS NOT NULL ORDER BY id LIMIT 1`, uid, key).Scan(&tid, &projID); err == nil {
 		return tid, projID, "", nil
 	}
-	c, wi, pid, p, err := a.planeCfgForKey(ctx, uid, key, "")
+	c, wi, pid, p, err := a.planeCfgForKey(ctx, uid, key, workspaceRaw)
 	if err != nil {
 		return 0, 0, "", err
 	}

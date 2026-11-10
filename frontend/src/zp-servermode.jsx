@@ -5,7 +5,8 @@
 ═══════════════════════════════════════════════════════════════════ */
 import { useState, useEffect, useCallback } from "react";
 import { LogOut, ShieldCheck, ChevronLeft, ChevronRight, Send, Undo2, MonitorSmartphone, Info, KeyRound, Trash2, Check } from "lucide-react";
-import { api, call, Box, lab, inpS, btn, loadMe, useServerMode } from "./zp-ui.jsx";
+import { api, call, Box, lab, inpS, btn, loadMe, useServerMode, PlaneWorkspacesPanel } from "./zp-ui.jsx";
+export { PlaneWorkspacesPanel };
 
 /* ── Abmelden, Name, Administration (Seitenleiste / Titelleiste) ── */
 const ROLE = { admin: "Administrator", lead: "Teamleiter", user: "Mitarbeiter", breakglass: "Notfallzugang" };
@@ -255,3 +256,5 @@ export function JiraInstancesPanel({ mode = "tokens", status }) {
       })}
     </div>);
 }
+
+
