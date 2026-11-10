@@ -96,11 +96,11 @@
 
   <section id="t-config" class="hidden">
     <h3>Plane-Workspaces</h3>
-    <p class="mut">Mehrere Workspaces möglich (wie Jira-Instanzen). Der API-Schlüssel gilt je Person und Plane-Adresse; Workspaces auf demselben Host teilen ihn. Primär-Workspace (erste eingeschaltete Zeile) steuert Tempo-Links.</p>
+    <p class="mut"><b>Kein Plane-Token für die Administration.</b> Du trägst nur ein, was die Organisation nutzt: Anzeigename, Plane-Adresse und Workspace-Kennung aus der Browser-URL (z.&nbsp;B. <code>https://plane.example.com/example/…</code> → Kennung <code>example</code>) – analog zu Jira-Instanzen. Jede Person trägt danach ihren persönlichen API-Schlüssel selbst ein und schaltet die Workspaces für sich ein. Schlüssel gelten je Plane-Adresse (gleicher Host = geteilt). Primär-Workspace (erste eingeschaltete Zeile) steuert Tempo-Links. Die Spalte „Schlüssel“ zählt nur, wie viele Personen schon einen Schlüssel für diesen Eintrag haben – du siehst und brauchst keine Tokens.</p>
     <table><thead><tr><th>Name</th><th>Adresse</th><th>Workspace</th><th>Ein</th><th>Schlüssel</th><th>Quellen</th><th></th></tr></thead><tbody id="pw-list"></tbody></table>
-    <div class="row"><label>Name <input id="pw-name" size="14" maxlength="60"></label>
+    <div class="row"><label>Name <input id="pw-name" size="14" maxlength="60" placeholder="z. B. Beispiel"></label>
     <label>Adresse <input id="pw-url" size="32" placeholder="https://plane.example.com"></label>
-    <label>Workspace <input id="pw-ws" size="14" placeholder="slug"></label>
+    <label>Workspace-Kennung <input id="pw-ws" size="14" placeholder="aus der URL, z. B. example" title="Steht in der Plane-URL nach dem Host"></label>
     <button class="act" onclick="addPlaneWS()">Anlegen</button></div>
     <h3>Jira / Tempo (Modul)</h3>
     <div class="row"><label><input type="checkbox" id="c-tempo"> Modul Jira/Tempo einschalten</label>

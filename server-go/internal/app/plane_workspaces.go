@@ -14,7 +14,8 @@ import (
 )
 
 /* Plane-Workspaces (mehrere), vom Administrator verwaltet (Migration 023).
-   Quellen/Sync/Tickets/Import laufen je eingeschaltetem Workspace.
+   Admin trägt nur Name/Adresse/Kennung ein – kein Plane-Token, kein API-Aufruf.
+   Quellen/Sync/Tickets/Import: je vom Nutzer gewähltem Workspace (Migration 025).
    API-Schlüssel je Person und Plane-Adresse (Schema+Host); gleiche Adresse = gemeinsamer Schlüssel (scope=0 Primär, sonst Workspace-Id). */
 
 type planeWorkspace struct {

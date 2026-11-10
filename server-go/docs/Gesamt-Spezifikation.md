@@ -77,9 +77,9 @@ Stand 10.11.2026 (Entscheidungen §16). Rollenklarstellung: **Technischer Admin 
 **Benachrichtigungen:** In-App-Hinweise und E-Mail über `notifyApproval` (SMTP, abschaltbar in `/admin`, Migration 020; Ereignisse closing_soon, closed, rejected, nachtrag, pending; Inhalt ohne Zeiten; Entprellung in `notify_sent`). Exchange-OAuth/Graph offen. Für Jira/Tempo-Buchungen bleibt der Tempo-Stundenzettel-Status maßgeblich.
 
 ## 7. Plane (Modul, nicht abschaltbar)
-**Mehrere Plane-Workspaces (Entscheidung 10.11.):** Der Administrator legt mehrere Plane-Workspaces fest (Name, Adresse, Workspace-Kennung, ein/aus; änderbar, mehrere Einträge – wie die Jira-Instanzen). Migration 023/024/025 + Admin `/admin`, Nutzer `/profile` (Schlüssel je Host). Mit Token wählt die Person selbst, welche Workspaces sie nutzt (`user_plane_workspaces`, `PUT /api/plane/workspaces/{id}/select`). Quellen, Tickets, Import, Push und Status über die gewählten Workspaces (`?workspace=` oder aus Projekt/Ticket); FK `plane_workspace_id`; Primär-Workspace spiegelt `plane_base_url`/`plane_workspace` für Tempo-Links. Status: **gebaut, Abnahme offen**.
+**Mehrere Plane-Workspaces (Entscheidung 10.11.):** Der Administrator legt mehrere Plane-Workspaces fest (Name, Adresse, Workspace-Kennung aus der Plane-URL, ein/aus; änderbar, mehrere Einträge – wie die Jira-Instanzen). **Die Administration braucht keinen Plane-API-Schlüssel** und ruft Plane nicht auf; sie kennt nur die Organisations-Adressen. Migration 023/024/025 + Admin `/admin`, Nutzer `/profile` (Schlüssel je Host). Mit persönlichem Token wählt die Person selbst, welche Workspaces sie nutzt (`user_plane_workspaces`, `PUT /api/plane/workspaces/{id}/select`). Quellen, Tickets, Import, Push und Status über die gewählten Workspaces (`?workspace=` oder aus Projekt/Ticket); FK `plane_workspace_id`; Primär-Workspace spiegelt `plane_base_url`/`plane_workspace` für Tempo-Links. Status: **gebaut, Abnahme offen**.
 
-Persönlicher API-Schlüssel je Person (verschlüsselt, an Host gebunden), Adresse/Workspace für alle. Bleibt so (keine Plane-App/OAuth).
+Persönlicher API-Schlüssel je Person (verschlüsselt, an Host gebunden), Adresse/Workspace-Kennung für alle vom Admin. Bleibt so (keine Plane-App/OAuth, kein gemeinsamer Admin-Token).
 | Funktion | Status |
 |---|---|
 | Buchung: eine Summen-Worklog je Ticket (`[zp-sum]`), kein Duplikat, Entfernen | fertig, Ende-zu-Ende mit PRJA-762 geprüft |
@@ -102,7 +102,7 @@ Zeit lässt sich auch ohne Ticket erfassen. Erst beim Übertragen (Plane oder Ji
 Der Ticket-Vorschlag im Server ist die **Light-Variante** (nur Textabgleich). Die bessere Variante mit KI liefert später der Client (Mac); der Server bleibt dafür offen (Client kann Vorschläge liefern, die Person übernimmt sie). Der Vorschlag ist **dreifach abschaltbar**: (1) Admin für alle (`module_suggest`), (2) Admin je Person (`suggest_blocked`), (3) Person für sich (`suggest_enabled`). Abgeschaltet gibt es keine Vorschläge und keine Abfragen dafür; das manuelle Zuordnen eines Tickets bleibt möglich.
 
 ### Zugangsdaten je Person
-Jede Person trägt ihren Plane-API-Schlüssel und je Jira-Instanz ihr Jira-Token selbst ein (verschlüsselt, nie wieder angezeigt). Kein gemeinsamer Schlüssel, kein eigenes Tempo-Token.
+Jede Person trägt ihren Plane-API-Schlüssel und je Jira-Instanz ihr Jira-Token selbst ein (verschlüsselt, nie wieder angezeigt). Kein gemeinsamer Schlüssel, kein Admin-Plane-Token, kein eigenes Tempo-Token. Der technische Administrator richtet nur Adressen/Kennungen ein und kann fremde Tokens löschen (nie lesen).
 
 ### Vier Oberflächen je Rolle (Entscheidung 10.11.)
 Eine Anmeldung, aber getrennte Oberflächen – jede Person sieht nur, was zu ihrer Rolle gehört:

@@ -902,9 +902,9 @@ export function PlaneSettingsTab() {
 
   return (
     <div>
-      <Box title="Plane-Zugang" sub={sm ? "Plane ist das Hauptsystem. Adressen und Workspaces legt der Administrator fest; du trägst je Workspace deinen API-Schlüssel ein (verschlüsselt, nie wieder angezeigt)." : "Die Zugangsdaten bleiben lokal auf diesem Mac (SQLite). Der API-Key wird danach nur noch maskiert angezeigt."}>
+      <Box title="Plane-Zugang" sub={sm ? "Plane ist das Hauptsystem. Adresse und Workspace-Kennungen legt der Administrator fest (ohne Plane-Token). Du trägst deinen persönlichen API-Schlüssel ein und wählst, welche Workspaces du nutzt." : "Die Zugangsdaten bleiben lokal auf diesem Mac (SQLite). Der API-Key wird danach nur noch maskiert angezeigt."}>
         {sm ? (<>
-          <div style={{ fontSize: 12, color: "var(--text2)", margin: "0 0 8px" }}>Workspaces auf derselben Plane-Adresse teilen einen Schlüssel. Mit Token schaltest du einzeln ein, welche Workspaces du nutzt (Sync, Tickets, Quellen).</div>
+          <div style={{ fontSize: 12, color: "var(--text2)", margin: "0 0 8px" }}>Wie bei Jira: Administration = Adresse/Kennung, du = Schlüssel. Workspaces auf derselben Plane-Adresse teilen den Schlüssel; mit „Nutzen“ schaltest du einzeln ein, was für Sync, Tickets und Quellen gilt.</div>
           <div style={{ marginBottom: 10 }}>
             <PlaneWorkspacesPanel status={wsStatus} onChanged={() => { resetPlaneCfg(); reloadPlaneWorkspaces(); }} />
           </div>
