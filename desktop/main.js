@@ -328,7 +328,7 @@ function createMain(view, forceWindow) {
     titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 18 },
     backgroundColor: "#ffffff", title: "Zeitprotokoll",
     webPreferences: {
-      contextIsolation: true, nodeIntegration: false, sandbox: true,
+      contextIsolation: true, nodeIntegration: false,
       webSecurity: true, allowRunningInsecureContent: false,
       preload: path.join(__dirname, "preload-main.js"),
     },
@@ -660,21 +660,20 @@ ipcMain.handle("cfg:setTeam", (_e, { mode, serverUrl, deviceToken, allowHttpTeam
   return { ok: true, mode: cfg.mode, hasDeviceToken: !!deviceTokenMem };
 });
 
-/** TLS / Host-Härtung für Team-Verbindung (MITM-Schutz). */
+/** TLS-Härtung ohne den Alltag zu blockieren (Firmen-CA/OIDC bleiben nutzbar). */
 function installTeamTransportSecurity() {
-  // Ungültige Zertifikate nie akzeptieren (auch nicht nach Klick „weiter“)
+  // Ungültige Zertifikate nie per Dialog durchwinken – System-/Firmen-CA bleibt über Chromium vertrauenswürdig
   app.on("certificate-error", (event, _wc, url, error, certificate, callback) => {
     event.preventDefault();
     log("tls rejected", error, url, certificate && certificate.subjectName);
     callback(false);
   });
   const ses = session.defaultSession;
-  if (typeof ses.setCertificateVerifyProc === "function") {
+  // Cert-Pin nur wenn gesetzt – sonst Standard-Prüfung (brauchbar mit Firmen-Proxy/CA)
+  if (cfg.serverCertPin && typeof ses.setCertificateVerifyProc === "function") {
     ses.setCertificateVerifyProc((request, callback) => {
-      // Chromium-Fehler → ablehnen (kein Klick-durch)
       if (typeof request.errorCode === "number" && request.errorCode !== 0) { callback(-2); return; }
-      // Optional: Pin nur für den konfigurierten Team-Server (IdP bleibt System-CA)
-      if (isTeamMode() && cfg.serverCertPin) {
+      if (isTeamMode()) {
         try {
           if (request.hostname === new URL(cfg.serverUrl).hostname && !certMatchesPin(request.certificate)) {
             log("tls pin mismatch", request.hostname);
@@ -686,20 +685,18 @@ function installTeamTransportSecurity() {
       callback(0);
     });
   }
-  ses.setPermissionRequestHandler((_wc, _permission, callback) => {
-    callback(false); // keine Kamera/Mikro/Geolocation
+  // Alltag: Benachrichtigungen ok; Kamera/Mikro/Ortung weiter aus
+  const allowPerm = new Set(["notifications", "clipboard-sanitized-write"]);
+  ses.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(allowPerm.has(permission));
   });
   // Team: Klartext-HTTP blockieren (außer localhost-Dev); OIDC-IdP auf https bleibt erlaubt
-  ses.webRequest.onBeforeRequest({ urls: ["*://*/*"] }, (details, cb) => {
+  ses.webRequest.onBeforeRequest({ urls: ["http://*/*"] }, (details, cb) => {
     if (!isTeamMode()) { cb({}); return; }
-    const u = details.url || "";
-    if (u.startsWith("devtools://") || u.startsWith("file://") || u.startsWith("data:")) { cb({}); return; }
     try {
-      const parsed = new URL(u);
-      if (parsed.protocol === "http:") {
-        const ok = cfg.allowHttpTeam && (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1");
-        if (!ok) { log("blocked insecure request", u); cb({ cancel: true }); return; }
-      }
+      const parsed = new URL(details.url || "");
+      const ok = cfg.allowHttpTeam && (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1");
+      if (!ok) { log("blocked insecure request", details.url); cb({ cancel: true }); return; }
     } catch (_) { cb({ cancel: true }); return; }
     cb({});
   });

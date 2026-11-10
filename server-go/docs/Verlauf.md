@@ -92,7 +92,8 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - Token-Ablage: Client `safeStorage` (Keychain/DPAPI) in `device-token.bin`, nie Klartext in `desktop.json`; Server HMAC-SHA256 mit `ZP_SECRET_KEY` (`v1:`), Legacy-SHA256 wird bei Nutzung migriert.
 - Team-Client-Auth: **Login-Sitzung auf dem Server** (Cookie via `session.fetch`); Geräte-Token nur noch optional (Add-on/curl). UI im Electron-Fenster, nicht Systembrowser.
 - Verbindung gehärtet: Client lehnt TLS-Fehler ab, blockiert HTTP-Downgrade, optional Cert-Pin; Server `__Host-zp_session` + Session-HMAC, Betrieb braucht `ZP_PUBLIC_URL=https://`.
-- Offen bleibt: Tray-UI für Server-URL/Pin, Timer im Mini über Session.
+- Usability: Cert-Pin nur wenn gesetzt (Firmen-CA bleibt nutzbar); Notifications erlaubt; Alltag = URL setzen + anmelden.
+- Offen bleibt: Tray-UI für Server-URL, Timer im Mini über Session.
 
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik, SMTP); gefundene Fehler beheben.

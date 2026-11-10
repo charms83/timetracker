@@ -1,52 +1,50 @@
 # Mac-Client am Team-Server (Go)
 
-Der Desktop-Client (`desktop/`) kann im Modus **team** mit dem Go-Server arbeiten, statt den lokalen Node-Server zu starten.
+## Alltag (so arbeitet man damit)
 
-## Einrichtung
+1. In `~/.zeitprotokoll/desktop.json` nur setzen:
+   ```json
+   { "mode": "team", "serverUrl": "https://zeit.firma.example" }
+   ```
+2. App starten → **Zeitprotokoll öffnen**
+3. Einmal anmelden (LDAP/OIDC/lokal) → fertig buchen, Team, Assistent wie im Browser
 
-In `~/.zeitprotokoll/desktop.json` (oder per IPC `cfg:setTeam`):
+Kein Token kopieren, kein Zertifikat-Pin nötig. Die Sitzung liegt auf dem Server; der Client speichert kein Passwort.
+
+Zurück zum Einzelplatz: `"mode": "local"`.
+
+## Was sicher ist (ohne den Alltag zu stören)
+
+| Maßnahme | Alltag |
+|---|---|
+| Nur `https://` | Normalfall; lokal-Dev: `allowHttpTeam: true` |
+| Ungültige Zertifikate abgelehnt | Firmen-CA / System-Vertrauensspeicher funktioniert weiter |
+| Optional `serverCertPin` | Nur wenn die IT Pinning will – sonst weglassen |
+| Login-Sitzung auf dem Server | Einmal anmelden, 12 h Session, Cookie HttpOnly |
+| OIDC | Weiterleitung zum IdP (https) bleibt erlaubt |
+| Geräte-Token | Nur Add-on/curl – Mac-App braucht keins |
+
+## Optional (härter)
 
 ```json
 {
   "mode": "team",
   "serverUrl": "https://zeit.firma.example",
-  "allowHttpTeam": false,
-  "serverCertPin": ""
+  "serverCertPin": "aabbcc…64 hex SHA-256…",
+  "allowHttpTeam": false
 }
 ```
 
-1. `mode` auf `team`, `serverUrl` auf die öffentliche **https**-Adresse setzen.
-2. Optional `serverCertPin`: SHA-256 des Server-Zertifikats (64 Hex) – Pinning gegen MITM.
-3. Client starten → **Zeitprotokoll öffnen** (Server-UI im App-Fenster).
-4. **Einmal anmelden** – Sitzung liegt auf dem Server (`__Host-zp_session`, HttpOnly + Secure).
+`serverCertPin`: SHA-256 des Server-Zertifikats. Ohne Pin gilt die normale Zertifikatsprüfung (inkl. Firmen-CA).
 
-**Kein Geräte-Token nötig.** Passwort/OIDC bleiben auf Server/IdP.
+## Server (Betrieb)
 
-Zurück zum Einzelplatz: `"mode": "local"`.  
-Dev: `allowHttpTeam: true` nur für `http://localhost` / `127.0.0.1`.
-
-## Verbindungs-Sicherheit
-
-| Schutz | Wirkung |
-|---|---|
-| HTTPS Pflicht | Team-URL ohne `https://` wird abgelehnt |
-| TLS-Prüfung | Ungültige/abgelaufene Zertifikate werden nie akzeptiert |
-| Optional Cert-Pin | Nur exakt dieses Server-Zertifikat für `serverUrl` |
-| Kein HTTP-Downgrade | Klartext-Requests im Team-Modus blockiert |
-| Server-Sitzung | Cookie `__Host-zp_session` (Secure, HttpOnly, Path=/); Hash mit `ZP_SECRET_KEY` |
-| HSTS | Server sendet `Strict-Transport-Security` bei https-`ZP_PUBLIC_URL` |
-| Betrieb | `ZP_PUBLIC_URL=https://…` ist Pflicht |
-
-## Was speichert wer?
-
-| Was | Wo |
-|---|---|
-| Sitzung | **Server** (`sessions`, HMAC); Client nur HttpOnly-Cookie |
-| Passwort / OIDC | **Server** / IdP |
-| Geräte-Token | optional (Add-on/curl); Server nur HMAC |
+- `ZP_PUBLIC_URL=https://…` Pflicht
+- Sitzung: `__Host-zp_session` + HMAC in der DB
+- HSTS aktiv
 
 ## Noch offen
 
-- Tray-UI für Server-URL / Cert-Pin
-- Timer im Mini über dieselbe Session
+- Tray-UI für die Server-URL
+- Timer im Mini-Fenster über dieselbe Session
 - Add-on auf Server-URL
