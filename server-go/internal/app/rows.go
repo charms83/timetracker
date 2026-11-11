@@ -114,6 +114,10 @@ func asFloat(v any) float64 {
 	switch x := v.(type) {
 	case float64:
 		return x
+	case float32:
+		return float64(x)
+	case int:
+		return float64(x)
 	case int32:
 		return float64(x)
 	case int64:
