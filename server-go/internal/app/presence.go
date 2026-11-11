@@ -12,7 +12,7 @@ import (
 
 /* Anwesenheit am Mac + Tagesüberblick (wie backend/presence.js).
    Die Mac-App meldet jede Minute, ob jemand am Rechner ist. Gespeichert wird nur die Minute – kein Inhalt.
-   Daraus entstehen „von wann bis wann“ und Lücken ohne Buchung. SSH-Sitzungen bleiben lokal am Mac (leer). */
+   Daraus entstehen „von wann bis wann“ und Lücken ohne Buchung. Termine/SSH kommen aus calendar_events / ssh_sessions. */
 
 type span struct {
 	S int `json:"s"`

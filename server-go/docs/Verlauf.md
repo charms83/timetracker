@@ -106,6 +106,7 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - Browser-Add-on: konfigurierbare Server-Adresse + Geräte-Token (Pairing oder Token aus Einstellungen › Erkennung).
 - Personal: Selbstfreigabe (einzige Person im Personal) mit ReasonDialog ≥10 Zeichen; Urlaub ablehnen mit ReasonDialog statt `prompt`.
 - Kalender→Abwesenheits-Hinweise (`fromCalendarAbsences` bei Meeting-Kalender-Ingest); `POST /api/absences/from-tempo`.
+- gap-learn verknüpft Termin/SSH; suggest-now mit laufendem Termin/SSH; To-do-Vorschläge mit Termin-Vorbereitung.
 - Offen bleibt: echte Systemtests / Browser-Abnahme; `exportiert`-Sperre.
 
 ## Als Nächstes (Reihenfolge)

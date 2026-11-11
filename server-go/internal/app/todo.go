@@ -20,7 +20,7 @@ import (
 /* To-dos & Planung – Verhalten wie backend/todo.js (v6.18), je Person getrennt (plan_tasks + Spalten aus Migration 017).
    Spalten: Überfällig · Heute · Morgen (nächster Arbeitstag) · Diese Woche · Später · Eingang.
    Abgleich nach außen (Fälligkeit → Plane/Jira, Tempo-Plan, Plane-Startdatum): todo_sync.go, asynchron nach Create/Update.
-   Vorschläge sind die „Light“-Variante und dreifach abschaltbar (suggestAllowedFor).
+   Vorschläge: Tickets, Termin-Vorbereitung (calendar_events), Liegengebliebenes, Vorlagen; dreifach abschaltbar.
    Kapazität: „meetings“ aus calendar_events (Mac liefert Termine). */
 
 const todoSelect = `SELECT p.*, pr.name AS project_name, t.jira_ticket AS task_ticket, t.title AS task_title,
@@ -1095,7 +1095,45 @@ func (a *App) todoSuggestRoute(w http.ResponseWriter, r *http.Request, u User) {
 		out = append(out, map[string]any{"kind": "ticket", "key": "t:" + k, "title": jsOr(asStr(i["summary"]), k), "ticket": k, "ticket_title": i["summary"],
 			"system": i["system"], "project_id": i["project_id"], "project_name": i["project_name"], "due": nz(asStr(i["due"])), "priority": pr, "score": score, "why": why, "when": when})
 	}
-	// 2. Termine ohne Vorbereitung: entfällt (Kalender bleibt im Client)
+	// 2. Termine morgen / diese Woche ohne To-do → Vorbereitung
+	evTo := we
+	if tm > we {
+		evTo = tm
+	}
+	evs, err := a.maps(ctx, `SELECT uid, title, date, start_time FROM calendar_events
+		WHERE user_id=$1 AND date>$2 AND date<=$3 ORDER BY date, start_time LIMIT 40`, u.ID, t, evTo)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	haveEvent := map[string]bool{}
+	if erows, e2 := a.DB.Query(ctx, `SELECT event_uid FROM plan_tasks WHERE user_id=$1 AND event_uid IS NOT NULL`, u.ID); e2 == nil {
+		for erows.Next() {
+			var uid string
+			if erows.Scan(&uid) == nil {
+				haveEvent[uid] = true
+			}
+		}
+		erows.Close()
+	}
+	skipEv := regexp.MustCompile(`(?i)^(mittag|pause|lunch|urlaub|frei|blocker|fokus)`)
+	for _, ev := range evs {
+		title, uid, day := asStr(ev["title"]), asStr(ev["uid"]), asStr(ev["date"])
+		if title == "" || uid == "" || skipEv.MatchString(title) || haveEvent[uid] {
+			continue
+		}
+		hhmm := ""
+		if st := asStr(ev["start_time"]); len(st) >= 16 {
+			hhmm = st[11:16]
+		}
+		when, score, whyDay := "tomorrow", 25, day
+		if day == tm {
+			when, score, whyDay = "today", 45, "morgen"
+		}
+		out = append(out, map[string]any{"kind": "event", "key": "e:" + uid, "title": "Vorbereiten: " + title, "event_uid": uid,
+			"due": day, "priority": 2, "estimated_minutes": 15, "score": score,
+			"why": "Termin " + whyDay + " " + hhmm, "when": when})
+	}
 	// 3. Liegengebliebenes: oft verschoben oder lange im Eingang
 	stale, err := a.maps(ctx, `SELECT id, title, jira_ticket, moved_count FROM plan_tasks WHERE user_id=$1 AND COALESCE(status,'open')='open'
 		AND (COALESCE(moved_count,0)>=3 OR (scheduled_date IS NULL AND scheduled_week IS NULL AND created_at < now() - interval '14 days')) ORDER BY id`, u.ID)
@@ -1168,9 +1206,9 @@ func (a *App) todoSuggestRoute(w http.ResponseWriter, r *http.Request, u User) {
 	writeJSON(w, http.StatusOK, res)
 }
 
-// todoFilterDismissed: Verworfenes, erledigte Liegengebliebene und schon geplante Tickets herausnehmen (gespeicherte Liste bleibt unverändert)
+// todoFilterDismissed: Verworfenes, erledigte Liegengebliebene, geplante Tickets und Termin-To-dos herausnehmen
 func (a *App) todoFilterDismissed(ctx context.Context, uid int64, list []map[string]any) ([]map[string]any, error) {
-	dis, open, openTickets := map[string]bool{}, map[int64]bool{}, map[string]bool{}
+	dis, open, openTickets, openEvents := map[string]bool{}, map[int64]bool{}, map[string]bool{}, map[string]bool{}
 	rows, err := a.DB.Query(ctx, `SELECT key FROM todo_dismissed WHERE user_id=$1 AND (until IS NULL OR until>=$2)`, uid, a.today())
 	if err != nil {
 		return nil, err
@@ -1182,17 +1220,20 @@ func (a *App) todoFilterDismissed(ctx context.Context, uid int64, list []map[str
 		}
 	}
 	rows.Close()
-	rows, err = a.DB.Query(ctx, `SELECT id, UPPER(COALESCE(jira_ticket,'')) FROM plan_tasks WHERE user_id=$1 AND COALESCE(status,'open')='open'`, uid)
+	rows, err = a.DB.Query(ctx, `SELECT id, UPPER(COALESCE(jira_ticket,'')), COALESCE(event_uid,'') FROM plan_tasks WHERE user_id=$1 AND COALESCE(status,'open')='open'`, uid)
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
 		var id int64
-		var k string
-		if rows.Scan(&id, &k) == nil {
+		var k, eu string
+		if rows.Scan(&id, &k, &eu) == nil {
 			open[id] = true
 			if k != "" {
 				openTickets[k] = true
+			}
+			if eu != "" {
+				openEvents[eu] = true
 			}
 		}
 	}
@@ -1202,10 +1243,13 @@ func (a *App) todoFilterDismissed(ctx context.Context, uid int64, list []map[str
 		if dis[asStr(x["key"])] {
 			continue
 		}
-		if id, ok := x["todo_id"].(int64); ok && !open[id] {
+		if id := asInt64(x["todo_id"]); id != 0 && !open[id] {
 			continue
 		}
 		if x["kind"] == "ticket" && openTickets[strings.ToUpper(asStr(x["ticket"]))] {
+			continue
+		}
+		if x["kind"] == "event" && openEvents[asStr(x["event_uid"])] {
 			continue
 		}
 		out = append(out, x)

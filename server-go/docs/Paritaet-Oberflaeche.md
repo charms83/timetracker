@@ -89,7 +89,7 @@ Vorschläge („Light“, Regeln/Textabgleich, keine KI) folgen einem gemeinsame
 | `/todo/{id}` | PUT/DELETE | zp-todo, zp-calendar | gebaut (Löschen mit Buchung in gesperrtem Monat → 409 month_locked) |
 | `/todo/{id}/start` | POST | zp-todo, zp-calendar | gebaut (Timer über gemeinsamen `startTimer`) |
 | `/todo/range` | GET | zp-calendar | gebaut |
-| `/todo/suggest`, `/todo/suggest/dismiss` | GET/POST | zp-todo | gebaut (Light, abschaltbar; ohne Termin-Vorbereitung) |
+| `/todo/suggest`, `/todo/suggest/dismiss` | GET/POST | zp-todo | gebaut (abschaltbar; inkl. Termin-Vorbereitung aus calendar_events) |
 | `/todo/templates`, `/todo/templates/{id}` | GET/POST/DELETE | zp-todo | gebaut |
 | `/todo-settings` | PUT | zp-todo | gebaut – Schalter + Abgleich Plane/Jira/Tempo (`settings.sync_available:true`) |
 | `/assistant` | GET/PUT | App, zp-assistant | gebaut (regelbasiert, abschaltbar; aus = leeres Gerüst `enabled:false`) |
@@ -98,8 +98,8 @@ Vorschläge („Light“, Regeln/Textabgleich, keine KI) folgen einem gemeinsame
 | `/workday/start`, `/workday/{id}`, `/workday/end`, `/workday/reopen`, `/workday/pause/start`, `/workday/pause/end` | POST/PUT | (Oberfläche nutzt sie nicht) | gebaut; Pausen ohne Arbeitstag-Bezug, Monatssperre geprüft |
 | `/month-end`, `/month-end/ok` | GET/POST | zp-gaps | gebaut (+ `approval`, `locked_months`; `mac_from`/`mac_to`/`mac_h`/`open_h` aus Anwesenheit) |
 | `/missing-hours` | GET | zp-ui | gebaut (überspringt abgeschlossene und gesperrte Monate) |
-| `/gap-suggest`, `/gap-suggest/learn` | GET/POST | zp-gaps, zp-tempo, zp-ui | gebaut (Light: Termine/`event`, Lücken, typischer Tag, Rest; abschaltbar; SSH weiter Client) |
-| `/suggest-now` | GET | zp-ui | gebaut (Light: Gewohnheit, früher gewählt, zuletzt heute) |
+| `/gap-suggest`, `/gap-suggest/learn` | GET/POST | zp-gaps, zp-tempo, zp-ui | gebaut (Termine/`event`/SSH, Lücken, typischer Tag; learn verknüpft meeting_state/ssh_sessions; abschaltbar) |
+| `/suggest-now` | GET | zp-ui | gebaut (laufender Termin/SSH, Gewohnheit, früher gewählt, zuletzt heute) |
 | `/absence-hints`, `/absence-hints/{key}` | GET/POST | zp-assistant | gebaut (liefert gespeicherte Hinweise; Übernahme unter Monatssperre) |
 | `/ticket-estimates`, `/ticket-estimates/{ticket}` | GET/PUT | zp-report, zp-ui | gebaut |
 

@@ -670,8 +670,19 @@ func (r *tempoResult) msg(m string) {
 }
 
 func asInt(v any) int {
-	n, _ := v.(int)
-	return n
+	switch x := v.(type) {
+	case int:
+		return x
+	case int32:
+		return int(x)
+	case int64:
+		return int(x)
+	case float64:
+		return int(x)
+	case float32:
+		return int(x)
+	}
+	return int(asFloat(v))
 }
 
 func (a *App) tempoLogResult(ctx context.Context, uid int64, r *tempoResult) {
