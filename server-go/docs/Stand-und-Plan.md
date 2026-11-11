@@ -52,6 +52,7 @@ Monatsschluss nach einem Werktag, Nachtragen nur Teamleitung/Personal, Teams aus
 |---|---|
 | **Mac-App Team** | Session-Cookie am Go-Server; Tray zeigt Server; **Tray › Team-Server-Adresse …** editierbar; Mini/API über Session |
 | **Browser-Add-on** | Server-URL im Popup; Go: `/api/pair/*`, `/api/ext/state`, `X-ZP-Token` → `device_tokens` (kind=addon); CSRF-Ausnahme nur für Add-on-Pfade; UI `#koppeln` + Einstellungen › Erkennung |
+| **Web-GUI (Nicht-Admin)** | Ruhige Nav („Jetzt“ + einklappbares „Mehr“); Heute mit Fokuszeile; Termine/Mac-Optionen zugeklappt; Tempo-Import unter Übertragen; Plane-Workspace ohne Fake-„Alle“; Urlaub über Antrag |
 | **Linux-Installer** | `deploy/linux/install.sh` (Erst/Upgrade/Uninstall + Health-Check). Modularer Dialog-Installer: eigener Branch/PR `cursor/modular-installer-c03b` |
 | **OpenShift / Docker** | Manifeste/Compose im Repo; Betrieb noch nicht gegen echte Cluster abgenommen |
 

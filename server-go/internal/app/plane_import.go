@@ -171,6 +171,10 @@ func (a *App) planeImportRoute(w http.ResponseWriter, r *http.Request, u User) {
 		return
 	}
 	dry := truthy(in["dry_run"])
+	wsRaw := strings.TrimSpace(r.URL.Query().Get("workspace"))
+	if wsRaw == "" {
+		wsRaw = asStr(in["workspace"])
+	}
 	if _, busy := planeImportRunning.LoadOrStore(u.ID, true); busy {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "Import läuft bereits"})
 		return
@@ -178,7 +182,7 @@ func (a *App) planeImportRoute(w http.ResponseWriter, r *http.Request, u User) {
 	defer planeImportRunning.Delete(u.ID)
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 15*time.Minute)
 	defer cancel()
-	res, err := a.planeImport(ctx, u.ID, asStr(in["from"]), asStr(in["to"]), dry)
+	res, err := a.planeImport(ctx, u.ID, asStr(in["from"]), asStr(in["to"]), dry, wsRaw)
 	if err != nil {
 		var ue errUser
 		if errors.As(err, &ue) {
@@ -197,8 +201,8 @@ type importProject struct {
 	Ident           string
 }
 
-func (a *App) planeImport(ctx context.Context, uid int64, from, to string, dry bool) (map[string]any, error) {
-	cfgs, err := a.planeCfgs(ctx, uid)
+func (a *App) planeImport(ctx context.Context, uid int64, from, to string, dry bool, workspaceRaw string) (map[string]any, error) {
+	cfgs, err := a.planeCfgsForQuery(ctx, uid, workspaceRaw)
 	if err != nil {
 		return nil, err
 	}

@@ -132,7 +132,7 @@ export function useServerMode() {
   useEffect(() => { SERVER.subs.add(setMe); return () => SERVER.subs.delete(setMe); }, []);
   return { serverMode: SERVER.mode, me };
 }
-const CLIENT_ONLY_RE = /^\/(pair\/|security\/(tls|trust-|untrust-)|ext\/)/;   // Pairing/TLS lokal; Meetings/SSH am Server (Mac liefert Daten)
+const CLIENT_ONLY_RE = /^\/(security\/(tls|trust-|untrust-))/;   // TLS nur lokal; Pairing/ext am Team-Server; Meetings/SSH: Mac liefert Daten, API am Server
 const MSG_CLIENT = "Diese Funktion braucht den Mac-Client.";
 const MSG_PENDING = "Diese Funktion kommt in Kürze auf dem Server.";
 const MSG_LOCKED = "Dieser Monat ist eingereicht, freigegeben oder geschlossen und gesperrt. Du selbst kannst nichts mehr ändern – Nachtragen macht die Teamleitung oder das Personal (mit Begründung). Wiedereröffnen kann nur das Personal.";
@@ -241,32 +241,11 @@ export function ticketLabel(key, title) {
   return title && title.toUpperCase() !== key.toUpperCase() ? `${key} ${title}` : key;
 }
 
-/* Meine offenen Work-Items aus Plane (Server cached 5 Min.; Cache-Key inkl. Workspace) */
+/* Meine offenen Work-Items aus Plane (Server cached 5 Min.; ohne workspace = alle gewählten) */
 let myItemsCache = null, myItemsAt = 0, myItemsKey = "";
 async function loadMyItems(force, workspaceId) {
   const ck = String(workspaceId || "");
   if (!force && myItemsCache && myItemsKey === ck && Date.now() - myItemsAt < 120e3) return myItemsCache;
-  // Servermodus ohne Filter: alle Workspaces mit Schlüssel (wie Jira über mehrere Instanzen)
-  if (isServerMode() && !workspaceId) {
-    const list = planeWsCache !== null ? planeWsCache : await reloadPlaneWorkspaces();
-    const withKey = (list || []).filter(w => w.key_set && w.selected !== false);
-    if (withKey.length > 1) {
-      const parts = await Promise.all(withKey.map(async w => {
-        const q = ["workspace=" + w.id];
-        if (force) q.unshift("refresh=1");
-        const r = await api("GET", `/integrations/plane/my-items?${q.join("&")}`);
-        return Array.isArray(r) ? r.map(i => ({ ...i, workspace_id: i.workspace_id || w.id, workspace: i.workspace || w.name })) : [];
-      }));
-      const seen = new Set(), merged = [];
-      for (const row of parts.flat()) {
-        const k = (row.key || "").toUpperCase() + ":" + (row.workspace_id || "");
-        if (!row.key || seen.has(k)) continue;
-        seen.add(k); merged.push(row);
-      }
-      myItemsCache = merged; myItemsAt = Date.now(); myItemsKey = ck;
-      return merged;
-    }
-  }
   const q = [];
   if (force) q.push("refresh=1");
   if (isServerMode() && workspaceId) q.push("workspace=" + workspaceId);
@@ -1037,14 +1016,16 @@ export function ImpreciseMark({ e, style }) {
 }
 
 /* ── Zeiten aus Plane importieren (Servermodus): erst Vorschau (dry_run), dann Bestätigung ── */
-function PlaneImportPanel({ onDone, onClose }) {
+function PlaneImportPanel({ onDone, onClose, workspaceId }) {
   const today = localDate(new Date());
   const [from, setFrom] = useState(today.slice(0, 8) + "01"); const [to, setTo] = useState(today);
   const [res, setRes] = useState(null); const [busy, setBusy] = useState(""); const [err, setErr] = useState("");
   const run = async dry => {
     if (busy) return;
     setBusy(dry ? "prev" : "do"); setErr("");
-    const r = await call("POST", "/integrations/plane/import", { from, to, dry_run: dry });
+    const body = { from, to, dry_run: dry };
+    if (isServerMode() && workspaceId) body.workspace = Number(workspaceId) || workspaceId;
+    const r = await call("POST", `/integrations/plane/import${wsQ(workspaceId)}`, body);
     setBusy("");
     if (r.error) { setErr(r.error); if (dry) setRes(null); return; }
     setRes(r);
@@ -1093,7 +1074,12 @@ export function PlaneSyncView({ onOpenSettings }) {
   const loadEst = useCallback(() => api("GET", "/ticket-estimates").then(r => r && !r.error && setEst(r)), []);
   useEffect(() => { loadEst(); }, [loadEst]);
   useEffect(() => {
-    if (sm && workspaces.length === 1 && !wsId) setWsId(String(workspaces[0].id));
+    if (!sm || !workspaces.length) return;
+    // Kein „Alle“-Fake: bei mehreren Workspaces den ersten mit Schlüssel vorwählen
+    if (!wsId) {
+      const pref = workspaces.find(w => w.key_set) || workspaces[0];
+      if (pref) setWsId(String(pref.id));
+    }
   }, [sm, workspaces, wsId]);
   const saveEst = async (ticket, val) => {
     const r = await call("PUT", `/ticket-estimates/${encodeURIComponent(ticket)}`, { hours: val });
@@ -1144,7 +1130,9 @@ export function PlaneSyncView({ onOpenSettings }) {
 
   const push = async (tickets) => {
     setBusy("push"); setMsg(null);
-    const r = await call("POST", "/integrations/plane/push", tickets ? { tickets } : {});
+    const body = tickets ? { tickets } : {};
+    if (sm && wsId) body.workspace = Number(wsId) || wsId;
+    const r = await call("POST", `/integrations/plane/push${wsQ(wsId)}`, body);
     setBusy("");
     if (r.busy) { setMsg({ text: "Eine Übertragung läuft gerade – wird danach automatisch fortgesetzt." }); load(); return; }
     setMsg(r.error ? { err: true, text: r.error } : { err: r.errors > 0,
@@ -1153,7 +1141,7 @@ export function PlaneSyncView({ onOpenSettings }) {
   };
   const pull = async () => {
     setBusy("pull"); setMsg(null);
-    const r = await call("POST", "/integrations/plane/pull", {});
+    const r = await call("POST", `/integrations/plane/pull${wsQ(wsId)}`, sm && wsId ? { workspace: Number(wsId) || wsId } : {});
     setBusy("");
     setMsg(r.error ? { err: true, text: r.error } : { text: `${r.imported} direkt in Plane gebuchte Einträge übernommen, ${r.linked} Summen wiedererkannt${r.errors?.length ? ` – ${r.errors.length} Fehler` : ""}` });
     load();
@@ -1178,7 +1166,6 @@ export function PlaneSyncView({ onOpenSettings }) {
         </div>
         {sm && workspaces.length > 1 && (
           <select value={wsId} onChange={e => setWsId(e.target.value)} style={{ ...inpS, width: "auto", minWidth: 160 }} title="Plane-Workspace">
-            <option value="">Alle Workspaces</option>
             {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}{w.key_set ? "" : " (Schlüssel fehlt)"}</option>)}
           </select>
         )}
@@ -1186,11 +1173,11 @@ export function PlaneSyncView({ onOpenSettings }) {
           ? <button style={btn(false)} onClick={() => setImportOpen(o => !o)} disabled={!!busy}><Download size={14} /> Zeiten aus Plane importieren</button>
           : <button style={btn(false)} onClick={pull} disabled={!!busy}><Download size={14} /> {busy === "pull" ? "Hole…" : "Aus Plane holen"}</button>}
         <button style={btn(true)} onClick={() => { if (confirm(`${pending} Buchung(en)${data.deletions.length ? ` und ${data.deletions.length} Löschung(en)` : ""} jetzt nach Plane übertragen?`)) push(null); }} disabled={!!busy || (!pending && !data.deletions.length)}>
-          <Upload size={14} /> {busy === "push" ? "Übertrage…" : `Alle freigeben (${pending + data.deletions.length})`}
+          <Upload size={14} /> {busy === "push" ? "Übertrage…" : `Freigeben (${pending + data.deletions.length})`}
         </button>
       </div>
       {msg && <div style={{ fontSize: 12, color: msg.err ? "var(--stop)" : "var(--accent)", padding: "0 4px" }}>{msg.err ? "✗ " : "✓ "}{msg.text}</div>}
-      {sm && importOpen && <PlaneImportPanel onClose={() => setImportOpen(false)} onDone={r => { setMsg({ text: `${r.imported} Zeit${r.imported === 1 ? "" : "en"} aus Plane importiert` }); load(); window.dispatchEvent(new Event("zp:entry-changed")); }} />}
+      {sm && importOpen && <PlaneImportPanel workspaceId={wsId} onClose={() => setImportOpen(false)} onDone={r => { setMsg({ text: `${r.imported} Zeit${r.imported === 1 ? "" : "en"} aus Plane importiert` }); load(); window.dispatchEvent(new Event("zp:entry-changed")); }} />}
       {localOnly.length > 0 && (
         <div className="zp-card" style={{ padding: "12px 16px" }}>
           <div style={{ fontWeight: 600, fontSize: 13 }}>Nur lokal angelegt – noch nicht in Plane</div>
