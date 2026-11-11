@@ -275,9 +275,13 @@ func (a *App) dayOverview(ctx context.Context, uid int64, date string) (map[stri
 	if isToday {
 		nowVal = nowMin
 	}
+	ssh, err := a.sshDaySpans(ctx, uid, date)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]any{
 		"date": date, "tracking": tracking, "presence": pres, "overlaps": overlaps, "presence_minutes": presMin, "work": work,
-		"pauses": pauses, "entries": entries, "events": events, "ssh": []any{}, "gaps": gaps, "gap_minutes": gapMin,
+		"pauses": pauses, "entries": entries, "events": events, "ssh": ssh, "gaps": gaps, "gap_minutes": gapMin,
 		"booked_minutes": int(math.Round(bookedSecs / 60)), "now": nowVal,
 	}, nil
 }

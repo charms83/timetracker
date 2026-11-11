@@ -51,9 +51,9 @@ Zurück zum Einzelplatz: `"mode": "local"`.
 - Tray zeigt Modus/Server-Host und öffnet Einstellungen.
 - Anwesenheit („am Mac“): mit Login-Sitzung `POST /presence` → Gaps/Heute/Tempo-Ausgang; nur Geräte-Token: Hint, Server legt `presence_min` an.
 - Meetings/Kalender: Mac-App meldet Signale und Termine an den Server (`/meetings/*`); Mini fragt nach wie lokal; Browser zeigt Vorschläge/Einstellungen › Erkennung.
+- SSH: Mac synct `~/.zeitprotokoll/ssh_sessions.log` an den Server; Browser-Ansicht und Nachtragen wie lokal.
 
 ## Noch offen
 
 - Add-on auf Server-URL
-- SSH bleibt lokal (bewusst)
 - Server-URL im Tray editieren (heute nur Anzeige + Einstellungen öffnen)

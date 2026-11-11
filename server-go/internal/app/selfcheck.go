@@ -32,7 +32,7 @@ type CheckReport struct {
 var requiredTables = []string{"users", "sessions", "device_tokens", "integration_tokens", "user_secrets", "user_settings", "server_config", "audit_log", "notify_sent", "projects", "tasks",
 	"plan_tasks", "time_entries", "timer_state", "pause_state", "pauses", "daily_logs", "absences", "month_closings", "balance_corrections",
 	"system_logs", "plane_deletions", "plane_ticket_sync", "project_sources", "presence_min", "calendar_events", "meeting_state", "entry_audit", "jira_instances",
-	"leave_requests", "client_hints", "rate_events", "rate_blocks", "plane_workspaces"}
+	"leave_requests", "client_hints", "rate_events", "rate_blocks", "plane_workspaces", "ssh_sessions"}
 
 func rank(s string) int { return map[string]int{"ok": 0, "fixed": 1, "warn": 2, "error": 3}[s] }
 

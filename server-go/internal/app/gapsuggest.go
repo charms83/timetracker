@@ -482,6 +482,29 @@ func (a *App) gapItems(ctx context.Context, uid int64, date string) ([]map[strin
 			})
 		}
 	}
+	sshRows, _ := ov["ssh"].([]map[string]any)
+	sort.SliceStable(sshRows, func(i, j int) bool { return sshRows[i]["s"].(int) < sshRows[j]["s"].(int) })
+	for _, x := range sshRows {
+		xs, xe := x["s"].(int), x["e"].(int)
+		server := asStr(x["server"])
+		seed := newCands(info)
+		if prev := a.prevSSHEntry(ctx, uid, server, date); prev != nil {
+			seed.bump(prev, 6, server+" früher so gebucht")
+		}
+		for _, l := range a.learned(ctx, uid, "ssh:"+server, lcache) {
+			e := l.e
+			seed.bump(&e, 3*float64(min(4, l.n))/4, "früher für "+server+" gewählt")
+		}
+		for _, pp := range cutIntervals([][2]int{{xs, xe}}, taken, 10) {
+			taken = append(taken, pp)
+			m := seed.clone()
+			common(m, pp[0], pp[1])
+			items = append(items, map[string]any{
+				"kind": "ssh", "ref": x["id"], "key": "ssh:" + server,
+				"s": pp[0], "e": pp[1], "title": "SSH " + server, "comment": "SSH " + server, "candidates": m.top(4),
+			})
+		}
+	}
 	busyEv := make([][2]int, 0, len(items))
 	for _, it := range items {
 		busyEv = append(busyEv, [2]int{it["s"].(int), it["e"].(int)})
@@ -589,6 +612,21 @@ func (a *App) prevMeetingEntry(ctx context.Context, uid int64, title, beforeDate
 func (a *App) entryByComment(ctx context.Context, uid int64, comment, beforeDate string) *candEntry {
 	e, err := scanCand(a.DB.QueryRow(ctx, `SELECT `+candCols+candJoin+`
 		WHERE e.user_id=$1 AND e.comment=$2 AND e.date<$3 AND e.project_id IS NOT NULL ORDER BY e.date DESC, e.start_time DESC LIMIT 1`, uid, comment, beforeDate))
+	if err != nil || e.ProjectID == 0 {
+		return nil
+	}
+	return &e
+}
+
+func (a *App) prevSSHEntry(ctx context.Context, uid int64, server, beforeDate string) *candEntry {
+	var entryID int64
+	err := a.DB.QueryRow(ctx, `SELECT time_entry_id FROM ssh_sessions
+		WHERE user_id=$1 AND (hostname=$2 OR target=$2) AND time_entry_id IS NOT NULL AND date<$3
+		ORDER BY date DESC LIMIT 1`, uid, server, beforeDate).Scan(&entryID)
+	if err != nil || entryID == 0 {
+		return nil
+	}
+	e, err := scanCand(a.DB.QueryRow(ctx, `SELECT `+candCols+candJoin+` WHERE e.user_id=$1 AND e.id=$2`, uid, entryID))
 	if err != nil || e.ProjectID == 0 {
 		return nil
 	}

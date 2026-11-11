@@ -161,6 +161,7 @@ func (a *App) Routes(mux *http.ServeMux) {
 	a.routesChecks(mux)
 	a.routesPresence(mux)
 	a.routesMeetings(mux) // Meetings/Kalender vom Mac-Client (Parität zu Node)
+	a.routesSSH(mux)      // SSH-Sitzungen vom Mac-Client (zsh-Log → Sync)
 	a.routesReports(mux)
 	a.routesHolidays(mux)
 	a.routesPlane(mux)

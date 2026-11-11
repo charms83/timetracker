@@ -132,7 +132,7 @@ export function useServerMode() {
   useEffect(() => { SERVER.subs.add(setMe); return () => SERVER.subs.delete(setMe); }, []);
   return { serverMode: SERVER.mode, me };
 }
-const CLIENT_ONLY_RE = /^\/(ssh-|pair\/|security\/(tls|trust-|untrust-)|ext\/)/;   // lokal am Mac (SSH/Add-on); Meetings laufen am Team-Server (Mac liefert Daten)
+const CLIENT_ONLY_RE = /^\/(pair\/|security\/(tls|trust-|untrust-)|ext\/)/;   // Pairing/TLS lokal; Meetings/SSH am Server (Mac liefert Daten)
 const MSG_CLIENT = "Diese Funktion braucht den Mac-Client.";
 const MSG_PENDING = "Diese Funktion kommt in Kürze auf dem Server.";
 const MSG_LOCKED = "Dieser Monat ist eingereicht, freigegeben oder geschlossen und gesperrt. Du selbst kannst nichts mehr ändern – Nachtragen macht die Teamleitung oder das Personal (mit Begründung). Wiedereröffnen kann nur das Personal.";

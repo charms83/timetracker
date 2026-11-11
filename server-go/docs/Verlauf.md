@@ -101,7 +101,8 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - Mac Team-Modus: Meeting-Nachfragen im Mini wieder wie lokal (Hint + Erinnerung); Maßstab = lokales Referenzsystem.
 - Meetings/Kalender am Go-Server (`meetings.go`): config/signal/calendar/now/suggestions/book – Alltag wie lokal; Frontend zeigt Vorschläge auch im Servermodus.
 - Nachtragen: `mac_from`/`mac_to`/`mac_h`/`open_h` aus Anwesenheit; gap-suggest `kind:event` aus Kalenderterminen.
-- Offen bleibt: Add-on Server-URL; SSH lokal; Plane-Pull; echte Systemtests.
+- SSH-Parität: Migration `029_ssh_sessions`, Sync vom Mac, Listen/Buchen/Tracking; gap-suggest `kind:ssh`; Plane-Pull-Alias auf Import.
+- Offen bleibt: Add-on Server-URL; Todo-Feld-Sync; echte Systemtests.
 
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik, SMTP); gefundene Fehler beheben.

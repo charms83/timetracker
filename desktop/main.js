@@ -775,6 +775,10 @@ app.whenReady().then(async () => {
   setInterval(() => missingTick().catch(e => log("missingTick", e.message)), 5 * 60 * 1000);
   setTimeout(() => missingTick().catch(() => {}), 20 * 1000);
   try { require("./meeting-detect").create({ api, log, binDir: path.join(HOME, "Documents", "Zeitprotokoll", "bin"), onEvent: onMeetingEvent }).start(); } catch (e) { log("meeting-detect start", e.message); }
+  // Team: SSH-Log → Server (lokal macht das Node). Tracking-Schalter vom Server → Flag-Datei für zsh.
+  if (isTeamMode()) {
+    try { require("./ssh-sync").create({ api, log }).start(); } catch (e) { log("ssh-sync start", e.message); }
+  }
   powerMonitor.on("lock-screen", () => { screenLocked = true; });
   powerMonitor.on("suspend", () => { screenLocked = true; });
   powerMonitor.on("resume", () => { screenLocked = false; presenceTick().catch(() => {}); });

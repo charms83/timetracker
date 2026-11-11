@@ -162,6 +162,7 @@ var planeImportRunning sync.Map // Person → true (ein Import je Person)
 
 func (a *App) routesPlaneImport(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/integrations/plane/import", a.auth(a.planeImportRoute))
+	mux.HandleFunc("POST /api/integrations/plane/pull", a.auth(a.planeImportRoute)) // Alias wie Node „Aus Plane holen“
 }
 
 func (a *App) planeImportRoute(w http.ResponseWriter, r *http.Request, u User) {

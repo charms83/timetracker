@@ -5,15 +5,22 @@ Grundlage: alle `api(METHODE, Pfad)`-Aufrufe in `frontend/src/*.jsx` (86 Pfade),
 Ziel: Der Go-Server liefert die bestehende Oberfläche aus (`ZP_STATIC_DIR`) und beantwortet dieselben Pfade; die Oberfläche bekommt nur Anmeldung und „braucht Client“-Hinweise. Der Client (Electron/Mac) behält nur lokale Teile (A).
 
 
-## A Bleibt im Client (lokaler Helfer, nicht im Server) – 5
+## A Bleibt im Client (lokaler Helfer, nicht im Server) – 3
 
 | Pfad | Methode | Genutzt in | Go heute |
 |---|---|---|---|
 | `/pair/clients` | GET | zp-addon |  |
 | `/pair/info` | GET | zp-addon |  |
 | `/security/tls` | GET | zp-jira, zp-tempo |  |
-| `/ssh-sessions` | GET/PUT | App |  |
-| `/ssh-tracking` | GET/POST | App |  |
+
+## A3 SSH (Mac liefert Log, Server hält Sitzungen) – gebaut
+
+| Pfad | Methode | Genutzt in | Go heute |
+|---|---|---|---|
+| `/ssh-sessions` | GET/PUT/DELETE | App, Mini | gebaut (`ssh.go`) |
+| `/ssh-sessions/sync` | POST | Mac | gebaut |
+| `/ssh-sessions/to-entries` | POST | App | gebaut |
+| `/ssh-tracking` | GET/POST | App | gebaut (user_settings + Flag am Mac) |
 
 ## A2 Meetings/Kalender (Mac liefert Daten, Server hält Zustand) – gebaut
 
@@ -96,7 +103,7 @@ Vorschläge („Light“, Regeln/Textabgleich, keine KI) folgen einem gemeinsame
 | `/absence-hints`, `/absence-hints/{key}` | GET/POST | zp-assistant | gebaut (liefert gespeicherte Hinweise; Übernahme unter Monatssperre) |
 | `/ticket-estimates`, `/ticket-estimates/{ticket}` | GET/PUT | zp-report, zp-ui | gebaut |
 
-Bleibt im Client (Erkennung am Mac): SSH-Vorschläge, Browser-Add-on/Pairing, Abwesenheits-Erkennung aus dem Kalender. Meetings/Kalender und Anwesenheit meldet der Mac an den Server (Vorschläge, Nachtragen, Mini). Offen: Annahme für Abwesenheits-Hinweise; Tempo-Abwesenheiten; Plane-Pull.
+Bleibt im Client (Erkennung am Mac): Browser-Add-on/Pairing, Abwesenheits-Erkennung aus dem Kalender. Meetings/Kalender, Anwesenheit und SSH meldet der Mac an den Server. Offen: Annahme für Abwesenheits-Hinweise; Tempo-Abwesenheiten; Todo-Feld-Sync.
 
 ## E Betrieb/Aufräumen (Schritt 3) – 13
 

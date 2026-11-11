@@ -1708,7 +1708,7 @@ export default function App() {
           {view==="projects"&&<><CleanupPanel onChanged={()=>{ loadProjects(); setPvKey(k=>k+1); }}/><div style={{height:12}}/><ProjectSourcesPanel onChanged={()=>{ loadProjects(); setPvKey(k=>k+1); }}/><ProjectsView key={pvKey} onRefreshNeeded={()=>{loadProjects();}}/></>}
           {view==="stundenzettel"&&<TimesheetView/>}
           {view==="report"&&<ReportViewNeu/>}
-          {view==="ssh"&&(serverMode?<ClientHint title="SSH-Sitzungen brauchen den Mac-Client">SSH-Sitzungen werden auf deinem Rechner erkannt (Terminal-Protokoll). Der Server nimmt sie nur als Vorschlag vom Client entgegen – im Browser ist diese Ansicht nicht verfügbar.</ClientHint>:<SshView/>)}
+          {view==="ssh"&&<SshView/>}
           {view==="planung"&&<TodoView/>}
           {view==="koppeln"&&(serverMode?<ClientHint title="Kopplung braucht den Mac-Client">Das Browser-Add-on wird mit dem Mac-Client gekoppelt.</ClientHint>:<PairApprove nonce={location.hash.split("/")[1]||""} onDone={()=>{ location.hash="timer"; setView("timer"); }}/>)}
           {view==="abwesenheiten"&&<AbwesenheitenView/>}
@@ -1786,7 +1786,7 @@ function VorschlaegeView({ projects, onChanged }) {
     </div>
     <div style={{display:"flex",gap:6,marginBottom:12}}>{chip("termine","Termine & Meetings")}{chip("ssh","SSH-Sitzungen")}</div>
     {tab==="termine" && <MeetingSuggestions projects={projects} onChanged={onChanged} days={14} emptyText={isServerMode() ? "Keine offenen Termine oder Meetings. Läuft die Mac-App und ist der Kalender freigegeben?" : "Keine offenen Termine oder Meetings der letzten 14 Tage."}/>}
-    {tab==="ssh" && (isServerMode() ? <ClientHint title="SSH-Sitzungen brauchen den Mac-Client"/> : <SshView/>)}
+    {tab==="ssh" && <SshView/>}
   </div>);
 }
 
@@ -2276,7 +2276,7 @@ function EinstellungenView() {
       {tab==="verbindungen" && conn!=="plane" && <JiraTempoSettings initial={conn==="tempo"?"tempo":conn==="tempocsvimport"?"csv":"jira"}/>}
       {tab==="arbeitszeit" && <ArbeitszeitSettings/>}
       {tab==="erkennung" && (sm
-        ? <><DevicesPanel/><PresenceToggle/><BrowserToggle/><MeetingSettingsTab/><div style={{height:12}}/><ClientHint title="SSH und Browser-Add-on brauchen den Mac-Client">SSH-Sitzungen und die Browser-Erweiterung laufen lokal. Meetings/Kalender und Anwesenheit meldet die Mac-App an den Server – Einstellungen und Vorschläge siehst du hier wie im Einzelplatz.</ClientHint></>
+        ? <><DevicesPanel/><PresenceToggle/><BrowserToggle/><MeetingSettingsTab/><div style={{height:12}}/><ClientHint title="Browser-Add-on braucht den Mac-Client">Die Browser-Erweiterung wird lokal gekoppelt. Meetings, Kalender, Anwesenheit und SSH meldet die Mac-App an den Server – Ansicht und Buchung wie im Einzelplatz.</ClientHint></>
         : <><PresenceToggle/><AddonSettings/><BrowserToggle/><MeetingSettingsTab/></>)}
       {tab==="wartung" && !sm && wt==="audit" && <AuditTab/>}
       {tab==="wartung" && !sm && wt==="server" && <ServerView/>}

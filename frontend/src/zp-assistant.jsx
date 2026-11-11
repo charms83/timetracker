@@ -498,8 +498,7 @@ function StepMeetings({ reload }) {
 
 /* ── 8 SSH ── */
 function StepSsh({ f, reload }) {
-  if (isServerMode()) return <ClientHint title="SSH-Sitzungen brauchen den Mac-Client" />;
-  const set = async x => { await call("PUT", "/settings", { ssh_watch_enabled: x ? "1" : "0" }); reload(); };
+  const set = async x => { await call("PUT", "/settings", { ssh_watch_enabled: x ? "1" : "0" }); await call("POST", "/ssh-tracking", { enabled: !!x }); reload(); };
   return (<>
     <Para>Zeichnet SSH-Sitzungen aus dem Terminal auf. Mehrere kurze Sitzungen („nur mal nachgeschaut“) lassen sich unter SSH zu einer Buchung je Tag zusammenführen.</Para>
     <Toggle on={f.ssh.enabled} onChange={set} label="SSH-Sitzungen erfassen" />
