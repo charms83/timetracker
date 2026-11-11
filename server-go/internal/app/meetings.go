@@ -231,6 +231,7 @@ func (a *App) meetingsCalendar(w http.ResponseWriter, r *http.Request, u User) {
 		excl[x] = true
 	}
 	n := 0
+	var absenceCands []calAbsenceEvent
 	err = a.inTx(r.Context(), func(tx pgx.Tx) error {
 		if _, err := tx.Exec(r.Context(), `DELETE FROM calendar_events WHERE user_id=$1 AND date BETWEEN $2 AND $3`, u.ID, from, to); err != nil {
 			return err
@@ -241,18 +242,25 @@ func (a *App) meetingsCalendar(w http.ResponseWriter, r *http.Request, u User) {
 			if sMs == 0 || eMs == 0 || eMs <= sMs {
 				continue
 			}
-			if truthy(e["allDay"]) || eMs-sMs > 12*3600*1000 {
+			cal := asStr(e["calendar"])
+			calLow := strings.ToLower(cal)
+			if excl[calLow] || strings.HasPrefix(calLow, "zeitprotokoll") {
 				continue
 			}
-			cal := asStr(e["calendar"])
-			if excl[strings.ToLower(cal)] || strings.HasPrefix(strings.ToLower(cal), "zeitprotokoll") {
-				continue
+			title := asStr(e["title"])
+			allDay := truthy(e["allDay"]) || eMs-sMs > 12*3600*1000
+			if allDay {
+				if absenceCalMatch(title) {
+					if f, t, ok := a.absenceCalRange(sMs, eMs); ok {
+						absenceCands = append(absenceCands, calAbsenceEvent{Title: title, Calendar: cal, From: f, To: t})
+					}
+				}
+				continue // ganztägig nur als Abwesenheits-Hinweis, nicht als Meeting-Termin
 			}
 			startISO := time.UnixMilli(sMs).UTC().Format(time.RFC3339Nano)
 			endISO := time.UnixMilli(eMs).UTC().Format(time.RFC3339Nano)
-			uid := meetingUID(asStr(e["title"]), startISO, cal)
+			uid := meetingUID(title, startISO, cal)
 			date := a.dateOf(startISO)
-			title := asStr(e["title"])
 			if title == "" {
 				title = "Termin"
 			}
@@ -274,11 +282,12 @@ func (a *App) meetingsCalendar(w http.ResponseWriter, r *http.Request, u User) {
 		a.fail(w, err)
 		return
 	}
+	hints := a.fromCalendarAbsences(r.Context(), u.ID, absenceCands)
 	rt := meetingStateOf(u.ID)
 	rt.mu.Lock()
-	rt.lastCalSync = map[string]any{"at": time.Now().UTC().Format(time.RFC3339Nano), "count": n, "from": from, "to": to, "diag": in["diag"]}
+	rt.lastCalSync = map[string]any{"at": time.Now().UTC().Format(time.RFC3339Nano), "count": n, "from": from, "to": to, "diag": in["diag"], "absence_hints": hints}
 	rt.mu.Unlock()
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "count": n})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "count": n, "absence_hints": hints})
 }
 
 func meetingUID(title, startISO, calendar string) string {

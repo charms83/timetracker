@@ -22,7 +22,8 @@ func TestAlltagRoutesRegistered(t *testing.T) {
 		{"POST", "/api/workday/pause/start"}, {"POST", "/api/workday/pause/end"},
 		{"GET", "/api/month-end"}, {"POST", "/api/month-end/ok"}, {"GET", "/api/missing-hours"},
 		{"GET", "/api/gap-suggest"}, {"POST", "/api/gap-suggest/learn"}, {"GET", "/api/suggest-now"},
-		{"GET", "/api/absence-hints"}, {"POST", "/api/absence-hints/abc"}, {"GET", "/api/ticket-estimates"}, {"PUT", "/api/ticket-estimates/AB-1"},
+		{"GET", "/api/absence-hints"}, {"POST", "/api/absence-hints/abc"}, {"POST", "/api/absences/from-tempo"},
+		{"GET", "/api/ticket-estimates"}, {"PUT", "/api/ticket-estimates/AB-1"},
 	} {
 		req, _ := http.NewRequest(p[0], p[1], nil)
 		if _, pat := mux.Handler(req); pat == "" {

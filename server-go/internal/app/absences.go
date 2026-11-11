@@ -12,17 +12,25 @@ import (
 )
 
 /* Abwesenheiten und Saldo-Korrekturen – Verhalten wie backend/server.js, je Benutzer getrennt.
-   Noch nicht portiert: Kalender-Abo (.ics), Feiertage importieren. */
+   Tempo-Abwesenheiten: POST /api/absences/from-tempo (+ automatisch nach Tempo-Sync).
+   Kalender-Hinweise: meetingsCalendar → fromCalendarAbsences. Noch offen: Kalender-Abo (.ics), Feiertage-Import. */
 
 func (a *App) routesAbsences(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/absences", a.auth(a.asTarget(a.absencesList)))
 	mux.HandleFunc("POST /api/absences", a.auth(a.absencesCreate))
 	mux.HandleFunc("PUT /api/absences/{id}", a.auth(a.absencesUpdate))
 	mux.HandleFunc("DELETE /api/absences/{id}", a.auth(a.absencesDelete))
+	mux.HandleFunc("POST /api/absences/from-tempo", a.auth(a.absencesFromTempo))
 	mux.HandleFunc("GET /api/balance-corrections", a.auth(a.asTarget(a.corrList)))
 	mux.HandleFunc("POST /api/balance-corrections", a.auth(a.corrCreate))
 	mux.HandleFunc("PUT /api/balance-corrections/{id}", a.auth(a.corrUpdate))
 	mux.HandleFunc("DELETE /api/balance-corrections/{id}", a.auth(a.corrDelete))
+}
+
+// absencesFromTempo: HAP-Buchungen als Abwesenheit markieren + Vorschläge (wie Node POST /api/absences/from-tempo)
+func (a *App) absencesFromTempo(w http.ResponseWriter, r *http.Request, u User) {
+	marked, hints := a.fromTempoAbsences(r.Context(), u.ID)
+	writeJSON(w, http.StatusOK, map[string]any{"marked": marked, "hints": hints})
 }
 
 func (a *App) absencesList(w http.ResponseWriter, r *http.Request, u User) {

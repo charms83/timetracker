@@ -105,7 +105,8 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - Todo-Feld-Sync am Go-Server (Plane `target_date`/`start_date`, Jira `duedate`, Tempo-Plan); `sync_available:true`.
 - Browser-Add-on: konfigurierbare Server-Adresse + Geräte-Token (Pairing oder Token aus Einstellungen › Erkennung).
 - Personal: Selbstfreigabe (einzige Person im Personal) mit ReasonDialog ≥10 Zeichen; Urlaub ablehnen mit ReasonDialog statt `prompt`.
-- Offen bleibt: echte Systemtests / Browser-Abnahme.
+- Kalender→Abwesenheits-Hinweise (`fromCalendarAbsences` bei Meeting-Kalender-Ingest); `POST /api/absences/from-tempo`.
+- Offen bleibt: echte Systemtests / Browser-Abnahme; `exportiert`-Sperre.
 
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik, SMTP); gefundene Fehler beheben.
