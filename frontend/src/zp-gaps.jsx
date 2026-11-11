@@ -7,7 +7,7 @@
 ═══════════════════════════════════════════════════════════════════ */
 import { useState, useEffect, useCallback } from "react";
 import { Plus, Check, ChevronRight, X, CalendarClock, Pencil, Trash2 } from "lucide-react";
-import { api, call, btn, TicketInput, deleteEntry, dupIds } from "./zp-ui.jsx";
+import { api, call, btn, TicketInput, deleteEntry, dupIds, isServerMode } from "./zp-ui.jsx";
 import { Terminal, Monitor, Sparkles } from "lucide-react";
 import { DayPanel } from "./zp-day.jsx";
 import { NewEntry } from "./zp-calendar.jsx";
@@ -63,9 +63,14 @@ export function GapFiller({ tick, onChanged, initialDate }) {
         <div className="zp-card" style={{ padding: "10px 12px" }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{new Date(cur.date + "T12:00").toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "long" })}</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
-            <Stat label={cur.mac_h != null ? "Am Mac" : "Arbeitstag"} value={cur.mac_from ? `${cur.mac_from}–${cur.mac_to}` : "–"} sub={cur.mac_h != null ? `${fh(cur.mac_h)} anwesend` : cur.mac_from ? "aus Buchungen (keine Mac-Daten)" : "keine Mac-Daten"} />
+            <Stat
+              label={cur.mac_h != null ? "Am Mac" : (isServerMode() ? "Fenster" : "Arbeitstag")}
+              value={cur.mac_from ? `${cur.mac_from}–${cur.mac_to}` : "–"}
+              sub={cur.mac_h != null ? `${fh(cur.mac_h)} anwesend`
+                : cur.mac_from ? (isServerMode() ? "aus vorhandenen Buchungen" : "aus Buchungen (keine Mac-Daten)")
+                : (isServerMode() ? "kein Signal – einfach eintragen" : "keine Mac-Daten")} />
             <Stat label="Gebucht" value={fh(cur.booked_h)} sub={`Soll ${fh(cur.target_h)}`} />
-            <Stat label="Noch einzutragen" value={fh(cur.missing_h)} color={plus ? "var(--text)" : "#b58100"} sub={cur.open_h ? `davon ${fh(cur.open_h)} ${cur.mac_h != null ? "am Mac " : "im Arbeitstag "}ohne Buchung` : null} />
+            <Stat label="Noch einzutragen" value={fh(cur.missing_h)} color={plus ? "var(--text)" : "#b58100"} sub={cur.open_h ? `davon ${fh(cur.open_h)} ohne Buchung` : null} />
           </div>
           <div style={{ height: 6, borderRadius: 3, background: "var(--line)", marginTop: 10, overflow: "hidden" }}>
             <div style={{ height: "100%", width: `${Math.min(100, cur.booked_h / (cur.target_h || 1) * 100)}%`, background: "var(--accent)" }} /></div>

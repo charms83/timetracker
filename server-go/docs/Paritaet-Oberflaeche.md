@@ -5,21 +5,36 @@ Grundlage: alle `api(METHODE, Pfad)`-Aufrufe in `frontend/src/*.jsx` (86 Pfade),
 Ziel: Der Go-Server liefert die bestehende Oberfläche aus (`ZP_STATIC_DIR`) und beantwortet dieselben Pfade; die Oberfläche bekommt nur Anmeldung und „braucht Client“-Hinweise. Der Client (Electron/Mac) behält nur lokale Teile (A).
 
 
-## A Bleibt im Client (lokaler Helfer, nicht im Server) – 11
+## A Bleibt im Client (lokaler Helfer, nicht im Server) – 3
 
 | Pfad | Methode | Genutzt in | Go heute |
 |---|---|---|---|
-| `/meetings/config` | GET | zp-assistant |  |
-| `/meetings/events` | GET | zp-calendar, zp-meetings |  |
-| `/meetings/now` | GET | zp-meetings |  |
-| `/meetings/status` | GET | zp-assistant, zp-meetings |  |
-| `/meetings/suggest-task` | GET | zp-calendar |  |
-| `/meetings/suggestions` | GET | zp-meetings |  |
 | `/pair/clients` | GET | zp-addon |  |
 | `/pair/info` | GET | zp-addon |  |
 | `/security/tls` | GET | zp-jira, zp-tempo |  |
-| `/ssh-sessions` | GET/PUT | App |  |
-| `/ssh-tracking` | GET/POST | App |  |
+
+## A3 SSH (Mac liefert Log, Server hält Sitzungen) – gebaut
+
+| Pfad | Methode | Genutzt in | Go heute |
+|---|---|---|---|
+| `/ssh-sessions` | GET/PUT/DELETE | App, Mini | gebaut (`ssh.go`) |
+| `/ssh-sessions/sync` | POST | Mac | gebaut |
+| `/ssh-sessions/to-entries` | POST | App | gebaut |
+| `/ssh-tracking` | GET/POST | App | gebaut (user_settings + Flag am Mac) |
+
+## A2 Meetings/Kalender (Mac liefert Daten, Server hält Zustand) – gebaut
+
+| Pfad | Methode | Genutzt in | Go heute |
+|---|---|---|---|
+| `/meetings/config` | GET | zp-assistant, Mac | gebaut (`meetings.go`) |
+| `/meetings/signal` | POST | Mac | gebaut |
+| `/meetings/calendar` | POST | Mac | gebaut |
+| `/meetings/events` | GET | zp-calendar, zp-meetings | gebaut |
+| `/meetings/now` | GET | zp-meetings, Mac Mini | gebaut |
+| `/meetings/status` | GET | zp-assistant, zp-meetings | gebaut |
+| `/meetings/suggest-task` | GET | zp-calendar | gebaut |
+| `/meetings/suggestions` | GET | zp-meetings | gebaut |
+| `/meetings/book`, `/meetings/dismiss`, `/meetings/resync`, `/meetings/rules/{pattern}` | POST/DELETE | zp-meetings | gebaut |
 
 ## B Jira/Tempo (Schritt 1) – 8
 
@@ -31,8 +46,8 @@ Ziel: Der Go-Server liefert die bestehende Oberfläche aus (`ZP_STATIC_DIR`) und
 | `/jira/projects` | GET | zp-jira | gebaut 09.11. (+ `instance_id` je Projekt) |
 | `/jira/search` | GET | zp-ui | gebaut 09.11. (ohne `?instance=` alle nutzbaren Instanzen) |
 | `/jira/status` | GET | zp-jira | gebaut 09.11. (Modul aus → `{enabled:false}`) |
-| `/tempo-csv-import` | POST | App |  |
-| `/tempo-sync` | GET | zp-tempo-sync |  |
+| `/tempo-csv-import` | POST | App | bewusst Node-only; am Team-Server: `/tempo-sync` |
+| `/tempo-sync` | GET/POST | zp-tempo-sync | gebaut (`tempo_sync.go`, 12‑h-Cron); CSV-Import lokal bleibt Node-only, Server nutzt API-Abgleich |
 
 ## C Plane (Schritt 1) – 2
 
@@ -61,7 +76,7 @@ Ziel: Der Go-Server liefert die bestehende Oberfläche aus (`ZP_STATIC_DIR`) und
 | `/integrations/plane/map/suggest` | GET | zp-tempo |  |
 | `/integrations/plane/map/apply` | POST | zp-tempo |  |
 
-Vorhanden, aber mit abweichender Antwort: `/integrations/tempo-push/status` (Go liefert je Instanz `instances[]`, Node oben `ok/user/issues`); `/integrations/tempo-push/outbox` (ohne `suggest`/`gaps`, dafür Instanzfelder).
+Vorhanden, aber mit abweichender Antwort: `/integrations/tempo-push/status` (Go liefert je Instanz `instances[]`, Node oben `ok/user/issues`); `/integrations/tempo-push/outbox` hat `suggest` und `gaps` aus `dayOverview` (wie Node).
 
 ## D Arbeitsalltag (Schritt 2) – gebaut 10.11.2026
 
@@ -70,25 +85,25 @@ Vorschläge („Light“, Regeln/Textabgleich, keine KI) folgen einem gemeinsame
 
 | Pfad | Methode | Genutzt in | Go heute |
 |---|---|---|---|
-| `/todo` | GET/POST | zp-todo, zp-ui | gebaut (Vorlagen + „Zeiten nachtragen“ wie Node; `capacity.meetings` immer 0) |
+| `/todo` | GET/POST | zp-todo, zp-ui | gebaut (Vorlagen + „Zeiten nachtragen“ wie Node; `capacity.meetings` aus calendar_events) |
 | `/todo/{id}` | PUT/DELETE | zp-todo, zp-calendar | gebaut (Löschen mit Buchung in gesperrtem Monat → 409 month_locked) |
 | `/todo/{id}/start` | POST | zp-todo, zp-calendar | gebaut (Timer über gemeinsamen `startTimer`) |
 | `/todo/range` | GET | zp-calendar | gebaut |
-| `/todo/suggest`, `/todo/suggest/dismiss` | GET/POST | zp-todo | gebaut (Light, abschaltbar; ohne Termin-Vorbereitung) |
+| `/todo/suggest`, `/todo/suggest/dismiss` | GET/POST | zp-todo | gebaut (abschaltbar; inkl. Termin-Vorbereitung aus calendar_events) |
 | `/todo/templates`, `/todo/templates/{id}` | GET/POST/DELETE | zp-todo | gebaut |
-| `/todo-settings` | PUT | zp-todo | gebaut – Schalter gespeichert, Abgleich nach Plane/Jira/Tempo **offen** (`settings.sync_available:false`) |
+| `/todo-settings` | PUT | zp-todo | gebaut – Schalter + Abgleich Plane/Jira/Tempo (`settings.sync_available:true`) |
 | `/assistant` | GET/PUT | App, zp-assistant | gebaut (regelbasiert, abschaltbar; aus = leeres Gerüst `enabled:false`) |
-| `/assistant/tasks`, `/assistant/reset` | GET/POST | zp-assistant | gebaut (ohne tempo_sync, duplicates, cleanup, tempo_noticket, selfcheck – **offen**) |
+| `/assistant/tasks`, `/assistant/reset` | GET/POST | zp-assistant | gebaut: tempo_sync, duplicates, cleanup, tempo_noticket; selfcheck nur Admin (`/admin`) |
 | `/workday` | GET | App | gebaut |
 | `/workday/start`, `/workday/{id}`, `/workday/end`, `/workday/reopen`, `/workday/pause/start`, `/workday/pause/end` | POST/PUT | (Oberfläche nutzt sie nicht) | gebaut; Pausen ohne Arbeitstag-Bezug, Monatssperre geprüft |
-| `/month-end`, `/month-end/ok` | GET/POST | zp-gaps | gebaut (+ `approval`, `locked_months`; gesperrte Monate nicht nachtragbar; ohne „am Mac von–bis“) |
+| `/month-end`, `/month-end/ok` | GET/POST | zp-gaps | gebaut (+ `approval`, `locked_months`; `mac_from`/`mac_to`/`mac_h`/`open_h` aus Anwesenheit) |
 | `/missing-hours` | GET | zp-ui | gebaut (überspringt abgeschlossene und gesperrte Monate) |
-| `/gap-suggest`, `/gap-suggest/learn` | GET/POST | zp-gaps, zp-tempo, zp-ui | gebaut (Light: Lücken, typischer Tag, Rest; abschaltbar) |
-| `/suggest-now` | GET | zp-ui | gebaut (Light: Gewohnheit, früher gewählt, zuletzt heute) |
+| `/gap-suggest`, `/gap-suggest/learn` | GET/POST | zp-gaps, zp-tempo, zp-ui | gebaut (Termine/`event`/SSH, Lücken, typischer Tag; learn verknüpft meeting_state/ssh_sessions; abschaltbar) |
+| `/suggest-now` | GET | zp-ui | gebaut (laufender Termin/SSH, Gewohnheit, früher gewählt, zuletzt heute) |
 | `/absence-hints`, `/absence-hints/{key}` | GET/POST | zp-assistant | gebaut (liefert gespeicherte Hinweise; Übernahme unter Monatssperre) |
 | `/ticket-estimates`, `/ticket-estimates/{ticket}` | GET/PUT | zp-report, zp-ui | gebaut |
 
-Bleibt im Client (keine Erkennung im Server): Termin-Vorschläge und -Vorbereitung (Kalender), SSH-Vorschläge und Verknüpfen von SSH/Termin beim Lernen, „am Mac von–bis“ (Anwesenheit), Abwesenheits-Erkennung aus dem Kalender. Grund: lokales Wissen des Rechners. Offen: Annahme-Schnittstelle, über die der Client erkannte Abwesenheits-Hinweise ablegt; Tempo-Abwesenheiten als Hinweis (braucht Tempo-Import); `/ticket/ensure`, `/ticket/start` – gebaut 10.11. (siehe E).
+Bleibt im Client (Erkennung am Mac): Kalender-/Meeting-Rohdaten. Meetings/Kalender, Anwesenheit und SSH meldet der Mac an den Server; ganztägige Abwesenheits-Termine → `absence_hints` (Übernahme im Assistenten). Tempo-Abwesenheiten nach Sync + `POST /api/absences/from-tempo`. Abwesenheiten-ICS-Abo am Server (Sitzung oder Geräte-Token). Browser-Add-on: Server-Adresse und Geräte-Token. Todo-Feld-Sync und Termin-Vorbereitung aktiv.
 
 ## E Betrieb/Aufräumen (Schritt 3) – 13
 

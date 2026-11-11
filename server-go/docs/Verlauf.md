@@ -53,9 +53,65 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - Gebaut: Nachtragen-UI in Team/Personal (`zp-people.jsx`), „geschlossen“ in Monatsfreigabe (`zp-servermode.jsx`), klarere Sperr-Hinweise (`zp-ui.jsx`), SMTP-E-Mail über `notifyApproval` (`notify_mail.go`, Migration 020, Admin-Einstellungen).
 - Tests: `go test ./…` grün (inkl. angeglichene Tempo-Hashes und Mail-Hilfstests).
 
+## Weiterbau (Tempo / Urlaub / Geräte)
+- Tempo→lokal: `tempo_sync.go` (GET/POST `/api/tempo-sync`, 12‑h-Cron, Migration nutzt bestehende `time_entries.source='tempo'`).
+- Urlaubsantrag: Migration 021 `leave_requests`, `leave.go`, UI `zp-leave.jsx` (Abwesenheiten + Team/Personal).
+- Geräte-Token + Client-Hinweise: Migration 021 `client_hints` / `device_tokens.kind`, `devices.go`, UI `zp-devices.jsx`.
+- Tests: `go test ./internal/app` grün (inkl. Hilfstests Monatfenster / Leave-Regel / Token-Hash).
+
+## Weiterbau (Plane-Workspaces / Admin-Auth / Rekey)
+- Migration 023 `plane_workspaces`; Admin-CRUD, Nutzer-Profil je Host; Quellen/Scan über mehrere Workspaces; Primär-Spiegel in `server_config`.
+- Migration 024: `plane_workspace_id` an projects/tasks/time_entries; Sync/Tickets/Import/Push/Status/To-do auflösen per Workspace (`?workspace=` oder Projekt/Ticket); `plane_me_id:<id>`.
+- `/admin`: LDAP/OIDC-Maske (`admin_auth.go`) inkl. LDAP-Test; Secrets nie in GET.
+- `server rekey` (`RekeySecrets` + CLI); DB-Rollen `deploy/postgres/roles.sql`.
+- Exchange/Multi-Mail bewusst zurückgestellt.
+
+## Weiterbau (Admin ohne Doppelrolle / GUI-Trennung)
+- Entscheidung umgesetzt: technischer Admin = getrenntes Konto (LDAP/OIDC-Admin-Gruppe ok), **keine** Doppelrolle mit Zeiterfassung.
+- Migration 026 setzt `productive=false` für alle `role=admin`; `timeAccount()` / `tracksTime()` schließen Admin und Notfallzugang aus; Provision/Nachprüfung/Admin-API erzwingen das.
+- Login/OIDC und React-`isAdminOnly` leiten Admin nur nach `/admin`; Nutzer-GUI `/` ohne Admin-Link; Team-/Monat-/Sync-Filter ohne Admin-Konten.
+- Docs: Spezifikation §4 und Stand-und-Plan angepasst.
+
+## GUI-Stand + Bugbot (11.11.)
+- **Rollen-Gates:** Admin `/admin`; Mitarbeiter `/`; Lead `#team`; HR `#personal`; Mischrollen additive Nav – Code fertig, Browser-Abnahme offen; Personal-Exporte offen.
+- **Bugbot** (Branch-Review): behoben – LDAP-Rollenwechsel beendet Sitzungen immer; Urlaub `days` nur serverseitig; Ablehnen-Prompt Abbrechen; Mobile-Nav = Desktop-Filter; `loadMe` leitet nach Admin um.
+- Spez-Statuszeilen (Oberfläche, LDAP-Webmaske, Team/Personal, SMTP) nachgezogen.
+
+## Weiterbau (Auswertung Team/Personal, kein Lohn-Export)
+- CSV der Monatsübersicht (Team + Personal) und Buchungen je Person – Auswertung, **ohne** „exportiert“-Sperre (Spez §16.7 weiter offen).
+- Personen-Detail: Buchungsprotokoll via `GET /api/audit?user=` (asTarget); Admin-Konten nicht per `?user=` einsehbar.
+
+## Weiterbau (Parität Tempo/Assistent + Client→Server)
+- Assistent-Aufgaben: `tempo_sync`, `duplicates`, `cleanup`, `tempo_noticket` (wie Node); Sync-UI-Texte serverfähig; CSV bleibt lokal, Server = API-Abgleich.
+- Mac-Client: `mode=team` + `serverUrl` + `deviceToken` → UI am Go-Server, Presence/Meetings als `client_hints`; Doku `desktop/TEAM-SERVER.md`.
+- Sicherheit: Geräte-Token nicht für Admin; Create nur zeiterfassende Konten.
+
+## Client-Sicherheit (Review + Härtung)
+- Medium behoben: Device-Token nur an `/api/*` (webRequest); Team-`serverUrl` nur `https` (localhost-HTTP mit `allowHttpTeam`); `desktop.json` Mode `0600`.
+- Server: Hints-Ingest per Geräte-Token rate-limitiert (60/min), max. 50 Hints, Payload ≤ 4 KiB; Admin/Breakglass weiter ausgeschlossen.
+- Token-Ablage: Client `safeStorage` (Keychain/DPAPI) in `device-token.bin`, nie Klartext in `desktop.json`; Server HMAC-SHA256 mit `ZP_SECRET_KEY` (`v1:`), Legacy-SHA256 wird bei Nutzung migriert.
+- Team-Client-Auth: **Login-Sitzung auf dem Server** (Cookie via `session.fetch`); Geräte-Token nur noch optional (Add-on/curl). UI im Electron-Fenster, nicht Systembrowser.
+- Verbindung gehärtet: Client lehnt TLS-Fehler ab, blockiert HTTP-Downgrade, optional Cert-Pin; Server `__Host-zp_session` + Session-HMAC, Betrieb braucht `ZP_PUBLIC_URL=https://`.
+- Usability: Cert-Pin nur wenn gesetzt (Firmen-CA bleibt nutzbar); Notifications erlaubt; Alltag = URL setzen + anmelden.
+- Server-Update: Version per ldflags; `GET /api/admin/update` + Admin-Tab; `install.sh --upgrade` mit Backup; CLI `version`; Doku `Betrieb-Update.md` (kein In-App-Upload).
+- Abrechnungs-API: Integrations-Token `zpint_…` (Admin, Migration 028), `GET /api/integrations/projects` (+ entries) für Stunden auf Projekten/Tickets, plus Lohn (`/payroll`); Geräte-Token wieder nur Client-Hinweise; Doku/UI korrigiert.
+- Tracken ohne Ticket: Timer ohne Projekt/Ticket starten, später zuweisen (`POST /api/timer/assign`); Dauerbuchung wie Tempo (nur Stunden) → Server legt Uhrzeit in freie Lücke (`time_precise=false`).
+- User „Daten prüfen“ auch im Servermodus (Einstellungen › Allgemein); Überschneidungen bleiben unter Heute – Assistent nicht vermischt. Mini/Tray: Team-Server-Session für Timer.
+- Team-Anwesenheit: Mac schreibt `POST /presence` (Session) bzw. Hint→`presence_min`; Tempo-Outbox `gaps` aus `dayOverview` (wie Node).
+- Mac Team-Modus: Meeting-Nachfragen im Mini wieder wie lokal (Hint + Erinnerung); Maßstab = lokales Referenzsystem.
+- Meetings/Kalender am Go-Server (`meetings.go`): config/signal/calendar/now/suggestions/book – Alltag wie lokal; Frontend zeigt Vorschläge auch im Servermodus.
+- Nachtragen: `mac_from`/`mac_to`/`mac_h`/`open_h` aus Anwesenheit; gap-suggest `kind:event` aus Kalenderterminen.
+- SSH-Parität: Migration `029_ssh_sessions`, Sync vom Mac, Listen/Buchen/Tracking; gap-suggest `kind:ssh`; Plane-Pull-Alias auf Import.
+- Todo-Feld-Sync am Go-Server (Plane `target_date`/`start_date`, Jira `duedate`, Tempo-Plan); `sync_available:true`.
+- Browser-Add-on: konfigurierbare Server-Adresse + Geräte-Token (Pairing oder Token aus Einstellungen › Erkennung).
+- Personal: Selbstfreigabe (einzige Person im Personal) mit ReasonDialog ≥10 Zeichen; Urlaub ablehnen mit ReasonDialog statt `prompt`.
+- Kalender→Abwesenheits-Hinweise (`fromCalendarAbsences` bei Meeting-Kalender-Ingest); `POST /api/absences/from-tempo`.
+- gap-learn verknüpft Termin/SSH; suggest-now mit laufendem Termin/SSH; To-do-Vorschläge mit Termin-Vorbereitung.
+- Abwesenheiten-ICS-Abo (`/api/calendar/abwesenheiten.ics`, Sitzung oder Geräte-Token `?token=`; UI im Servermodus).
+- Offen bleibt: echte Systemtests / Browser-Abnahme; `exportiert`-Sperre.
+
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik, SMTP); gefundene Fehler beheben.
-2. Exchange-OAuth/Graph; Urlaubsantrag mit Genehmigung durch die Teamleitung (Vertretung Personal).
-3. Mehrere Plane-Workspaces; Tempo-Grundimport/Abgleich; Exporte.
-4. Web-Maske LDAP/OIDC; Geräte-Token und Annahme-Schnittstelle; gemeinsame Zähler; DB-Rollen; `govulncheck`.
-5. Sicherheits-Audit fortsetzen; Client-Anbindung und Mac-Härtung; Cloud-Varianten.
+2. Exchange-OAuth/Graph und mehrere Mail-Konten.
+3. Exporte (Lohn/Kunden).
+4. `govulncheck` regelmäßig; Sicherheits-Audit fortsetzen; Mac-Schlüsselbund / Tray-UI; Cloud-Varianten.

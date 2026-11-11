@@ -5,7 +5,7 @@
 ═══════════════════════════════════════════════════════════════════ */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Search, RefreshCw, ExternalLink, Play, Plus, X, Send, Link2 } from "lucide-react";
-import { api, call, Box, lab, inpS, btn, hm, durTxt, isServerMode, newRequestKey } from "./zp-ui.jsx";
+import { api, call, Box, lab, inpS, btn, hm, durTxt, isServerMode, newRequestKey, usePlaneWorkspaces, usePlaneWorkspacesActive, wsQ } from "./zp-ui.jsx";
 import { JiraInstancesPanel } from "./zp-servermode.jsx";
 import { TempoOutboxView } from "./zp-tempo.jsx";
 
@@ -25,11 +25,12 @@ const SRC = {
   jira:  { search: "/jira/search", one: k => `/jira/issue/${k}`, color: "#0052cc", name: "Jira" },
   plane: { search: "/plane/tickets", one: k => `/plane/ticket/${k}`, color: "#3f76ff", name: "Plane" },
 };
-// Servermodus mit mehreren Jira-Instanzen: Instanz als ?instance=<Id> an die Ticket-Aufrufe hängen (Pfad bleibt sonst unverändert)
+// Servermodus: Jira → ?instance=, Plane → ?workspace= (wie lokale Mehrfach-Anbindung)
 const instQ = inst => isServerMode() && inst ? `?instance=${inst}` : "";
+const scopeQ = (kind, scope) => kind === "jira" ? instQ(scope) : (kind === "plane" ? wsQ(scope) : "");
 const GROUP_CAT = { backlog: "new", unstarted: "new", started: "indeterminate", completed: "done", cancelled: "done" };
-async function startTimer(key, comment, kind = "jira", inst) {
-  const t = await call("POST", `${SRC[kind].one(key)}/task${kind === "jira" ? instQ(inst) : ""}`);
+async function startTimer(key, comment, kind = "jira", scope) {
+  const t = await call("POST", `${SRC[kind].one(key)}/task${scopeQ(kind, scope)}`);
   if (t.error) return t;
   return call("POST", "/timer/start", { project_id: t.project_id, task_id: t.task_id, comment: comment || null });
 }
@@ -50,16 +51,24 @@ export function JiraArea({ onOpenSettings, initialTab }) {
 export function TicketBrowser({ kind = "jira", onOpenSettings }) { return <Tickets kind={kind} onOpenSettings={onOpenSettings} />; }
 function Tickets({ onOpenSettings, kind = "jira" }) {
   const S = SRC[kind];
+  const sm = isServerMode();
+  const workspaces = usePlaneWorkspacesActive();
+  const [wsId, setWsId] = useState("");
   const [q, setQ] = useState(""); const [mine, setMine] = useState(true); const [open, setOpen] = useState(true); const [jqlMode, setJqlMode] = useState(false);
-  const [data, setData] = useState(null); const [sel, setSel] = useState(null); const [selInst, setSelInst] = useState(null); const [creating, setCreating] = useState(false); const [msg, setMsg] = useState(null);
+  const [data, setData] = useState(null); const [sel, setSel] = useState(null); const [selScope, setSelScope] = useState(null); const [creating, setCreating] = useState(false); const [msg, setMsg] = useState(null);
+  useEffect(() => {
+    if (kind === "plane" && sm && workspaces.length === 1 && !wsId) setWsId(String(workspaces[0].id));
+  }, [kind, sm, workspaces, wsId]);
   const load = useCallback(async (query = q) => {
     setData(d => d ? { ...d, loading: true } : null);
     const p = jqlMode ? `jql=${encodeURIComponent(query)}` : `q=${encodeURIComponent(query)}&mine=${mine ? 1 : 0}&open=${open ? 1 : 0}`;
-    const r = await call("GET", `${S.search}?${p}`);
+    const extra = kind === "plane" ? wsQ(wsId, false) : "";
+    const r = await call("GET", `${S.search}?${p}${extra}`);
     setData(r);
-  }, [q, mine, open, jqlMode]);
-  useEffect(() => { load(); }, [mine, open]);   // eslint-disable-line
-  const start = async (key, title, inst) => { const r = await startTimer(key, null, kind, inst); setMsg(r.error ? { err: 1, text: r.error } : { text: `Timer läuft auf ${key} ${title || ""}` }); load(); };
+  }, [q, mine, open, jqlMode, kind, wsId]);
+  useEffect(() => { load(); }, [mine, open, wsId]);   // eslint-disable-line
+  const start = async (key, title, scope) => { const r = await startTimer(key, null, kind, scope); setMsg(r.error ? { err: 1, text: r.error } : { text: `Timer läuft auf ${key} ${title || ""}` }); load(); };
+  const wsLabel = id => workspaces.find(w => String(w.id) === String(id))?.name;
 
   if (data?.error && /ausgeschaltet|nicht eingerichtet/.test(data.error)) return (
     <div className="zp-card" style={{ padding: 30, textAlign: "center" }}><div style={{ marginBottom: 12 }}>{data.error}</div><button style={btn(true)} onClick={onOpenSettings}>Zu den Einstellungen</button></div>);
@@ -73,6 +82,12 @@ function Tickets({ onOpenSettings, kind = "jira" }) {
               <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && load()} placeholder={jqlMode ? "JQL, z. B. project = OPS AND status = \"In Arbeit\"" : kind === "plane" ? "Ticket-Key (PRJA-581) oder Suchtext …" : "Ticket-Key (OPS-12) oder Suchtext …"}
                 style={{ ...inpS, paddingLeft: 32, fontFamily: jqlMode ? "ui-monospace,Menlo,monospace" : "inherit" }} />
             </div>
+            {kind === "plane" && sm && workspaces.length > 1 && (
+              <select value={wsId} onChange={e => { setWsId(e.target.value); setSel(null); }} style={{ ...inpS, width: "auto", minWidth: 140 }} title="Plane-Workspace">
+                <option value="">Alle Workspaces</option>
+                {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            )}
             <button style={btn(true)} onClick={() => load()}>Suchen</button>
             <button style={btn(false)} onClick={() => setCreating(true)}><Plus size={14} /> Neues Ticket</button>
           </div>
@@ -89,28 +104,31 @@ function Tickets({ onOpenSettings, kind = "jira" }) {
           {!data ? <div style={{ padding: 24, textAlign: "center", color: "var(--text2)" }}>Lade…</div>
             : data.error ? <div style={{ padding: 16, color: "var(--stop)" }}>✗ {data.error}</div>
             : !data.issues.length ? <div style={{ padding: 24, textAlign: "center", color: "var(--text2)" }}>Keine Tickets gefunden</div>
-            : data.issues.map(i => (
-              <div key={(i.instance_id || "") + i.key} onClick={() => { setSel(i.key); setSelInst(i.instance_id || null); }} style={{ display: "flex", gap: 10, alignItems: "center", padding: "9px 14px", borderTop: "1px solid var(--line)", cursor: "pointer", background: sel === i.key ? "var(--sel)" : "transparent" }}>
+            : data.issues.map(i => {
+              const scope = kind === "jira" ? i.instance_id : (i.workspace_id || wsId || null);
+              const scopeName = kind === "jira" ? i.instance : (i.workspace || wsLabel(i.workspace_id) || wsLabel(wsId));
+              return (
+              <div key={(scope || "") + ":" + i.key} onClick={() => { setSel(i.key); setSelScope(scope || null); }} style={{ display: "flex", gap: 10, alignItems: "center", padding: "9px 14px", borderTop: "1px solid var(--line)", cursor: "pointer", background: sel === i.key && String(selScope || "") === String(scope || "") ? "var(--sel)" : "transparent" }}>
                 <span style={{ fontWeight: 700, fontSize: 12, color: S.color, minWidth: 78, fontVariantNumeric: "tabular-nums" }}>{i.key}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{i.summary}</div>
-                  <div style={{ fontSize: 11, color: "var(--text2)" }}>{isServerMode() && i.instance ? `${i.instance} · ` : ""}{i.type ? `${i.type} · ` : ""}{i.project_name}{i.priority ? ` · ${i.priority}` : ""}{i.assignee && !mine ? ` · ${i.assignee}` : ""} · {ago(i.updated)}</div>
+                  <div style={{ fontSize: 11, color: "var(--text2)" }}>{sm && scopeName ? `${scopeName} · ` : ""}{i.type ? `${i.type} · ` : ""}{i.project_name}{i.priority ? ` · ${i.priority}` : ""}{i.assignee && !mine ? ` · ${i.assignee}` : ""} · {ago(i.updated)}</div>
                 </div>
                 {i.booked_seconds > 0 && <span style={{ fontSize: 12, color: "var(--text2)", whiteSpace: "nowrap" }}>{durTxt(i.booked_seconds)}</span>}
                 <Status name={i.status} cat={i.status_cat || GROUP_CAT[i.state_group]} />
-                <button className="zp-nav" title="Timer auf diesem Ticket starten" onClick={e => { e.stopPropagation(); start(i.key, i.summary, i.instance_id); }}><Play size={14} /></button>
-              </div>))}
+                <button className="zp-nav" title="Timer auf diesem Ticket starten" onClick={e => { e.stopPropagation(); start(i.key, i.summary, scope); }}><Play size={14} /></button>
+              </div>); })}
         </div>
       </div>
-      {sel && <Detail key={sel + ":" + (selInst || "")} k={sel} inst={selInst} kind={kind} onClose={() => setSel(null)} onChanged={() => load()} onStart={start} />}
-      {creating && kind === "plane" && <PlaneCreateDialog onClose={() => setCreating(false)} onDone={(key, started) => { setCreating(false); setMsg({ text: `${key} angelegt${started ? " – Timer läuft" : ""}` }); setSel(key); load(); }} />}
+      {sel && <Detail key={sel + ":" + (selScope || "")} k={sel} scope={selScope} kind={kind} onClose={() => setSel(null)} onChanged={() => load()} onStart={start} />}
+      {creating && kind === "plane" && <PlaneCreateDialog workspaceId={wsId} onClose={() => setCreating(false)} onDone={(key, started) => { setCreating(false); setMsg({ text: `${key} angelegt${started ? " – Timer läuft" : ""}` }); setSel(key); load(); }} />}
       {creating && kind === "jira" && <CreateDialog onClose={() => setCreating(false)} onDone={(key, started) => { setCreating(false); setMsg({ text: `${key} angelegt${started ? " – Timer läuft" : ""}` }); setSel(key); load(); }} />}
     </div>);
 }
 
-function Detail({ k, kind = "jira", inst, onClose, onChanged, onStart }) {
+function Detail({ k, kind = "jira", scope, onClose, onChanged, onStart }) {
   const S = SRC[kind];
-  const q = kind === "jira" ? instQ(inst) : "";
+  const q = scopeQ(kind, scope);
   const [d, setD] = useState(null); const [comment, setComment] = useState(""); const [busy, setBusy] = useState(""); const [err, setErr] = useState("");
   const load = useCallback(() => call("GET", S.one(k) + q).then(setD), [k, q]);   // eslint-disable-line
   useEffect(() => { load(); }, [load]);
@@ -129,10 +147,10 @@ function Detail({ k, kind = "jira", inst, onClose, onChanged, onStart }) {
           {(() => { const opts = d.transitions ? d.transitions.map(t => ({ id: t.id, label: t.name + (t.to && t.to !== t.name ? ` → ${t.to}` : ""), name: t.name }))
               : (d.states || []).filter(x => x.id !== d.state_id).map(x => ({ id: x.id, label: x.name, name: x.name }));
             return opts.length > 0 && <select value="" disabled={!!busy} onChange={e => { const t = opts.find(x => x.id === e.target.value); if (!t) return;
-              act("tr", () => kind === "jira" ? call("POST", `/jira/issue/${k}/transition${q}`, { id: t.id, name: t.name }) : call("POST", `/plane/ticket/${k}/state`, { state_id: t.id, name: t.name })); }} style={{ padding: "3px 6px", fontSize: 12 }}>
+              act("tr", () => kind === "jira" ? call("POST", `/jira/issue/${k}/transition${q}`, { id: t.id, name: t.name }) : call("POST", `/plane/ticket/${k}/state${q}`, { state_id: t.id, name: t.name })); }} style={{ padding: "3px 6px", fontSize: 12 }}>
               <option value="">Status ändern …</option>{opts.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
             </select>; })()}
-          <button style={{ ...btn(true), padding: "4px 10px", marginLeft: "auto" }} onClick={() => onStart(k, d.summary, inst)}><Play size={13} /> Timer starten</button>
+          <button style={{ ...btn(true), padding: "4px 10px", marginLeft: "auto" }} onClick={() => onStart(k, d.summary, scope)}><Play size={13} /> Timer starten</button>
         </div>
         <div style={{ fontSize: 12, color: "var(--text2)", marginTop: 8 }}>{d.type ? `${d.type} · ` : ""}{d.project_name} · {d.priority || "–"}<br />Bearbeiter: {d.assignee || "–"}{d.reporter ? ` · Melder: ${d.reporter}` : ""}{d.due ? ` · fällig ${d.due}` : ""}</div>
         <div style={{ fontSize: 12, marginTop: 6 }}>Bei dir gebucht: <b>{durTxt(d.booked_seconds)}</b></div>
@@ -198,16 +216,28 @@ function CreateDialog({ onClose, onDone }) {
     </div>);
 }
 
-function PlaneCreateDialog({ onClose, onDone }) {
+function PlaneCreateDialog({ workspaceId, onClose, onDone }) {
   const sm = isServerMode();
+  const workspaces = usePlaneWorkspacesActive();
   const rk = useRef({ sig: "", key: newRequestKey() });
+  const [wsPick, setWsPick] = useState(workspaceId ? String(workspaceId) : "");
   const [projects, setProjects] = useState([]); const [f, setF] = useState({ local_project_id: "", name: "", description: "", start: true }); const [err, setErr] = useState(""); const [busy, setBusy] = useState(false);
-  useEffect(() => { api("GET", "/projects").then(p => setProjects(Array.isArray(p) ? p.filter(x => x.plane_project_id && x.status !== "archived") : [])); }, []);
+  useEffect(() => { if (workspaceId) setWsPick(String(workspaceId)); }, [workspaceId]);
+  useEffect(() => {
+    if (sm && workspaces.length === 1 && !wsPick) setWsPick(String(workspaces[0].id));
+  }, [sm, workspaces, wsPick]);
+  useEffect(() => { api("GET", "/projects").then(p => {
+    let list = Array.isArray(p) ? p.filter(x => x.plane_project_id && x.status !== "archived") : [];
+    if (sm && wsPick) list = list.filter(x => !x.plane_workspace_id || String(x.plane_workspace_id) === String(wsPick));
+    setProjects(list);
+    setF(v => list.some(x => String(x.id) === String(v.local_project_id)) ? v : { ...v, local_project_id: "" });
+  }); }, [sm, wsPick]);
   const save = async () => {
+    if (sm && workspaces.length > 1 && !wsPick) { setErr("Bitte den Plane-Workspace wählen"); return; }
     setBusy(true); setErr("");
     let extra = {};
     if (sm) {   // Go-Server: nur nach ausdrücklichem Klick (confirm), idempotent über request_key
-      const sig = JSON.stringify([f.local_project_id, f.name, f.description]);
+      const sig = JSON.stringify([f.local_project_id, f.name, f.description, wsPick || ""]);
       if (rk.current.sig !== sig) rk.current = { sig, key: newRequestKey() };
       extra = { confirm: true, request_key: rk.current.key };
     }
@@ -216,10 +246,18 @@ function PlaneCreateDialog({ onClose, onDone }) {
     if (f.start) await call("POST", "/timer/start", { project_id: r.local_project_id, task_id: r.task_id });
     onDone(r.key, f.start);
   };
+  const wsHint = wsPick && workspaces.find(w => String(w.id) === String(wsPick))?.name;
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.3)", zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
       <div className="zp-card" style={{ width: 480, padding: "16px 18px" }} onClick={e => e.stopPropagation()}>
-        <div style={{ fontWeight: 600, fontSize: 15 }}>Neues Plane-Ticket</div>
+        <div style={{ fontWeight: 600, fontSize: 15 }}>Neues Plane-Ticket{wsHint && workspaces.length <= 1 ? ` · ${wsHint}` : ""}</div>
+        {sm && workspaces.length > 1 && (<>
+          <label style={lab}>Plane-Workspace</label>
+          <select value={wsPick} onChange={e => { setWsPick(e.target.value); setF(v => ({ ...v, local_project_id: "" })); }} style={{ ...inpS }}>
+            <option value="">Workspace wählen …</option>
+            {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+        </>)}
         <label style={lab}>Projekt</label>
         <select value={f.local_project_id} onChange={e => setF({ ...f, local_project_id: e.target.value })} style={{ ...inpS }}><option value="">Projekt wählen …</option>{projects.map(p => <option key={p.id} value={p.id}>{(p.plane_identifier || "").toUpperCase()} – {p.name}</option>)}</select>
         <label style={lab}>Titel</label><input style={inpS} value={f.name} onChange={e => setF({ ...f, name: e.target.value })} autoFocus />

@@ -29,13 +29,9 @@
   <div id="msg"></div>
 
   <h2>Plane</h2>
-  <div class="card">
-    <div id="plane-state" class="mut">Lade …</div>
-    <p class="mut">Den API-Schlüssel erzeugst du in Plane unter deinem Profil (Einstellungen → API-Token). Er wird verschlüsselt gespeichert und nie wieder angezeigt.</p>
-    <div class="row"><input type="password" id="plane-key" autocomplete="off" placeholder="Plane-API-Schlüssel">
-      <button onclick="saveKey('plane_key', 'plane-key')">Speichern</button></div>
-    <div class="row"><button class="sec" onclick="testPlane()">Verbindung testen</button><button class="sec" onclick="delKey('plane_key')">Schlüssel entfernen</button></div>
-  </div>
+  <div id="plane-list"><div class="mut">Lade …</div></div>
+  <p class="mut">Adresse und Workspace-Kennung legt die Administration fest (ohne Plane-Token). Den API-Schlüssel erzeugst du in Plane unter deinem Profil (Einstellungen → API-Token), trägst ihn hier ein und schaltest die Workspaces für dich ein. Schlüssel gilt je Plane-Adresse; Workspaces auf demselben Host teilen ihn. Verschlüsselt, nie wieder angezeigt.</p>
+  <div class="row"><button class="sec" onclick="testPlane()">Primär-Workspace testen</button></div>
 
   <div id="jira-box" style="display:none">
     <h2>Jira</h2>
@@ -71,32 +67,78 @@ let me = null;
 async function load() {
   me = await api('GET', '/me');
   const u = me.user;
-  if (u.kind === 'local' && !u.productive) { location.href = '/admin'; return; }   // reines Administrationskonto: kein Zeiterfassungs-Profil
+  if (u.role === 'admin' || u.role === 'breakglass' || (u.kind === 'local' && !u.productive)) { location.href = '/admin'; return; }   // Admin/Notfall: kein Zeiterfassungs-Profil
   $('who').textContent = u.name || 'Mein Profil';
-  $('roles').innerHTML = [u.role === 'admin' ? 'Administrator' : 'Mitarbeiter', u.is_lead ? 'Teamleiter' : '', u.is_hr ? 'Personal' : ''].filter(Boolean).map(r => `<span class="badge">${r}</span>`).join('');
+  $('roles').innerHTML = ['Mitarbeiter', u.is_lead ? 'Teamleiter' : '', u.is_hr ? 'Personal' : ''].filter(Boolean).map(r => `<span class="badge">${r}</span>`).join('');
   $('notices').innerHTML = (me.notices || []).map(n => `<div class="notice">${esc(n)}</div>`).join('');
-  $('adminlink').style.display = u.role === 'admin' ? 'inline' : 'none'; $('adminlink').href = '/admin';
+  $('adminlink').style.display = 'none';
   $('pw-box').style.display = u.kind === 'local' ? 'block' : 'none';
   await planeState();
   await jiraList();
   const s = await api('GET', '/settings'); $('suggest').checked = s.suggest_enabled !== '0';
 }
 async function planeState() {
-  const has = me.secrets && me.secrets.plane_key;
-  $('plane-state').innerHTML = has ? '<span class="ok">Schlüssel gespeichert</span>' : '<span class="no">Noch kein Schlüssel gespeichert</span>';
+  let list = [];
+  try { list = await api('GET', '/plane/workspaces'); } catch (e) { list = []; }
+  if (!Array.isArray(list) || !list.length) {
+    const has = me.secrets && me.secrets.plane_key;
+    $('plane-list').innerHTML = `<div class="card"><div class="${has ? 'ok' : 'no'}">${has ? 'Schlüssel gespeichert' : 'Noch kein Schlüssel · Administrator legt zuerst einen Workspace fest'}</div>
+      <div class="row"><input type="password" id="plane-key" autocomplete="off" placeholder="Plane-API-Schlüssel">
+      <button onclick="saveKey('plane_key','plane-key')">Speichern</button>
+      <button class="sec" onclick="delKey('plane_key')">Entfernen</button></div></div>`;
+    return;
+  }
+  // Eine Karte je Workspace; Schlüssel je Host; mit Token: Workspace einzeln nutzen
+  const hostCount = {};
+  for (const w of list) hostCount[w.host || w.base_url || ''] = (hostCount[w.host || w.base_url || ''] || 0) + 1;
+  const keyShown = {};
+  $('plane-list').innerHTML = list.map(w => {
+    const host = w.host || w.base_url || '';
+    const showKey = !keyShown[host];
+    keyShown[host] = true;
+    const hostShort = host.replace(/^https?:\/\//, '');
+    const shared = hostCount[host] > 1;
+    const on = w.selected !== false;
+    const pills = [
+      w.workspace ? `<span class="badge">${esc(w.workspace)}</span>` : '',
+      hostShort ? `<span class="badge">${esc(hostShort)}</span>` : '',
+      `<span class="${w.key_set ? 'ok' : 'no'}">${w.key_set ? 'Schlüssel gespeichert' : 'Schlüssel fehlt'}</span>`,
+      w.key_set ? `<span class="${on ? 'ok' : 'no'}">${on ? 'Aktiv' : 'Nicht genutzt'}</span>` : '',
+    ].filter(Boolean).join(' ');
+    const selBtn = w.key_set
+      ? `<button class="sec" style="margin-left:8px" onclick="selectWs(${w.id},${on ? 'false' : 'true'})">${on ? '● Nutzen' : '○ Nutzen'}</button>`
+      : '';
+    const keyRow = showKey
+      ? `${shared ? '<div class="mut" style="margin:4px 0 6px">Dieser Schlüssel gilt für alle Workspaces auf derselben Plane-Adresse. Danach wählst du, welche du nutzt.</div>' : ''}
+         <div class="row"><input type="password" id="pk-${w.id}" autocomplete="off" placeholder="${w.key_set ? '•••• gespeichert – zum Ersetzen neuen Schlüssel eingeben' : 'Plane-API-Schlüssel'}">
+         <button onclick="saveKey('plane_key','pk-${w.id}',null,${w.id})">Speichern</button>
+         <button class="sec" onclick="delKey('plane_key',null,${w.id})">Entfernen</button></div>`
+      : `<div class="mut" style="margin-top:6px">Schlüssel über denselben Host – gilt für diesen Workspace mit.</div>`;
+    return `<div class="card" style="margin-bottom:10px"><b>${esc(w.name)}</b> ${pills}${selBtn}${keyRow}</div>`;
+  }).join('');
+}
+async function selectWs(id, on) {
+  try { await api('PUT', '/plane/workspaces/' + id + '/select', { selected: !!on }); msg(on ? 'Workspace aktiv' : 'Workspace aus'); await load(); }
+  catch (e) { msg(e.message, true); }
 }
 async function testPlane() {
   try { const j = await api('GET', '/integrations/plane/status'); msg(j.configured === false ? j.message : ('Plane verbunden' + (j.user ? ': ' + (j.user.display_name || j.user.email || j.user.name || '') : '')), j.configured === false); }
   catch (e) { msg(e.message, true); }
 }
-async function saveKey(kind, inputId, instance) {
+async function saveKey(kind, inputId, instance, workspace) {
   const v = $(inputId).value; if (!v.trim()) { msg('Bitte einen Wert eingeben.', true); return; }
-  try { await api('PUT', '/profile/secrets/' + kind + (instance ? '?instance=' + instance : ''), { value: v }); $(inputId).value = ''; msg('Gespeichert.'); await load(); }
+  const q = [];
+  if (instance) q.push('instance=' + instance);
+  if (workspace) q.push('workspace=' + workspace);
+  try { await api('PUT', '/profile/secrets/' + kind + (q.length ? '?' + q.join('&') : ''), { value: v }); $(inputId).value = ''; msg('Gespeichert.'); await load(); }
   catch (e) { msg(e.message, true); }
 }
-async function delKey(kind, instance) {
+async function delKey(kind, instance, workspace) {
   if (!confirm('Gespeicherten Schlüssel entfernen?')) return;
-  try { await api('DELETE', '/profile/secrets/' + kind + (instance ? '?instance=' + instance : '')); msg('Entfernt.'); await load(); } catch (e) { msg(e.message, true); }
+  const q = [];
+  if (instance) q.push('instance=' + instance);
+  if (workspace) q.push('workspace=' + workspace);
+  try { await api('DELETE', '/profile/secrets/' + kind + (q.length ? '?' + q.join('&') : '')); msg('Entfernt.'); await load(); } catch (e) { msg(e.message, true); }
 }
 async function jiraList() {
   let list = [];

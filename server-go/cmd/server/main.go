@@ -114,8 +114,8 @@ func run(log *slog.Logger) error {
 		if len(cfg.SecretKey) < 32 {
 			return errors.New("Betrieb: ZP_SECRET_KEY muss mindestens 32 Zeichen (zufällig) haben")
 		}
-		if cfg.PublicURL == "" {
-			log.Warn("ZP_PUBLIC_URL nicht gesetzt – Host-Prüfung ist aus")
+		if cfg.PublicURL == "" || !strings.HasPrefix(cfg.PublicURL, "https://") {
+			return errors.New("Betrieb: ZP_PUBLIC_URL mit https:// ist Pflicht (sichere Client-Verbindung / Host-Prüfung / HSTS)")
 		}
 		if !cfg.TrustProxy {
 			log.Warn("ZP_TRUST_PROXY nicht gesetzt – hinter dem Router teilen sich alle Anfragen eine Adresse (Begrenzung wirkt für alle gemeinsam)")

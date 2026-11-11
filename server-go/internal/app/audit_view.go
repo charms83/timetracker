@@ -12,17 +12,16 @@ import (
 	"time"
 )
 
-/* Änderungsverlauf der eigenen Buchungen (wie backend/audit.js: GET /api/audit, /api/audit/verify).
-   Quelle: entry_audit (Trigger aus 008/018, Hash-Kette über alle Personen). Ausgabe immer nur user_id = angemeldete Person;
-   vorher/nachher nur mit den Feldern, die Node zeigt (COLS). Die Kette wird global geprüft (sie ist global verkettet),
-   gemeldet werden aber nur eigene Zahlen; ein Bruch bei einer fremden Zeile wird ohne Id/Zeitpunkt gemeldet. */
+/* Änderungsverlauf der Buchungen (wie backend/audit.js: GET /api/audit, /api/audit/verify).
+   Quelle: entry_audit. Standard: eigene Person. Teamleitung/Personal: ?user=<id> über asTarget (canSee).
+   Hash-Prüfung (verify) bleibt auf die eigene Kette bezogen (keine fremden Brüche mit Id). */
 
 var auditCols = []string{"project_id", "task_id", "start_time", "end_time", "duration_seconds", "comment", "billable", "date", "activity", "source"}
 
 var actorIDRE = regexp.MustCompile(`^[1-9][0-9]{0,18}$`)
 
 func (a *App) routesAuditView(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/audit", a.auth(a.auditList))
+	mux.HandleFunc("GET /api/audit", a.auth(a.asTarget(a.auditList)))
 	mux.HandleFunc("GET /api/audit/verify", a.auth(a.auditVerify))
 }
 

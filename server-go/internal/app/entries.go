@@ -96,27 +96,14 @@ func (a *App) entriesCreate(w http.ResponseWriter, r *http.Request, u User) {
 	a.entryCreate(w, r, selfWriter(u), in)
 }
 
-// entryCreate: neuer Eintrag für wr.uid (eigene Daten oder Nachtrag)
+// entryCreate: neuer Eintrag für wr.uid (eigene Daten oder Nachtrag).
+// Tempo-Stil: nur Dauer + Datum → Server legt Start/Ende in die erste freie Lücke (time_precise=false).
+// Projekt/Ticket optional (Tracken ohne Ticket); Zuordnung später.
 func (a *App) entryCreate(w http.ResponseWriter, r *http.Request, wr entryWriter, in body) {
-	start := asStr(in["start_time"])
-	if start == "" {
-		badRequest(w, "start_time erforderlich")
-		return
-	}
 	ctx := r.Context()
 	if invalidID(in["project_id"]) || invalidID(in["task_id"]) {
 		badRequest(w, "project_id/task_id ungültig")
 		return
-	}
-	if _, ok := a.parseTime(start); !ok {
-		badRequest(w, "start_time nicht lesbar")
-		return
-	}
-	if e := asStr(in["end_time"]); e != "" {
-		if _, ok := a.parseTime(e); !ok {
-			badRequest(w, "end_time nicht lesbar")
-			return
-		}
 	}
 	pid, tid := asID(in["project_id"]), asID(in["task_id"])
 	if !a.owned(ctx, "projects", pid, wr.uid) || !a.owned(ctx, "tasks", tid, wr.uid) {
@@ -124,8 +111,47 @@ func (a *App) entryCreate(w http.ResponseWriter, r *http.Request, wr entryWriter
 		return
 	}
 	pid, tid, _ = a.redirect(ctx, wr.uid, pid, tid) // abgeschlossenes Projekt → Nachfolger
+
+	start := asStr(in["start_time"])
 	end := asStr(in["end_time"])
 	dur := int64(asFloat(in["duration_seconds"]))
+	if dur == 0 {
+		if h := asFloat(in["hours"]); h > 0 {
+			dur = int64(h*3600 + 0.5)
+		}
+	}
+	date := asStr(in["date"])
+	placed := false // Dauer ohne von–bis → Assistent-Platzierung
+
+	if start == "" {
+		if dur <= 0 {
+			badRequest(w, "start_time oder duration_seconds/hours erforderlich")
+			return
+		}
+		if date == "" {
+			badRequest(w, "date erforderlich bei Dauer ohne Uhrzeit")
+			return
+		}
+		if !isoDateRE.MatchString(date) {
+			badRequest(w, "Datum ungültig")
+			return
+		}
+		s, e, err := a.placeDurationOnDay(ctx, wr.uid, date, dur)
+		if err != nil {
+			badRequest(w, err.Error())
+			return
+		}
+		start, end, placed = s, e, true
+	} else if _, ok := a.parseTime(start); !ok {
+		badRequest(w, "start_time nicht lesbar")
+		return
+	}
+	if end != "" {
+		if _, ok := a.parseTime(end); !ok {
+			badRequest(w, "end_time nicht lesbar")
+			return
+		}
+	}
 	// Dauer immer aus Beginn/Ende berechnen, wenn nicht angegeben
 	if end != "" && dur == 0 {
 		if d, ok := a.seconds(start, end); ok {
@@ -133,7 +159,6 @@ func (a *App) entryCreate(w http.ResponseWriter, r *http.Request, wr entryWriter
 		}
 	}
 	tooShort := end != "" && dur > 0 && dur < 300
-	date := asStr(in["date"])
 	if date == "" {
 		date = a.dateOf(start)
 	}
@@ -153,14 +178,15 @@ func (a *App) entryCreate(w http.ResponseWriter, r *http.Request, wr entryWriter
 	if dur != 0 {
 		durArg = dur
 	}
+	precise := !placed
 	var newID int64
 	err := a.writeTx(ctx, wr, func(tx pgx.Tx) error {
 		if err := a.requireLocked(ctx, tx, wr, date); err != nil {
 			return err
 		}
-		if err := tx.QueryRow(ctx, `INSERT INTO time_entries(user_id,project_id,task_id,start_time,end_time,duration_seconds,comment,billable,date,activity,entered_by)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
-			wr.uid, pid, tid, start, nz(end), durArg, nz(in["comment"]), billable, date, nz(in["activity"]), wr.enteredBy()).Scan(&newID); err != nil {
+		if err := tx.QueryRow(ctx, `INSERT INTO time_entries(user_id,project_id,task_id,start_time,end_time,duration_seconds,comment,billable,date,activity,entered_by,time_precise)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+			wr.uid, pid, tid, start, nz(end), durArg, nz(in["comment"]), billable, date, nz(in["activity"]), wr.enteredBy(), precise).Scan(&newID); err != nil {
 			return err
 		}
 		return a.nachtragLog(ctx, tx, wr, "Zeiteintrag angelegt", fmt.Sprintf("#%d", newID), date)
@@ -179,6 +205,10 @@ func (a *App) entryCreate(w http.ResponseWriter, r *http.Request, wr entryWriter
 	e["warning"] = nil
 	if tooShort {
 		e["warning"] = "Eintrag unter 5 Minuten – bitte prüfen"
+	}
+	if placed {
+		e["placed"] = true
+		e["placed_hint"] = "Uhrzeit automatisch in freie Lücke gelegt (ungenau) – bei Bedarf von–bis anpassen"
 	}
 	writeJSON(w, http.StatusOK, e)
 }

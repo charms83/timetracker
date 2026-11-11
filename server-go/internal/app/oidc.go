@@ -335,7 +335,11 @@ func (a *App) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	a.setSessionCookie(w, r, token, ttl)
 	a.audit(ctx, uid, "login", "von "+ip+" (authentik)")
-	http.Redirect(w, r, oidcSafeNext(next), http.StatusSeeOther)
+	dest := oidcSafeNext(next)
+	if role == "admin" {
+		dest = "/admin" // technischer Admin: nie in die Mitarbeiter-Oberfläche
+	}
+	http.Redirect(w, r, dest, http.StatusSeeOther)
 }
 
 var usernameOK = regexp.MustCompile(`^[a-z0-9][a-z0-9._@-]{2,63}$`)

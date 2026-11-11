@@ -38,7 +38,7 @@
 </main>
 <script>
 const $ = id => document.getElementById(id);
-const next = role => { const n = new URLSearchParams(location.search).get('next') || ''; const ok = /^\/(?![\/\\])[A-Za-z0-9_\-\/.?=&%]*$/.test(n) && !(n.startsWith('/admin') && role !== 'admin'); return ok ? n : (role === 'admin' ? '/admin' : '/'); };
+const next = role => { if (role === 'admin') return '/admin'; const n = new URLSearchParams(location.search).get('next') || ''; const ok = /^\/(?![\/\\])[A-Za-z0-9_\-\/.?=&%]*$/.test(n) && !n.startsWith('/admin'); return ok ? n : '/'; };
 let changing = false, lastRole = '';
 const E = { off: 'Anmeldung über authentik ist nicht aktiv', unreach: 'Anmeldung über authentik ist nicht erreichbar', busy: 'Gerade zu viele Anmeldungen – bitte gleich erneut versuchen', denied: 'Keine Berechtigung (nicht in einer erlaubten Gruppe)', fail: 'Anmeldung fehlgeschlagen' };
 const qe = new URLSearchParams(location.search).get('e'); if (qe) $('msg').textContent = E[qe] || E.fail;

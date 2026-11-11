@@ -18,7 +18,7 @@ import (
 
 func (a *App) routesTicket(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/ticket/ensure", a.auth(a.ticketEnsure))
-	mux.HandleFunc("POST /api/ticket/start", a.auth(a.ticketStart))
+	mux.HandleFunc("POST /api/ticket/start", a.authSessionOrDevice(a.ticketStart)) // Add-on: Tracken
 }
 
 type ticketTask struct {
@@ -48,11 +48,7 @@ func (a *App) ensureTicketTask(ctx context.Context, uid int64, key, title string
 	}
 	var insert func(tx pgx.Tx) error
 	if sys.of(key) == "plane" {
-		c, err := a.planeCfg(ctx, uid)
-		if err != nil {
-			return nil, "", err
-		}
-		wi, ppid, p, err := a.workItemByKey(ctx, uid, c, key) // Netz: ohne Sperre, ohne offene Transaktion
+		c, wi, ppid, p, err := a.planeCfgForKey(ctx, uid, key, "")
 		if err != nil {
 			return nil, "", err
 		}
@@ -61,8 +57,12 @@ func (a *App) ensureTicketTask(ctx context.Context, uid int64, key, title string
 		}
 		insert = func(tx pgx.Tx) error { // wie ensurePlaneTask (plane_tickets.go)
 			res.ProjectID = p.ID
-			return tx.QueryRow(ctx, `INSERT INTO tasks(user_id,project_id,title,jira_ticket,status,plane_work_item_id,plane_project_id) VALUES($1,$2,$3,$4,'open',$5,$6) RETURNING id`,
-				uid, p.ID, jsOr(asStr(wi["name"]), key), key, asStr(wi["id"]), ppid).Scan(&res.TaskID)
+			var ws any
+			if c.ID > 0 {
+				ws = c.ID
+			}
+			return tx.QueryRow(ctx, `INSERT INTO tasks(user_id,project_id,title,jira_ticket,status,plane_work_item_id,plane_project_id,plane_workspace_id) VALUES($1,$2,$3,$4,'open',$5,$6,$7) RETURNING id`,
+				uid, p.ID, jsOr(asStr(wi["name"]), key), key, asStr(wi["id"]), ppid, ws).Scan(&res.TaskID)
 		}
 	} else {
 		if !a.tempoModuleOn(ctx) {

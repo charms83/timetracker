@@ -29,6 +29,7 @@ import (
 
 type planeCfg struct {
 	Base, Key, WS, Mode, MeID string
+	ID                        int64 // plane_workspaces.id (0 = Legacy/Primär ohne Zeile)
 }
 
 func (c planeCfg) ok() bool { return c.Base != "" && c.Key != "" && c.WS != "" }
@@ -78,6 +79,9 @@ func normWS(v string) string {
 }
 
 func (a *App) planeCfg(ctx context.Context, uid int64) (planeCfg, error) {
+	if w, ok := a.primaryPlaneWorkspace(ctx); ok {
+		return a.planeCfgFor(ctx, uid, w)
+	}
 	st, err := a.userSettings(ctx, uid)
 	if err != nil {
 		return planeCfg{}, err
@@ -97,6 +101,37 @@ func (a *App) planeCfg(ctx context.Context, uid int64) (planeCfg, error) {
 		Mode: mode,
 		MeID: st["plane_me_id"],
 	}, nil
+}
+
+// planeCfgs: von der Person gewählte, eingeschaltete Workspaces mit Schlüssel (für Scan/Sync über mehrere).
+func (a *App) planeCfgs(ctx context.Context, uid int64) ([]planeCfg, error) {
+	list, err := a.PlaneWorkspaces(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []planeCfg
+	for _, w := range list {
+		ok, err := a.planeUserSelected(ctx, uid, w)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+		c, err := a.planeCfgFor(ctx, uid, w)
+		if err != nil {
+			return nil, err
+		}
+		if c.ok() {
+			out = append(out, c)
+		}
+	}
+	if len(out) == 0 {
+		if c, err := a.planeCfg(ctx, uid); err == nil && c.ok() {
+			out = append(out, c)
+		}
+	}
+	return out, nil
 }
 
 /* ── Bremse ─────────────────────────────────────────────────────── */
@@ -125,7 +160,25 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 }
 
 func (l *limiter) acquire(ctx context.Context, interactive bool) error {
+	return l.acquireShared(ctx, nil, 0, interactive)
+}
+
+// acquireShared: Speicher + optional gemeinsame DB (Mehr-Pod).
+func (l *limiter) acquireShared(ctx context.Context, a *App, uid int64, interactive bool) error {
+	key := strconv.FormatInt(uid, 10)
 	for {
+		if a != nil && a.DB != nil {
+			if until := a.rateBlockUntil(ctx, "plane", key); !until.IsZero() {
+				wait := time.Until(until)
+				if interactive {
+					return &planeErr{Status: 429, Fast: true, Msg: fmt.Sprintf("Plane ist kurz ausgelastet – in %d s nochmal", int(math.Ceil(wait.Seconds())))}
+				}
+				if err := sleepCtx(ctx, wait); err != nil {
+					return err
+				}
+				continue
+			}
+		}
 		l.mu.Lock()
 		now := time.Now()
 		for len(l.sent) > 0 && now.Sub(l.sent[0]) > time.Minute {
@@ -146,9 +199,24 @@ func (l *limiter) acquire(ctx context.Context, interactive bool) error {
 		if interactive {
 			limit = 58
 		}
+		if a != nil && a.DB != nil {
+			if n, err := a.rateCount(ctx, "plane", key, time.Minute); err == nil && n >= limit {
+				l.mu.Unlock()
+				if interactive {
+					return &planeErr{Status: 429, Fast: true, Msg: "Plane ist kurz ausgelastet – bitte gleich nochmal"}
+				}
+				if err := sleepCtx(ctx, 500*time.Millisecond); err != nil {
+					return err
+				}
+				continue
+			}
+		}
 		if len(l.sent) < limit {
 			l.sent = append(l.sent, now)
 			l.mu.Unlock()
+			if a != nil && a.DB != nil {
+				_ = a.rateAdd(ctx, "plane", key)
+			}
 			return nil
 		}
 		wait := time.Minute - now.Sub(l.sent[0]) + 50*time.Millisecond
@@ -166,16 +234,24 @@ func (l *limiter) acquire(ctx context.Context, interactive bool) error {
 }
 
 func (l *limiter) block(d time.Duration) (logIt bool) {
+	return l.blockShared(nil, 0, d)
+}
+
+func (l *limiter) blockShared(a *App, uid int64, d time.Duration) (logIt bool) {
 	l.mu.Lock()
-	defer l.mu.Unlock()
-	if until := time.Now().Add(d); until.After(l.blocked) {
+	until := time.Now().Add(d)
+	if until.After(l.blocked) {
 		l.blocked = until
 	}
 	if time.Since(l.lastLog) > 30*time.Second {
 		l.lastLog = time.Now()
-		return true
+		logIt = true
 	}
-	return false
+	l.mu.Unlock()
+	if a != nil && a.DB != nil {
+		a.rateSetBlock(context.Background(), "plane", strconv.FormatInt(uid, 10), until)
+	}
+	return logIt
 }
 
 /* ── Anfragen ───────────────────────────────────────────────────── */
@@ -220,7 +296,7 @@ func (a *App) planeDo(ctx context.Context, uid int64, c planeCfg, method, path s
 	}
 	lim := a.limiterFor(uid)
 	for attempt := 0; ; attempt++ {
-		if err := lim.acquire(ctx, o.Interactive); err != nil {
+		if err := lim.acquireShared(ctx, a, uid, o.Interactive); err != nil {
 			return nil, err
 		}
 		res, err := a.planeOnce(ctx, c, method, path, body)
@@ -233,7 +309,7 @@ func (a *App) planeDo(ctx context.Context, uid int64, c planeCfg, method, path s
 			wait = time.Duration(attempt+1) * 5 * time.Second
 		}
 		wait = min(max(wait, 2*time.Second), 65*time.Second)
-		if lim.block(wait) {
+		if lim.blockShared(a, uid, wait) {
 			a.sysLog(ctx, uid, "info", "plane", fmt.Sprintf("Plane-Anfragelimit erreicht – Pause %d s", int(wait.Seconds())))
 		}
 		if o.Interactive || attempt >= 4 {
@@ -385,7 +461,7 @@ func (a *App) planeListAll(ctx context.Context, uid int64, c planeCfg, path stri
 	return out, nil
 }
 
-// planeMe fragt den angemeldeten Plane-Benutzer ab und merkt sich dessen Id
+// planeMe fragt den angemeldeten Plane-Benutzer ab und merkt sich dessen Id (je Workspace, Legacy zusätzlich global).
 func (a *App) planeMe(ctx context.Context, uid int64, c planeCfg, o planeOpts) (map[string]any, error) {
 	r, err := a.planeDo(ctx, uid, c, "GET", "/api/v1/users/me/", nil, o)
 	if err != nil {
@@ -393,7 +469,16 @@ func (a *App) planeMe(ctx context.Context, uid int64, c planeCfg, o planeOpts) (
 	}
 	m := jm(r)
 	if id := asStr(m["id"]); id != "" {
-		_, _ = a.DB.Exec(ctx, `INSERT INTO user_settings(user_id,key,value) VALUES($1,'plane_me_id',$2) ON CONFLICT (user_id,key) DO UPDATE SET value=EXCLUDED.value`, uid, id)
+		key := planeMeSettingKey(c.ID)
+		_, _ = a.DB.Exec(ctx, `INSERT INTO user_settings(user_id,key,value) VALUES($1,$2,$3) ON CONFLICT (user_id,key) DO UPDATE SET value=EXCLUDED.value`, uid, key, id)
+		if c.ID == 0 || key != "plane_me_id" {
+			// Primär/Legacy: auch unter plane_me_id halten, bis alle Leser umgestellt sind
+			if c.ID == 0 {
+				_, _ = a.DB.Exec(ctx, `INSERT INTO user_settings(user_id,key,value) VALUES($1,'plane_me_id',$2) ON CONFLICT (user_id,key) DO UPDATE SET value=EXCLUDED.value`, uid, id)
+			} else if prim, ok := a.primaryPlaneWorkspace(ctx); ok && prim.ID == c.ID {
+				_, _ = a.DB.Exec(ctx, `INSERT INTO user_settings(user_id,key,value) VALUES($1,'plane_me_id',$2) ON CONFLICT (user_id,key) DO UPDATE SET value=EXCLUDED.value`, uid, id)
+			}
+		}
 	}
 	return m, nil
 }

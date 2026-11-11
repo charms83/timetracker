@@ -187,7 +187,7 @@ func (a *App) nachtragWriter(w http.ResponseWriter, r *http.Request, u User, in 
 		return entryWriter{}, false
 	}
 	var targetOK bool
-	if err := a.DB.QueryRow(ctx, `SELECT NOT (kind='local' AND NOT productive) FROM users WHERE id=$1 AND role<>'breakglass'`, target).Scan(&targetOK); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	if err := a.DB.QueryRow(ctx, `SELECT NOT (kind='local' AND NOT productive) FROM users WHERE id=$1 AND role<>'breakglass' AND role<>'admin'`, target).Scan(&targetOK); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		a.fail(w, err)
 		return entryWriter{}, false
 	}

@@ -186,7 +186,7 @@ func (a *App) monthCloseTick(ctx context.Context) {
 		}
 	}()
 	rows, err := a.DB.Query(ctx, `SELECT id, to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD') FROM users
-		WHERE NOT disabled AND role<>'breakglass' AND NOT (kind='local' AND NOT productive) ORDER BY id`)
+		WHERE NOT disabled AND role<>'breakglass' AND role<>'admin' AND NOT (kind='local' AND NOT productive) ORDER BY id`)
 	if err != nil {
 		a.Log.Warn("Monatsschluss: Konten nicht lesbar", "err", err)
 		return

@@ -7,16 +7,18 @@
    Der Server (~/zeitprotokoll/backend/server.js) läuft wie bisher per
    LaunchAgent; falls nicht erreichbar, startet das Programm ihn selbst.
 ═══════════════════════════════════════════════════════════════════ */
-const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, powerMonitor, shell, screen, session, Notification } = require("electron");
+const { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, powerMonitor, shell, screen, session, Notification, safeStorage } = require("electron");
 const path = require("path");
 const fs   = require("fs");
 const os   = require("os");
 const { spawn, execSync } = require("child_process");
 
-const API      = "http://127.0.0.1:3747/api";
-const WEB      = "http://127.0.0.1:3747/";
 const HOME     = os.homedir();
-const CFG_FILE = path.join(HOME, ".zeitprotokoll", "desktop.json");
+const CFG_DIR  = path.join(HOME, ".zeitprotokoll");
+const CFG_FILE = path.join(CFG_DIR, "desktop.json");
+const DEVICE_TOKEN_FILE = path.join(CFG_DIR, "device-token.bin"); // Klartext nie in desktop.json – OS-Verschlüsselung (Keychain/DPAPI)
+const LOCAL_API = "http://127.0.0.1:3747/api";
+const LOCAL_WEB = "http://127.0.0.1:3747/";
 
 // ── Einstellungen ────────────────────────────────────────────────
 const DEFAULTS = {
@@ -28,7 +30,90 @@ const DEFAULTS = {
   showAtLogin: true,
   miniBounds: null,
   mainInBrowser: true,    // v6.30: „Zeitprotokoll öffnen“ öffnet den Standard-Browser statt eines eigenen großen Fensters
+  // Team-Server (Go): mode "team" + serverUrl; Auth = Login → Server-Sitzung (Cookie)
+  mode: "local",          // "local" | "team"
+  serverUrl: "",          // nur https://… (http nur localhost mit allowHttpTeam)
+  allowHttpTeam: false,   // Dev: http://localhost bzw. 127.0.0.1 erlauben
+  serverCertPin: "",      // optional: SHA-256 des Server-Zertifikats (hex), Pinning gegen MITM
 };
+/** Optionaler Geräte-Token (Add-on); Normalfall Team = Session-Cookie. Persistenz safeStorage. */
+let deviceTokenMem = "";
+function deviceTokenOk(t) {
+  return typeof t === "string" && (t === "" || /^zpdev_[A-Za-z0-9_-]{20,180}$/.test(t));
+}
+function setDeviceToken(raw) {
+  const t = String(raw || "").trim();
+  if (!deviceTokenOk(t)) return false;
+  deviceTokenMem = t;
+  try {
+    fs.mkdirSync(CFG_DIR, { recursive: true, mode: 0o700 });
+    if (!t) {
+      try { fs.unlinkSync(DEVICE_TOKEN_FILE); } catch (_) {}
+      return true;
+    }
+    let buf;
+    if (safeStorage.isEncryptionAvailable()) buf = safeStorage.encryptString(t);
+    else { log("safeStorage unavailable – Token-Datei nur mit 0600"); buf = Buffer.from(t, "utf8"); }
+    fs.writeFileSync(DEVICE_TOKEN_FILE, buf, { mode: 0o600 });
+    try { fs.chmodSync(DEVICE_TOKEN_FILE, 0o600); } catch (_) {}
+  } catch (e) { log("device-token store", String(e && e.message || e)); }
+  return true;
+}
+function loadDeviceTokenFromDisk() {
+  try {
+    if (!fs.existsSync(DEVICE_TOKEN_FILE)) { deviceTokenMem = ""; return; }
+    const buf = fs.readFileSync(DEVICE_TOKEN_FILE);
+    if (safeStorage.isEncryptionAvailable()) {
+      try { deviceTokenMem = safeStorage.decryptString(buf); }
+      catch (_) { // Fallback: ältere Klartext-Datei
+        const s = buf.toString("utf8").trim();
+        deviceTokenMem = deviceTokenOk(s) && s ? s : "";
+        if (deviceTokenMem) setDeviceToken(deviceTokenMem); // neu verschlüsseln
+      }
+    } else {
+      const s = buf.toString("utf8").trim();
+      deviceTokenMem = deviceTokenOk(s) && s ? s : "";
+    }
+  } catch (_) { deviceTokenMem = ""; }
+}
+/** Einmal: Klartext aus alter desktop.json raus und in den Credential-Store. */
+function migrateDeviceTokenFromCfg() {
+  const legacy = typeof cfg.deviceToken === "string" ? cfg.deviceToken.trim() : "";
+  if (legacy) {
+    if (deviceTokenOk(legacy) && legacy) setDeviceToken(legacy);
+    delete cfg.deviceToken;
+    saveCfg();
+    log("device-token migrated out of desktop.json");
+  } else if ("deviceToken" in cfg) {
+    delete cfg.deviceToken;
+    saveCfg();
+  }
+}
+function teamUrlOk(url) {
+  try {
+    const u = new URL(String(url || "").trim());
+    if (u.protocol === "https:") return true;
+    if (cfg.allowHttpTeam && u.protocol === "http:" && (u.hostname === "localhost" || u.hostname === "127.0.0.1")) return true;
+  } catch (_) {}
+  return false;
+}
+function baseUrls() {
+  if (cfg.mode === "team" && cfg.serverUrl && teamUrlOk(cfg.serverUrl)) {
+    const root = String(cfg.serverUrl).replace(/\/+$/, "");
+    return { api: root + "/api", web: root + "/" };
+  }
+  return { api: LOCAL_API, web: LOCAL_WEB };
+}
+function isTeamMode() { return cfg.mode === "team" && teamUrlOk(cfg.serverUrl); }
+function certPinNorm(s) {
+  return String(s || "").toLowerCase().replace(/[^a-f0-9]/g, "");
+}
+function certMatchesPin(certificate) {
+  const pin = certPinNorm(cfg.serverCertPin);
+  if (!pin) return true;
+  const fp = certPinNorm(certificate && (certificate.fingerprint256 || certificate.fingerprint));
+  return fp.length >= 64 && fp.includes(pin);
+}
 const LOG_FILE = path.join(HOME, ".zeitprotokoll", "desktop.log");
 function log(...a) {
   const line = `${new Date().toISOString()} ${a.map(x => typeof x === "string" ? x : JSON.stringify(x)).join(" ")}\n`;
@@ -38,9 +123,17 @@ process.on("uncaughtException", e => log("uncaughtException", e.stack || String(
 process.on("unhandledRejection", e => log("unhandledRejection", e?.stack || String(e)));
 let cfg = { ...DEFAULTS };
 try { cfg = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(CFG_FILE, "utf8")) }; } catch (_) {}
+const saveCfg = () => {
+  try {
+    fs.mkdirSync(CFG_DIR, { recursive: true, mode: 0o700 });
+    const out = { ...cfg };
+    delete out.deviceToken; // Klartext-Token nie in desktop.json
+    fs.writeFileSync(CFG_FILE, JSON.stringify(out, null, 2), { mode: 0o600 });
+    try { fs.chmodSync(CFG_FILE, 0o600); } catch (_) {}
+  } catch (_) {}
+};
 // v6.18: „Immer im Vordergrund“ war Standard und hat genervt → einmalig aus (im Menü wieder einschaltbar)
-if (!cfg.topSmart) { cfg.alwaysOnTop = false; cfg.topSmart = true; cfg.topMigrated = true; try { fs.mkdirSync(path.dirname(CFG_FILE), { recursive: true }); fs.writeFileSync(CFG_FILE, JSON.stringify(cfg, null, 2)); } catch (_) {} }
-const saveCfg = () => { try { fs.mkdirSync(path.dirname(CFG_FILE), { recursive: true }); fs.writeFileSync(CFG_FILE, JSON.stringify(cfg, null, 2)); } catch (_) {} };
+if (!cfg.topSmart) { cfg.alwaysOnTop = false; cfg.topSmart = true; cfg.topMigrated = true; saveCfg(); }
 
 // Nur eine Instanz
 if (!app.requestSingleInstanceLock()) { app.quit(); }
@@ -50,19 +143,52 @@ let status = { timer: { active: false }, pause: { active: false } };
 let quitting = false;
 
 // ── API-Helfer ───────────────────────────────────────────────────
+/** Team: Sitzungs-Cookie aus dem Login-Fenster (Server speichert die Session). Kein Geräte-Token nötig.
+ *  Optionaler Geräte-Token nur für Add-on/curl ohne Browser-Login. */
 async function api(method, p, body) {
   try {
-    const r = await fetch(API + p, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    const { api: base } = baseUrls();
+    const headers = { "Content-Type": "application/json", Accept: "application/json" };
+    const url = base + p;
+    const init = { method, headers, body: body ? JSON.stringify(body) : undefined };
+    let r;
+    if (isTeamMode()) {
+      // Cookies der Electron-Session mitsenden; kein Origin (sonst CSRF-Schutz)
+      if (deviceTokenMem) headers["X-ZP-Device-Token"] = deviceTokenMem; // optional
+      const doFetch = typeof session.defaultSession.fetch === "function"
+        ? session.defaultSession.fetch.bind(session.defaultSession)
+        : fetch;
+      r = await doFetch(url, init);
+    } else {
+      r = await fetch(url, init);
+    }
     return await r.json();
   } catch (_) { return null; }
 }
+/** Ob für den Team-Server eine zp_session-Cookie existiert (nach Login im Fenster). */
+async function hasTeamSession() {
+  if (!isTeamMode()) return false;
+  try {
+    const origin = new URL(cfg.serverUrl).origin;
+    const names = ["__Host-zp_session", "zp_session"];
+    for (const name of names) {
+      const cookies = await session.defaultSession.cookies.get({ url: origin, name });
+      if (cookies.some(c => !!c.value)) return true;
+    }
+    return false;
+  } catch (_) { return false; }
+}
 
-// ── Server sicherstellen ─────────────────────────────────────────
+// ── Server sicherstellen (nur lokaler Node; Team-Modus: Go-Server muss erreichbar sein) ──
 function findNode() {
   for (const p of ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"]) if (fs.existsSync(p)) return p;
   try { return execSync("/bin/zsh -lc 'command -v node'", { encoding: "utf8" }).trim(); } catch (_) { return null; }
 }
 async function ensureServer() {
+  if (isTeamMode()) {
+    const h = await api("GET", "/health");
+    return !!(h && (h.ok === true || h.status === "ok" || h.version || h.time));
+  }
   if (await api("GET", "/health")) return true;
   const server = path.join(HOME, "zeitprotokoll", "backend", "server.js");
   const node = findNode();
@@ -188,8 +314,11 @@ function showMini(reason) {
 }
 
 function createMain(view, forceWindow) {
+  const { web: WEB } = baseUrls();
   const target = WEB + (typeof view === "string" && view ? "#" + view : "");
-  if (cfg.mainInBrowser && !forceWindow) { shell.openExternal(target); return; }
+  // Team: immer im Electron-Fenster anmelden – Sitzungs-Cookie bleibt in der App (Server hält die Session).
+  // Lokal: wahlweise Systembrowser.
+  if (cfg.mainInBrowser && !forceWindow && !isTeamMode()) { shell.openExternal(target); return; }
   if (main && !main.isDestroyed()) {
     if (typeof view === "string" && view) main.webContents.executeJavaScript(`location.hash = ${JSON.stringify(view)}`).catch(() => {});
     main.show(); main.focus(); app.focus({ steal: true }); return;
@@ -198,7 +327,11 @@ function createMain(view, forceWindow) {
     width: 1200, height: 820, minWidth: 900, minHeight: 600,
     titleBarStyle: "hiddenInset", trafficLightPosition: { x: 16, y: 18 },
     backgroundColor: "#ffffff", title: "Zeitprotokoll",
-    webPreferences: { contextIsolation: true, nodeIntegration: false, preload: path.join(__dirname, "preload-main.js") },
+    webPreferences: {
+      contextIsolation: true, nodeIntegration: false,
+      webSecurity: true, allowRunningInsecureContent: false,
+      preload: path.join(__dirname, "preload-main.js"),
+    },
   });
   main.loadURL(target);
   main.webContents.on("did-finish-load", () => {
@@ -210,7 +343,19 @@ function createMain(view, forceWindow) {
       main { -webkit-app-region: no-drag; }
     `);
   });
-  main.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: "deny" }; });
+  // Team: kein HTTP-Downgrade (OIDC-IdP auf https bleibt erlaubt)
+  main.webContents.on("will-navigate", (e, url) => {
+    if (!isTeamMode()) return;
+    try {
+      const u = new URL(url);
+      if (u.protocol === "http:" && !(cfg.allowHttpTeam && (u.hostname === "localhost" || u.hostname === "127.0.0.1"))) {
+        e.preventDefault(); log("blocked insecure navigate", url);
+      }
+    } catch (_) { e.preventDefault(); }
+  });
+  main.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url); return { action: "deny" };
+  });
   main.on("closed", () => { main = null; });
   // „Schlau“: Tracker schwebt über anderen Programmen (Browser …), aber nicht über dem eigenen Hauptfenster.
   // Hauptfenster vorne → Tracker darf dahinter; anderes Programm vorne → Tracker wieder obenauf. Nichts wird geschlossen.
@@ -229,6 +374,74 @@ function trayIcon() {
   return nativeImage.createEmpty();
 }
 
+/** Tray: Team-Server-URL setzen/ändern (kleines Eingabefenster). */
+let teamUrlWin = null;
+function editTeamServerUrl() {
+  if (teamUrlWin && !teamUrlWin.isDestroyed()) { teamUrlWin.focus(); return; }
+  const cur = String(cfg.serverUrl || "");
+  teamUrlWin = new BrowserWindow({
+    width: 520, height: 250, resizable: false, minimizable: false, maximizable: false,
+    title: "Team-Server-Adresse", show: true,
+    webPreferences: { nodeIntegration: true, contextIsolation: false },
+  });
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Team-Server</title></head>
+<body style="font:13px -apple-system,system-ui,sans-serif;padding:18px;background:#f4f3ef;color:#1a1a1a;margin:0">
+  <div style="font-weight:600;font-size:15px;margin-bottom:6px">Team-Server</div>
+  <div style="color:#555;margin-bottom:12px">Adresse mit https://… – leer oder „Einzelplatz“ für den lokalen Tracker.</div>
+  <input id="u" style="width:100%;padding:9px 10px;box-sizing:border-box;border:1px solid #ccc;border-radius:6px;font:13px ui-monospace,monospace" placeholder="https://zeit.firma.example" />
+  <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+    <button id="ok" style="padding:7px 14px;border-radius:6px;border:0;background:#0F752F;color:#fff;font-weight:600;cursor:pointer">Übernehmen</button>
+    <button id="local" style="padding:7px 14px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Einzelplatz</button>
+    <button id="cancel" style="padding:7px 14px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Abbrechen</button>
+  </div>
+  <script>
+    const { ipcRenderer } = require("electron");
+    const u = document.getElementById("u");
+    u.value = ${JSON.stringify(cur)};
+    u.focus(); u.select();
+    document.getElementById("ok").onclick = () => ipcRenderer.send("team-url-result", { mode: "team", serverUrl: u.value });
+    document.getElementById("local").onclick = () => ipcRenderer.send("team-url-result", { mode: "local", serverUrl: "" });
+    document.getElementById("cancel").onclick = () => ipcRenderer.send("team-url-result", null);
+    u.onkeydown = (e) => { if (e.key === "Enter") document.getElementById("ok").click(); if (e.key === "Escape") document.getElementById("cancel").click(); };
+  </script>
+</body></html>`;
+  teamUrlWin.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
+  const onResult = (_e, data) => {
+    ipcMain.removeListener("team-url-result", onResult);
+    if (teamUrlWin && !teamUrlWin.isDestroyed()) teamUrlWin.close();
+    teamUrlWin = null;
+    if (!data) return;
+    if (data.mode === "local") {
+      cfg.mode = "local";
+      saveCfg();
+      refreshStatus();
+      new Notification({ title: "Zeitprotokoll", body: "Wieder Einzelplatz (lokal)." }).show();
+      return;
+    }
+    const u = String(data.serverUrl || "").trim().replace(/\/+$/, "");
+    if (!u) {
+      new Notification({ title: "Zeitprotokoll", body: "Bitte eine Adresse eingeben oder Einzelplatz wählen." }).show();
+      return;
+    }
+    if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(u)) cfg.allowHttpTeam = true;
+    cfg.mode = "team";
+    if (!teamUrlOk(u)) {
+      cfg.mode = isTeamMode() ? "team" : "local";
+      new Notification({ title: "Zeitprotokoll", body: "Ungültige Adresse (https://… oder http://localhost)." }).show();
+      return;
+    }
+    cfg.serverUrl = u;
+    saveCfg();
+    refreshStatus();
+    new Notification({ title: "Zeitprotokoll", body: "Team-Server: " + u.replace(/^https?:\/\//, "") }).show();
+  };
+  ipcMain.on("team-url-result", onResult);
+  teamUrlWin.on("closed", () => {
+    ipcMain.removeListener("team-url-result", onResult);
+    teamUrlWin = null;
+  });
+}
+
 async function refreshStatus() {
   const [timer, pause] = await Promise.all([api("GET", "/timer/status"), api("GET", "/pause/status")]);
   status = { timer: timer || { active: false }, pause: pause || { active: false }, offline: !timer };
@@ -242,13 +455,19 @@ async function refreshStatus() {
   const t = status.timer;
   const label = t.active ? `${t.project?.name || "–"}${t.task ? " · " + (t.task.jira_ticket || t.task.title) : ""}` : (status.pause.active ? "Pause läuft" : "Kein Timer aktiv");
   tray.setToolTip("Zeitprotokoll – " + label);
+  const teamLabel = isTeamMode()
+    ? (`Team-Server · ${(cfg.serverUrl || "").replace(/^https?:\/\//, "").replace(/\/$/, "") || "–"}`)
+    : "Einzelplatz (lokal)";
   tray.setContextMenu(Menu.buildFromTemplate([
     { label, enabled: false },
+    { label: teamLabel, enabled: false },
+    { label: "Team-Server-Adresse …", click: () => editTeamServerUrl() },
     { type: "separator" },
     { label: "Schnellfenster zeigen", accelerator: "CommandOrControl+Alt+Z", click: () => setExpanded(true, pendingReason) },
     { label: cfg.mainInBrowser ? "Zeitprotokoll im Browser öffnen" : "Hauptfenster öffnen", click: () => createMain() },
-    ...(cfg.mainInBrowser ? [] : [{ label: "Im Browser öffnen", click: () => shell.openExternal(WEB) }]),
+    ...(cfg.mainInBrowser ? [] : [{ label: "Im Browser öffnen", click: () => shell.openExternal(baseUrls().web) }]),
     { label: "Stundenzettel (Woche/Monat)", click: () => createMain("stundenzettel") },
+    { label: "Einstellungen (Verbindungen)", click: () => createMain("einstellungen") },
     { label: "Browser-Add-ons einrichten …", click: async () => { const r = await installAllAddons(); if (!r.length) new Notification({ title: "Zeitprotokoll", body: "Alle Browser sind schon verbunden (Safari erkennt der Tracker selbst)." }).show(); } },
     { type: "separator" },
     ...(t.active ? [
@@ -309,6 +528,15 @@ function remind(reason) {
 }
 async function onMeetingEvent(ev) {
   log("meeting", ev.type, ev.app);
+  // Maßstab = lokales Mac-System: Mini fragt nach. Team: optional Hint + /meetings/now wie lokal.
+  if (isTeamMode()) {
+    if (!(await hasTeamSession()) && !deviceTokenMem) return;
+    const day = new Date();
+    const d = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+    await api("POST", "/client/hints", { hints: [{ kind: "meeting", day: d, title: `${ev.app || "Meeting"} (${ev.type})`,
+      dedupe_key: `meeting:${ev.type}:${ev.app || ""}:${d}:${Math.floor(Date.now() / 60000)}`,
+      payload: { type: ev.type, app: ev.app } }] });
+  }
   const now = await api("GET", "/meetings/now");
   if (now && now.ask === false) return;
   await refreshStatus();
@@ -326,10 +554,12 @@ async function onMeetingEvent(ev) {
   remind({ kind: "meeting", app: ev.app, title, rule: pick, start_time: now?.event?.start_time || null, timerActive: !!t.active,
     text: `${label}${title ? ": „" + title + "“" : ""} – Timer starten?${pick?.project_name ? " (" + (pick.key ? pick.key + " · " : "") + pick.project_name + ")" : ""}` });
 }
-/* Termin beginnt (auch ohne Meeting-Programm) → einmal nachfragen, vorbelegt */
+/* Termin beginnt (auch ohne Meeting-Programm) → einmal nachfragen, vorbelegt.
+   Team wie lokal: /meetings/now am Go-Server (Kalender liefert die Mac-App). */
 const calAsked = new Set();
 async function calendarTick() {
   const now = await api("GET", "/meetings/now");
+  if (!now || now.error) return;
   const ev = now?.event; if (!ev || now.ask === false || now.state || calAsked.has(ev.uid)) return;
   const since = Date.now() - Date.parse(ev.start_time);
   if (since < -2 * 60e3 || since > 10 * 60e3) return;                 // 2 min vorher bis 10 min nach Beginn
@@ -339,11 +569,25 @@ async function calendarTick() {
   await onMeetingEvent({ type: "calendar", app: "Termin" });
 }
 setInterval(() => calendarTick().catch(() => {}), 60 * 1000);
-// ── Anwesenheit (optional, Einstellung „presence_track“): nur „jemand ist am Mac“ je Minute – kein Inhalt
+// ── Anwesenheit → presence_min (Gaps/Heute/Tempo-Outbox). Team mit Session = wie lokal;
+//    nur Geräte-Token: Hint, Server schreibt presence_min mit.
 let screenLocked = false;
 async function presenceTick() {
   const active = !screenLocked && powerMonitor.getSystemIdleTime() < cfg.idleLimitSeconds;
-  if (active) await api("POST", "/presence", { active: true });
+  if (!active) return;
+  if (isTeamMode()) {
+    if (await hasTeamSession()) {
+      await api("POST", "/presence", { active: true });
+      return;
+    }
+    if (!deviceTokenMem) return;
+    const day = new Date();
+    const d = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+    const hm = `${String(day.getHours()).padStart(2, "0")}:${String(day.getMinutes()).padStart(2, "0")}`;
+    await api("POST", "/client/hints", { hints: [{ kind: "presence", day: d, title: "am Mac", dedupe_key: `presence:${d}:${hm}`, payload: { active: true } }] });
+    return;
+  }
+  await api("POST", "/presence", { active: true });
 }
 setInterval(() => presenceTick().catch(() => {}), 60 * 1000);
 ipcMain.on("meeting:timerStarted", () => { meetingTimerStarted = true; });
@@ -458,7 +702,88 @@ ipcMain.on("mini:hide", () => setExpanded(false));
 ipcMain.on("mini:quit", () => { quitting = true; app.quit(); });
 ipcMain.on("mini:openMain", (_e, view) => createMain(view));
 ipcMain.on("mini:changed", () => refreshStatus());
-ipcMain.handle("cfg:get", () => cfg);
+// Mini/Tray: gleiche API wie Main (Team = Session-Cookie, lokal = Node :3747)
+ipcMain.handle("api:call", async (_e, { method, path, body }) => {
+  if (!method || typeof path !== "string" || !path.startsWith("/")) return { error: "ungültiger API-Aufruf" };
+  return api(String(method).toUpperCase(), path, body);
+});
+ipcMain.handle("cfg:get", async () => {
+  const c = { ...cfg };
+  delete c.deviceToken;
+  c.hasDeviceToken = !!deviceTokenMem; // optional, nicht nötig für normalen Team-Betrieb
+  c.hasTeamSession = await hasTeamSession();
+  if (deviceTokenMem) c.deviceTokenHint = deviceTokenMem.slice(0, 8) + "…";
+  return c;
+});
+ipcMain.handle("cfg:setTeam", (_e, { mode, serverUrl, deviceToken, allowHttpTeam, serverCertPin }) => {
+  if (mode === "local" || mode === "team") cfg.mode = mode;
+  if (typeof allowHttpTeam === "boolean") cfg.allowHttpTeam = allowHttpTeam;
+  if (typeof serverCertPin === "string") {
+    const p = certPinNorm(serverCertPin);
+    if (p && p.length !== 64) return { ok: false, error: "serverCertPin: SHA-256 als 64 Hex-Zeichen" };
+    cfg.serverCertPin = p;
+  }
+  if (typeof serverUrl === "string") {
+    const u = serverUrl.trim().replace(/\/+$/, "");
+    if (u && cfg.mode === "team" && !teamUrlOk(u)) {
+      return { ok: false, error: "Team-Server braucht https://… (http nur localhost mit allowHttpTeam)" };
+    }
+    cfg.serverUrl = u;
+  }
+  // deviceToken optional (Add-on/ohne Login); Normalfall = Anmelden im Fenster, Session auf dem Server
+  if (typeof deviceToken === "string") {
+    if (!setDeviceToken(deviceToken.trim())) return { ok: false, error: "deviceToken ungültig (erwartet zpdev_…)" };
+  }
+  if (cfg.mode === "team" && cfg.serverUrl && !teamUrlOk(cfg.serverUrl)) {
+    cfg.mode = "local";
+    return { ok: false, error: "Ungültige serverUrl – Modus zurück auf local" };
+  }
+  saveCfg();
+  log("cfg team", cfg.mode, cfg.serverUrl ? "url=set" : "url=empty", deviceTokenMem ? "token=optional" : "auth=session", cfg.serverCertPin ? "pin=set" : "pin=off");
+  return { ok: true, mode: cfg.mode, hasDeviceToken: !!deviceTokenMem };
+});
+
+/** TLS-Härtung ohne den Alltag zu blockieren (Firmen-CA/OIDC bleiben nutzbar). */
+function installTeamTransportSecurity() {
+  // Ungültige Zertifikate nie per Dialog durchwinken – System-/Firmen-CA bleibt über Chromium vertrauenswürdig
+  app.on("certificate-error", (event, _wc, url, error, certificate, callback) => {
+    event.preventDefault();
+    log("tls rejected", error, url, certificate && certificate.subjectName);
+    callback(false);
+  });
+  const ses = session.defaultSession;
+  // Cert-Pin nur wenn gesetzt – sonst Standard-Prüfung (brauchbar mit Firmen-Proxy/CA)
+  if (cfg.serverCertPin && typeof ses.setCertificateVerifyProc === "function") {
+    ses.setCertificateVerifyProc((request, callback) => {
+      if (typeof request.errorCode === "number" && request.errorCode !== 0) { callback(-2); return; }
+      if (isTeamMode()) {
+        try {
+          if (request.hostname === new URL(cfg.serverUrl).hostname && !certMatchesPin(request.certificate)) {
+            log("tls pin mismatch", request.hostname);
+            callback(-2);
+            return;
+          }
+        } catch (_) { callback(-2); return; }
+      }
+      callback(0);
+    });
+  }
+  // Alltag: Benachrichtigungen ok; Kamera/Mikro/Ortung weiter aus
+  const allowPerm = new Set(["notifications", "clipboard-sanitized-write"]);
+  ses.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(allowPerm.has(permission));
+  });
+  // Team: Klartext-HTTP blockieren (außer localhost-Dev); OIDC-IdP auf https bleibt erlaubt
+  ses.webRequest.onBeforeRequest({ urls: ["http://*/*"] }, (details, cb) => {
+    if (!isTeamMode()) { cb({}); return; }
+    try {
+      const parsed = new URL(details.url || "");
+      const ok = cfg.allowHttpTeam && (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1");
+      if (!ok) { log("blocked insecure request", details.url); cb({ cancel: true }); return; }
+    } catch (_) { cb({ cancel: true }); return; }
+    cb({});
+  });
+}
 
 // ── Start ────────────────────────────────────────────────────────
 app.on("second-instance", () => showMini());
@@ -467,15 +792,29 @@ app.on("before-quit", () => { quitting = true; });
 app.on("window-all-closed", e => e.preventDefault());
 
 app.whenReady().then(async () => {
-  // Zugang zur lokalen Schnittstelle: App-Schlüssel an alle Anfragen an den eigenen Server hängen (Tracker-Fenster läuft als file://)
-  const tokenFile = path.join(HOME, ".zeitprotokoll", "app-token");
+  installTeamTransportSecurity();
+  // Optionaler Geräte-Token (Legacy/Add-on): aus alter Config migrieren; Team-Normalfall = Login-Session
+  migrateDeviceTokenFromCfg();
+  loadDeviceTokenFromDisk();
+  // Lokal: App-Schlüssel (X-ZP-Token). Team: Sitzungs-Cookie (Server) – kein Header nötig.
+  const tokenFile = path.join(CFG_DIR, "app-token");
   let appTok = null; const readTok = () => { try { appTok = fs.readFileSync(tokenFile, "utf8").trim(); } catch (_) { appTok = null; } return appTok; };
-  session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ["http://127.0.0.1:3747/*", "http://localhost:3747/*"] }, (d, cb) => {
-    const t = appTok || readTok(); if (t) d.requestHeaders["X-ZP-Token"] = t;
-    cb({ requestHeaders: d.requestHeaders });
-  });
-  session.defaultSession.webRequest.onCompleted({ urls: ["http://127.0.0.1:3747/*"] }, d => { if (d.statusCode === 403) readTok(); });   // Server hat neuen Schlüssel → neu lesen
-  log("start", app.getVersion(), process.versions.electron);
+  // Nur lokaler Node braucht X-ZP-Token; Team-Server nutzt HttpOnly-Cookie nach Login
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ["http://127.0.0.1:3747/api/*", "http://localhost:3747/api/*"] },
+    (d, cb) => {
+      const t = appTok || readTok();
+      if (t) d.requestHeaders["X-ZP-Token"] = t;
+      cb({ requestHeaders: d.requestHeaders });
+    });
+  // Bestehende insecure Config: Team ohne https → warnen und deaktivieren
+  if (cfg.mode === "team" && cfg.serverUrl && !teamUrlOk(cfg.serverUrl)) {
+    log("team mode disabled: serverUrl muss https sein");
+    cfg.mode = "local";
+    saveCfg();
+  }
+  session.defaultSession.webRequest.onCompleted({ urls: ["http://127.0.0.1:3747/*"] }, d => { if (d.statusCode === 403) readTok(); });
+  log("start", app.getVersion(), process.versions.electron, "mode", cfg.mode || "local");
   // App-Menü: ⌘Q beendet, Bearbeiten-Menü für Kopieren/Einfügen in Feldern
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: "Zeitprotokoll", submenu: [
@@ -505,6 +844,10 @@ app.whenReady().then(async () => {
   setInterval(() => missingTick().catch(e => log("missingTick", e.message)), 5 * 60 * 1000);
   setTimeout(() => missingTick().catch(() => {}), 20 * 1000);
   try { require("./meeting-detect").create({ api, log, binDir: path.join(HOME, "Documents", "Zeitprotokoll", "bin"), onEvent: onMeetingEvent }).start(); } catch (e) { log("meeting-detect start", e.message); }
+  // Team: SSH-Log → Server (lokal macht das Node). Tracking-Schalter vom Server → Flag-Datei für zsh.
+  if (isTeamMode()) {
+    try { require("./ssh-sync").create({ api, log }).start(); } catch (e) { log("ssh-sync start", e.message); }
+  }
   powerMonitor.on("lock-screen", () => { screenLocked = true; });
   powerMonitor.on("suspend", () => { screenLocked = true; });
   powerMonitor.on("resume", () => { screenLocked = false; presenceTick().catch(() => {}); });

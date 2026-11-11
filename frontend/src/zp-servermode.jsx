@@ -4,11 +4,12 @@
    Hinweis „braucht den Mac-Client“. Am Node-System wird nichts davon eingebunden.
 ═══════════════════════════════════════════════════════════════════ */
 import { useState, useEffect, useCallback } from "react";
-import { LogOut, ShieldCheck, ChevronLeft, ChevronRight, Send, Undo2, MonitorSmartphone, Info, KeyRound, Trash2, Check } from "lucide-react";
-import { api, call, Box, lab, inpS, btn, loadMe, useServerMode } from "./zp-ui.jsx";
+import { LogOut, ChevronLeft, ChevronRight, Send, Undo2, MonitorSmartphone, Info, KeyRound, Trash2, Check } from "lucide-react";
+import { api, call, Box, lab, inpS, btn, loadMe, useServerMode, PlaneWorkspacesPanel } from "./zp-ui.jsx";
+export { PlaneWorkspacesPanel };
 
 /* ── Abmelden, Name, Administration (Seitenleiste / Titelleiste) ── */
-const ROLE = { admin: "Administrator", lead: "Teamleiter", user: "Mitarbeiter", breakglass: "Notfallzugang" };
+const ROLE = { lead: "Teamleiter", user: "Mitarbeiter" };
 export async function logout() {
   await call("POST", "/auth/logout");
   location.href = "/login";
@@ -16,12 +17,11 @@ export async function logout() {
 export function ServerUserBox({ compact }) {
   const { serverMode, me } = useServerMode();
   if (!serverMode || !me) return null;
-  const roles = [ROLE[me.role] || me.role, me.is_lead && me.role !== "lead" ? "Teamleiter" : "", me.is_hr ? "Personal" : ""].filter(Boolean).join(" · ");
-  const admin = me.role === "admin";   // reine Administrationskonten werden schon beim Start nach /admin geleitet
+  // Admin/Notfall landen nie hier (isAdminOnly → /admin); Anzeige nur Fachrollen
+  const roles = [ROLE[me.role] || "Mitarbeiter", me.is_lead && me.role !== "lead" ? "Teamleiter" : "", me.is_hr ? "Personal" : ""].filter(Boolean).join(" · ");
   if (compact) return (
     <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: 8, WebkitAppRegion: "no-drag", fontSize: 12 }}>
       <span title={roles} style={{ color: "var(--text2)", maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{me.name}</span>
-      {admin && <a href="/admin" title="Administration" style={{ display: "flex", color: "var(--text2)" }}><ShieldCheck size={15} /></a>}
       <button className="zp-nav" title="Abmelden" onClick={logout}><LogOut size={15} /></button>
     </div>);
   return (
@@ -29,7 +29,6 @@ export function ServerUserBox({ compact }) {
       <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={me.email || me.name}>{me.name}</div>
       {roles && <div style={{ color: "var(--text2)", fontSize: 11 }}>{roles}</div>}
       <div style={{ display: "flex", gap: 4, marginTop: 6, flexWrap: "wrap" }}>
-        {admin && <a href="/admin" className="zp-nav" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, textDecoration: "none", color: "var(--text)", padding: "4px 8px" }}><ShieldCheck size={14} /> Administration</a>}
         <button className="zp-nav" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, padding: "4px 8px" }} onClick={logout}><LogOut size={14} /> Abmelden</button>
       </div>
     </div>);
@@ -95,14 +94,28 @@ export function MonthApprovalCard() {
     setSt(null); setMiss(null);
     const s = await call("GET", `/approval/status?month=${month}`);
     setSt(s);
-    // fehlende Stunden: vorhandene Auswertung (/missing-hours, höchstens 62 Tage zurück; gesperrte Monate liefert sie nicht)
+    // Fehlzeiten: /missing-hours (max. 62 Tage) – ältere Monate über /overview
     const first = new Date(+month.slice(0, 4), +month.slice(5, 7) - 1, 1);
+    const last = new Date(+month.slice(0, 4), +month.slice(5, 7), 0);
     const days = Math.ceil((Date.now() - first.getTime()) / 864e5) + 1;
     if (days <= 62) {
       const r = await api("GET", `/missing-hours?days=${Math.max(1, days)}`);
-      if (r && !r.error && Array.isArray(r.days)) { const d = r.days.filter(x => x.date.slice(0, 7) === month); setMiss({ days: d, total: d.reduce((a, x) => a + (x.missing_h || 0), 0), optional: !!r.optional }); }
-      else setMiss(null);
-    } else setMiss(null);
+      if (r && !r.error && Array.isArray(r.days)) {
+        const d = r.days.filter(x => x.date.slice(0, 7) === month);
+        setMiss({ days: d, total: d.reduce((a, x) => a + (x.missing_h || 0), 0), optional: !!r.optional });
+      } else setMiss(null);
+    } else {
+      const from = `${month}-01`, to = `${month}-${String(last.getDate()).padStart(2, "0")}`;
+      const ov = await api("GET", `/overview?from=${from}&to=${to}`);
+      if (ov && !ov.error && Array.isArray(ov.days)) {
+        const d = ov.days.filter(x => {
+          if (x.absence || x.isBeforeTracking) return false;
+          const target = x.targetH || 0, booked = x.workH || x.bookedH || 0;
+          return target > 0 && booked < target - 0.24;
+        }).map(x => ({ date: x.date, missing_h: Math.max(0, (x.targetH || 0) - (x.workH || x.bookedH || 0)), empty: !(x.workH || x.bookedH) }));
+        setMiss({ days: d, total: d.reduce((a, x) => a + x.missing_h, 0), optional: false });
+      } else setMiss(null);
+    }
   }, [month]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { const h = () => load(); window.addEventListener("zp:entry-changed", h); return () => window.removeEventListener("zp:entry-changed", h); }, [load]);
@@ -150,7 +163,8 @@ export function MonthApprovalCard() {
         {(status === "open" || status === "rejected") && miss && (miss.days.length > 0
           ? <div style={{ marginTop: 10, fontSize: 12.5, padding: "8px 12px", borderRadius: 8, background: "var(--pause-bg, #fff7e0)", border: "1px solid var(--pause-line, #e5c46b)" }}>
               <b>Es fehlen noch {fh(miss.total)}</b> an {miss.days.length} Tag{miss.days.length === 1 ? "" : "en"}{miss.optional ? " (dein Konto steht im Plus – nur ein Hinweis)" : ""}:{" "}
-              {miss.days.slice(0, 6).map((x, i) => <span key={x.date}>{i ? ", " : ""}<a href={"#woche/" + x.date}>{x.date.slice(8, 10)}.{x.date.slice(5, 7)}.</a> ({x.empty ? "leer" : fh(x.missing_h)})</span>)}{miss.days.length > 6 ? ` … +${miss.days.length - 6}` : ""}
+              {miss.days.slice(0, 6).map((x, i) => <span key={x.date}>{i ? ", " : ""}<a href={"#vorschlaege/nachtragen/" + x.date}>{x.date.slice(8, 10)}.{x.date.slice(5, 7)}.</a> ({x.empty ? "leer" : fh(x.missing_h)})</span>)}{miss.days.length > 6 ? ` … +${miss.days.length - 6}` : ""}
+              <div style={{ marginTop: 4 }}><a href="#vorschlaege/nachtragen" style={{ fontWeight: 600 }}>Nachtragen öffnen ›</a></div>
             </div>
           : <div style={{ marginTop: 10, fontSize: 12.5, color: "var(--accent)" }}><Check size={13} style={{ verticalAlign: -2 }} /> Keine fehlenden Stunden erkannt.</div>)}
         {msg && <div style={{ fontSize: 12, marginTop: 8, color: msg.err ? "var(--stop)" : "var(--accent)" }}>{msg.err ? "✗ " : "✓ "}{msg.text}</div>}
@@ -255,3 +269,5 @@ export function JiraInstancesPanel({ mode = "tokens", status }) {
       })}
     </div>);
 }
+
+

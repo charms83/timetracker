@@ -67,26 +67,28 @@ type srcRow struct {
 	System, ExtID string
 	Key, Name     string
 	ProjectID     *int64
+	WorkspaceID   *int64
 }
 
 func (a *App) loadSource(ctx context.Context, tx pgx.Tx, uid, id int64) (*srcRow, error) {
 	var s srcRow
-	err := tx.QueryRow(ctx, `SELECT id, system, external_id, COALESCE(key,''), COALESCE(name,''), project_id FROM project_sources WHERE id=$1 AND user_id=$2`, id, uid).
-		Scan(&s.ID, &s.System, &s.ExtID, &s.Key, &s.Name, &s.ProjectID)
+	err := tx.QueryRow(ctx, `SELECT id, system, external_id, COALESCE(key,''), COALESCE(name,''), project_id, workspace_id FROM project_sources WHERE id=$1 AND user_id=$2`, id, uid).
+		Scan(&s.ID, &s.System, &s.ExtID, &s.Key, &s.Name, &s.ProjectID, &s.WorkspaceID)
 	if err != nil {
 		return nil, err
 	}
 	return &s, nil
 }
 
-// mirror spiegelt die Verknüpfung in die Felder am Projekt (plane_project_id, plane_identifier, jira_project)
+// mirror spiegelt die Verknüpfung in die Felder am Projekt (plane_project_id, plane_identifier, plane_workspace_id, jira_project)
 func (a *App) mirror(ctx context.Context, tx pgx.Tx, uid int64, s *srcRow, pid *int64) error {
 	if s.System == "plane" {
-		if _, err := tx.Exec(ctx, `UPDATE projects SET plane_project_id=NULL, plane_identifier=NULL WHERE user_id=$1 AND plane_project_id=$2`, uid, s.ExtID); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE projects SET plane_project_id=NULL, plane_identifier=NULL, plane_workspace_id=NULL WHERE user_id=$1 AND plane_project_id=$2`, uid, s.ExtID); err != nil {
 			return err
 		}
 		if pid != nil {
-			_, err := tx.Exec(ctx, `UPDATE projects SET plane_project_id=$3, plane_identifier=$4 WHERE id=$1 AND user_id=$2`, *pid, uid, s.ExtID, nz(s.Key))
+			_, err := tx.Exec(ctx, `UPDATE projects SET plane_project_id=$3, plane_identifier=$4, plane_workspace_id=$5 WHERE id=$1 AND user_id=$2`,
+				*pid, uid, s.ExtID, nz(s.Key), s.WorkspaceID)
 			return err
 		}
 		return nil
@@ -348,15 +350,23 @@ func (a *App) sourcesDefaultRule(w http.ResponseWriter, r *http.Request, u User)
 var scanning sync.Map // Benutzer-Id → true, solange ein Einlesen läuft
 
 func (a *App) upsertSource(ctx context.Context, uid int64, system, extID, key, name string, archived bool) error {
+	return a.upsertSourceWS(ctx, uid, system, extID, key, name, archived, 0)
+}
+
+func (a *App) upsertSourceWS(ctx context.Context, uid int64, system, extID, key, name string, archived bool, workspaceID int64) error {
 	gone := 0
 	if archived {
 		gone = 1
 	}
-	tag, err := a.DB.Exec(ctx, `UPDATE project_sources SET key=$4, name=$5, gone=$6, last_seen=now() WHERE user_id=$1 AND system=$2 AND external_id=$3`, uid, system, extID, nz(key), name, gone)
+	var ws any
+	if workspaceID > 0 {
+		ws = workspaceID
+	}
+	tag, err := a.DB.Exec(ctx, `UPDATE project_sources SET key=$4, name=$5, gone=$6, last_seen=now(), workspace_id=COALESCE($7, workspace_id)
+		WHERE user_id=$1 AND system=$2 AND external_id=$3 AND COALESCE(workspace_id,0)=COALESCE($7,0)`, uid, system, extID, nz(key), name, gone, ws)
 	if err != nil || tag.RowsAffected() > 0 {
 		return err
 	}
-	// schon über die Projektfelder verknüpft?
 	var linked *int64
 	q := `SELECT id FROM projects WHERE user_id=$1 AND plane_project_id=$2 LIMIT 1`
 	if system == "jira" {
@@ -367,8 +377,9 @@ func (a *App) upsertSource(ctx context.Context, uid int64, system, extID, key, n
 	if linked != nil {
 		status = "linked"
 	}
-	_, err = a.DB.Exec(ctx, `INSERT INTO project_sources(user_id,system,external_id,key,name,project_id,status,gone) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-		ON CONFLICT (user_id,system,external_id) DO NOTHING`, uid, system, extID, nz(key), name, linked, status, gone)
+	_, err = a.DB.Exec(ctx, `INSERT INTO project_sources(user_id,system,external_id,key,name,project_id,status,gone,workspace_id)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		ON CONFLICT DO NOTHING`, uid, system, extID, nz(key), name, linked, status, gone, ws)
 	return err
 }
 
@@ -379,47 +390,54 @@ func (a *App) scanSources(ctx context.Context, uid int64, trigger string) (map[s
 	defer scanning.Delete(uid)
 	out := map[string]any{"plane": nil, "jira": nil, "new": 0, "gone": 0, "errors": []string{}}
 	var errs []string
-	c, err := a.planeCfg(ctx, uid)
+	cfgs, err := a.planeCfgs(ctx, uid)
 	if err != nil {
 		return nil, err
 	}
-	seen := map[string]bool{}
-	planeOK := false
-	if c.ok() {
+	seen := map[string]bool{} // key: workspaceID|external_id
+	planeN, planeOK := 0, false
+	for _, c := range cfgs {
 		r, err := a.planeDo(ctx, uid, c, "GET", c.wsPath()+"/projects/", nil, planeOpts{})
 		if err != nil {
-			errs = append(errs, "Plane: "+err.Error())
-		} else {
-			list := listOf(r)
-			out["plane"] = len(list)
-			planeOK = true
-			for _, p := range list {
-				id := asStr(p["id"])
-				if id == "" {
-					continue
-				}
-				seen[id] = true
-				if err := a.upsertSource(ctx, uid, "plane", id, strings.ToUpper(asStr(p["identifier"])), asStr(p["name"]), asStr(p["archived_at"]) != ""); err != nil {
-					errs = append(errs, fmt.Sprintf("Plane-Projekt %s: %v", asStr(p["identifier"]), err))
-				}
+			label := c.WS
+			if c.ID > 0 {
+				label = fmt.Sprintf("%s (#%d)", c.WS, c.ID)
+			}
+			errs = append(errs, "Plane "+label+": "+err.Error())
+			continue
+		}
+		list := listOf(r)
+		planeN += len(list)
+		planeOK = true
+		for _, p := range list {
+			id := asStr(p["id"])
+			if id == "" {
+				continue
+			}
+			seen[fmt.Sprintf("%d|%s", c.ID, id)] = true
+			if err := a.upsertSourceWS(ctx, uid, "plane", id, strings.ToUpper(asStr(p["identifier"])), asStr(p["name"]), asStr(p["archived_at"]) != "", c.ID); err != nil {
+				errs = append(errs, fmt.Sprintf("Plane-Projekt %s: %v", asStr(p["identifier"]), err))
 			}
 		}
 	}
+	if planeN > 0 {
+		out["plane"] = planeN
+	}
 	gone := 0
 	if planeOK { // verschwundene Quellen markieren (nur Systeme, die gerade erfolgreich gelesen wurden)
-		rows, err := a.DB.Query(ctx, `SELECT id, external_id FROM project_sources WHERE user_id=$1 AND system='plane' AND gone=0`, uid)
+		rows, err := a.DB.Query(ctx, `SELECT id, external_id, COALESCE(workspace_id,0) FROM project_sources WHERE user_id=$1 AND system='plane' AND gone=0`, uid)
 		if err != nil {
 			return nil, err
 		}
 		var drop []int64
 		for rows.Next() {
-			var id int64
+			var id, wsID int64
 			var ext string
-			if err := rows.Scan(&id, &ext); err != nil {
+			if err := rows.Scan(&id, &ext, &wsID); err != nil {
 				rows.Close()
 				return nil, err
 			}
-			if !seen[ext] {
+			if !seen[fmt.Sprintf("%d|%s", wsID, ext)] {
 				drop = append(drop, id)
 			}
 		}

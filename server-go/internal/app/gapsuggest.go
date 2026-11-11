@@ -10,10 +10,10 @@ import (
 	"time"
 )
 
-/* Vorschläge zum Nachtragen und „Jetzt vermutlich“ – „Light“-Variante von backend/monthend.js (suggest, suggestNow, learn).
+/* Vorschläge zum Nachtragen und „Jetzt vermutlich“ – wie backend/monthend.js (suggest, suggestNow, learn).
    Nur Regeln aus den eigenen Buchungen, nichts wird automatisch gebucht. Dreifach abschaltbar (suggestAllowedFor) plus
    „Konto erfasst Zeiten“; abgeschaltet = keine Abfragen, leere Antwort mit Hinweis.
-   Bewusst anders: keine Termin-/SSH-Vorschläge und kein Verknüpfen von Termin/SSH beim Lernen (Kalender/SSH bleiben im Client).
+   Termine/SSH aus dayOverview; learn verknüpft meeting_state / ssh_sessions.time_entry_id.
      davor / danach gebucht (≤ 30 min)   +3 / +2
      gleicher Wochentag, ähnliche Zeit    2/w + 0,5 (letzte 5 Wochen)
      viel gebucht in den letzten 14 Tagen bis +2
@@ -455,17 +455,70 @@ func (a *App) gapItems(ctx context.Context, uid int64, date string) ([]map[strin
 	}
 	items := []map[string]any{}
 	presence, _ := ov["presence"].([]span)
+	// Termine zuerst (wie Node): freie Stücke im Termin, danach Lücken ohne Doppelung
+	events, _ := ov["events"].([]map[string]any)
+	sort.SliceStable(events, func(i, j int) bool { return events[i]["s"].(int) < events[j]["s"].(int) })
+	for _, ev := range events {
+		es, ee := ev["s"].(int), ev["e"].(int)
+		title := asStr(ev["title"])
+		seed := newCands(info)
+		if prev := a.prevMeetingEntry(ctx, uid, title, date); prev != nil {
+			seed.bump(prev, 6, "Termin früher so gebucht")
+		}
+		for _, l := range a.learned(ctx, uid, "ev:"+title, lcache) {
+			e := l.e
+			seed.bump(&e, 3*float64(min(4, l.n))/4, "früher für diesen Termin gewählt")
+		}
+		if byText := a.entryByComment(ctx, uid, title, date); byText != nil {
+			seed.bump(byText, 5, "gleicher Titel früher gebucht")
+		}
+		for _, pp := range cutIntervals([][2]int{{es, ee}}, taken, 10) {
+			taken = append(taken, pp)
+			m := seed.clone()
+			common(m, pp[0], pp[1])
+			items = append(items, map[string]any{
+				"kind": "event", "ref": ev["uid"], "key": "ev:" + title,
+				"s": pp[0], "e": pp[1], "title": title, "comment": title, "candidates": m.top(4),
+			})
+		}
+	}
+	sshRows, _ := ov["ssh"].([]map[string]any)
+	sort.SliceStable(sshRows, func(i, j int) bool { return sshRows[i]["s"].(int) < sshRows[j]["s"].(int) })
+	for _, x := range sshRows {
+		xs, xe := x["s"].(int), x["e"].(int)
+		server := asStr(x["server"])
+		seed := newCands(info)
+		if prev := a.prevSSHEntry(ctx, uid, server, date); prev != nil {
+			seed.bump(prev, 6, server+" früher so gebucht")
+		}
+		for _, l := range a.learned(ctx, uid, "ssh:"+server, lcache) {
+			e := l.e
+			seed.bump(&e, 3*float64(min(4, l.n))/4, "früher für "+server+" gewählt")
+		}
+		for _, pp := range cutIntervals([][2]int{{xs, xe}}, taken, 10) {
+			taken = append(taken, pp)
+			m := seed.clone()
+			common(m, pp[0], pp[1])
+			items = append(items, map[string]any{
+				"kind": "ssh", "ref": x["id"], "key": "ssh:" + server,
+				"s": pp[0], "e": pp[1], "title": "SSH " + server, "comment": "SSH " + server, "candidates": m.top(4),
+			})
+		}
+	}
+	busyEv := make([][2]int, 0, len(items))
+	for _, it := range items {
+		busyEv = append(busyEv, [2]int{it["s"].(int), it["e"].(int)})
+	}
 	gapTitle := "Zwischen Buchungen, nichts gebucht"
 	if len(presence) > 0 {
 		gapTitle = "Am Mac, nichts gebucht"
 	}
 	for _, g := range ov["gaps"].([]span) {
-		if g.E-g.S < 10 {
-			continue
+		for _, pp := range cutIntervals([][2]int{{g.S, g.E}}, busyEv, 10) {
+			m := newCands(info)
+			common(m, pp[0], pp[1])
+			items = append(items, map[string]any{"kind": "gap", "key": slotKey(date, pp[0]), "s": pp[0], "e": pp[1], "title": gapTitle, "comment": "", "candidates": m.top(4)})
 		}
-		m := newCands(info)
-		common(m, g.S, g.E)
-		items = append(items, map[string]any{"kind": "gap", "key": slotKey(date, g.S), "s": g.S, "e": g.E, "title": gapTitle, "comment": "", "candidates": m.top(4)})
 	}
 	// Rest: fehlt danach noch Zeit → typischer Tag (ohne Buchungen) bzw. Block nach der letzten Buchung
 	target := dayTargets(st)[wd]
@@ -540,7 +593,71 @@ func asInt64(v any) int64 {
 	return 0
 }
 
-// gapLearn: aus einem Vorschlag gebucht → Wahl merken (nur eigene Projekte/Tickets). Termin/SSH verknüpft der Client selbst.
+// prevMeetingEntry: letzte Buchung zu einem gleichnamigen Termin (über meeting_state)
+func (a *App) prevMeetingEntry(ctx context.Context, uid int64, title, beforeDate string) *candEntry {
+	var entryID int64
+	err := a.DB.QueryRow(ctx, `SELECT ms.entry_id FROM calendar_events c
+		JOIN meeting_state ms ON ms.user_id=c.user_id AND ms.key IN ('cal:'||c.uid, c.uid) AND ms.status='booked' AND ms.entry_id IS NOT NULL
+		WHERE c.user_id=$1 AND c.title=$2 AND c.date<$3 ORDER BY c.date DESC LIMIT 1`, uid, title, beforeDate).Scan(&entryID)
+	if err != nil || entryID == 0 {
+		return nil
+	}
+	e, err := scanCand(a.DB.QueryRow(ctx, `SELECT `+candCols+candJoin+` WHERE e.user_id=$1 AND e.id=$2`, uid, entryID))
+	if err != nil || e.ProjectID == 0 {
+		return nil
+	}
+	return &e
+}
+
+func (a *App) entryByComment(ctx context.Context, uid int64, comment, beforeDate string) *candEntry {
+	e, err := scanCand(a.DB.QueryRow(ctx, `SELECT `+candCols+candJoin+`
+		WHERE e.user_id=$1 AND e.comment=$2 AND e.date<$3 AND e.project_id IS NOT NULL ORDER BY e.date DESC, e.start_time DESC LIMIT 1`, uid, comment, beforeDate))
+	if err != nil || e.ProjectID == 0 {
+		return nil
+	}
+	return &e
+}
+
+func (a *App) entryByCommentLatest(ctx context.Context, uid int64, comment string) *candEntry {
+	e, err := scanCand(a.DB.QueryRow(ctx, `SELECT `+candCols+candJoin+`
+		WHERE e.user_id=$1 AND e.comment=$2 AND e.project_id IS NOT NULL ORDER BY e.date DESC, e.start_time DESC LIMIT 1`, uid, comment))
+	if err != nil || e.ProjectID == 0 {
+		return nil
+	}
+	return &e
+}
+
+func (a *App) prevSSHEntry(ctx context.Context, uid int64, server, beforeDate string) *candEntry {
+	var entryID int64
+	err := a.DB.QueryRow(ctx, `SELECT time_entry_id FROM ssh_sessions
+		WHERE user_id=$1 AND (hostname=$2 OR target=$2) AND time_entry_id IS NOT NULL AND date<$3
+		ORDER BY date DESC LIMIT 1`, uid, server, beforeDate).Scan(&entryID)
+	if err != nil || entryID == 0 {
+		return nil
+	}
+	e, err := scanCand(a.DB.QueryRow(ctx, `SELECT `+candCols+candJoin+` WHERE e.user_id=$1 AND e.id=$2`, uid, entryID))
+	if err != nil || e.ProjectID == 0 {
+		return nil
+	}
+	return &e
+}
+
+func (a *App) latestSSHEntry(ctx context.Context, uid int64, server string) *candEntry {
+	var entryID int64
+	err := a.DB.QueryRow(ctx, `SELECT time_entry_id FROM ssh_sessions
+		WHERE user_id=$1 AND (hostname=$2 OR target=$2) AND time_entry_id IS NOT NULL
+		ORDER BY date DESC LIMIT 1`, uid, server).Scan(&entryID)
+	if err != nil || entryID == 0 {
+		return nil
+	}
+	e, err := scanCand(a.DB.QueryRow(ctx, `SELECT `+candCols+candJoin+` WHERE e.user_id=$1 AND e.id=$2`, uid, entryID))
+	if err != nil || e.ProjectID == 0 {
+		return nil
+	}
+	return &e
+}
+
+// gapLearn: aus einem Vorschlag gebucht → Termin/SSH verknüpfen und Wahl merken
 func (a *App) gapLearn(w http.ResponseWriter, r *http.Request, u User) {
 	var in body
 	if !readJSON(w, r, &in) {
@@ -550,6 +667,23 @@ func (a *App) gapLearn(w http.ResponseWriter, r *http.Request, u User) {
 	if on, why := a.suggestAllowedFor(ctx, u.ID, "Vorschläge"); !on { // aus: nichts lernen
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "learned": false, "reason": why})
 		return
+	}
+	entryID := int64(asFloat(in["entry_id"]))
+	kind, ref := asStr(in["kind"]), asStr(in["ref"])
+	if entryID > 0 && ref != "" {
+		switch kind {
+		case "ssh":
+			if sid := int64(asFloat(ref)); sid > 0 {
+				_, _ = a.DB.Exec(ctx, `UPDATE ssh_sessions SET time_entry_id=$3 WHERE id=$1 AND user_id=$2 AND time_entry_id IS NULL`, sid, u.ID, entryID)
+			}
+		case "event":
+			key := ref
+			if !strings.HasPrefix(key, "cal:") {
+				key = "cal:" + key
+			}
+			_, _ = a.DB.Exec(ctx, `INSERT INTO meeting_state(user_id,key,status,entry_id) VALUES($1,$2,'booked',$3)
+				ON CONFLICT (user_id,key) DO UPDATE SET status='booked', entry_id=EXCLUDED.entry_id`, u.ID, key, entryID)
+		}
 	}
 	if invalidID(in["task_id"]) || invalidID(in["project_id"]) {
 		badRequest(w, "task_id/project_id ungültig")
@@ -579,7 +713,7 @@ func (a *App) gapLearn(w http.ResponseWriter, r *http.Request, u User) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "learned": learned})
 }
 
-// suggestNow: „Jetzt vermutlich“ – Gewohnheit (gleicher Wochentag/Uhrzeit), früher gewählt, zuletzt heute
+// suggestNow: „Jetzt vermutlich“ – laufender Termin/SSH, Gewohnheit, früher gewählt, zuletzt heute
 func (a *App) suggestNow(w http.ResponseWriter, r *http.Request, u User) {
 	ctx := r.Context()
 	if on, why := a.suggestAllowedFor(ctx, u.ID, "Vorschläge"); !on {
@@ -593,12 +727,58 @@ func (a *App) suggestNow(w http.ResponseWriter, r *http.Request, u User) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"context": nil, "items": a.nowItems(ctx, u.ID, date, nm, hist)})
+	ov, err := a.dayOverview(ctx, u.ID, date)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	ctxTitle, items := a.nowItems(ctx, u.ID, date, nm, hist, ov)
+	writeJSON(w, http.StatusOK, map[string]any{"context": nz(ctxTitle), "items": items})
 }
 
-func (a *App) nowItems(ctx context.Context, uid int64, date string, nm int, hist []candEntry) []map[string]any {
+func (a *App) nowItems(ctx context.Context, uid int64, date string, nm int, hist []candEntry, ov map[string]any) (string, []map[string]any) {
 	m := newCands(map[string]candEntry{})
-	for _, l := range a.learned(ctx, uid, slotKey(date, nm), map[string][]learnedCand{}) {
+	lcache := map[string][]learnedCand{}
+	ctxTitle := ""
+	if events, _ := ov["events"].([]map[string]any); len(events) > 0 {
+		for _, ev := range events {
+			es, ee := asInt(ev["s"]), asInt(ev["e"])
+			if es <= nm+5 && ee > nm {
+				title := asStr(ev["title"])
+				ctxTitle = title
+				why := `Termin „` + title + `“ läuft`
+				for _, l := range a.learned(ctx, uid, "ev:"+title, lcache) {
+					e := l.e
+					m.bump(&e, 3*float64(min(4, l.n))/4, why)
+				}
+				if byText := a.entryByCommentLatest(ctx, uid, title); byText != nil {
+					m.bump(byText, 6, why)
+				}
+				break
+			}
+		}
+	}
+	if sshRows, _ := ov["ssh"].([]map[string]any); len(sshRows) > 0 {
+		for _, x := range sshRows {
+			xs, xe := asInt(x["s"]), asInt(x["e"])
+			if xs <= nm && xe >= nm-2 {
+				server := asStr(x["server"])
+				if ctxTitle == "" {
+					ctxTitle = "SSH " + server
+				}
+				why := "SSH " + server + " offen"
+				for _, l := range a.learned(ctx, uid, "ssh:"+server, lcache) {
+					e := l.e
+					m.bump(&e, 3*float64(min(4, l.n))/4, why)
+				}
+				if prev := a.latestSSHEntry(ctx, uid, server); prev != nil {
+					m.bump(prev, 6, why)
+				}
+				break
+			}
+		}
+	}
+	for _, l := range a.learned(ctx, uid, slotKey(date, nm), lcache) {
 		m.bump(&l.e, float64(min(4, l.n))/4, "früher hier gewählt")
 	}
 	nowBump(m, hist, nm)
@@ -610,13 +790,13 @@ func (a *App) nowItems(ctx context.Context, uid int64, date string, nm int, hist
 		if c["score"].(float64) < 2 {
 			continue
 		}
-		c["comment"] = c["last_comment"]
+		c["comment"] = jsOr(ctxTitle, asStr(c["last_comment"]))
 		delete(c, "last_comment")
 		delete(c, "project_name")
 		c["key"] = slotKey(date, nm)
 		out = append(out, c)
 	}
-	return out
+	return ctxTitle, out
 }
 
 // nowBump: Buchungen der letzten 5 gleichen Wochentage, die jetzt liefen (reine Logik, getestet)

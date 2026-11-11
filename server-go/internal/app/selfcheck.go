@@ -29,9 +29,10 @@ type CheckReport struct {
 	Worst string      `json:"worst"`
 }
 
-var requiredTables = []string{"users", "sessions", "device_tokens", "user_secrets", "user_settings", "server_config", "audit_log", "notify_sent", "projects", "tasks",
+var requiredTables = []string{"users", "sessions", "device_tokens", "integration_tokens", "user_secrets", "user_settings", "server_config", "audit_log", "notify_sent", "projects", "tasks",
 	"plan_tasks", "time_entries", "timer_state", "pause_state", "pauses", "daily_logs", "absences", "month_closings", "balance_corrections",
-	"system_logs", "plane_deletions", "plane_ticket_sync", "project_sources", "presence_min", "calendar_events", "meeting_state", "entry_audit", "jira_instances"}
+	"system_logs", "plane_deletions", "plane_ticket_sync", "project_sources", "presence_min", "calendar_events", "meeting_state", "entry_audit", "jira_instances",
+	"leave_requests", "client_hints", "rate_events", "rate_blocks", "plane_workspaces", "ssh_sessions"}
 
 func rank(s string) int { return map[string]int{"ok": 0, "fixed": 1, "warn": 2, "error": 3}[s] }
 
@@ -314,6 +315,19 @@ func (a *App) StartSelfCheck(ctx context.Context) {
 	a.startTempoCron(ctx)      // Tempo-Automatik alle 10 min (nur bei module_tempo=1)
 	a.startTempoMonthCron(ctx) // Übergangs-Tickets alle 6 h schließen/wiederöffnen
 	a.startMonthCloseCron(ctx) // Monatsschluss nach Nachfrist: beim Start und alle 15 min
+	a.startTempoSyncCron(ctx)  // Tempo→lokal Abgleich alle 12 h (Fenster: letzte 2 Monate)
+	go func() {
+		t := time.NewTicker(30 * time.Minute)
+		defer t.Stop()
+		for {
+			a.safely("rate-prune", func() { a.ratePrune(ctx) })
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+		}
+	}()
 	run := func() {
 		purgeCaches()
 		rep := a.SelfCheck(ctx, CheckOpts{Fix: true})

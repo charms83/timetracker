@@ -73,6 +73,19 @@ button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid 
 @media (max-width:979px){ .zp-side{display:none} .zp-main{margin-left:0} .zp-compact{display:flex!important} }
 @media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 @media (prefers-contrast: more){:root{--line:#8E8E93;--text2:#3A3A3C}}
+
+/* Ruhige Übersicht (ADHD): ein Fokus, Details zugeklappt, Navigation nicht überladen */
+.zp-focus{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 12px;border-radius:10px;background:var(--accent-soft);border:1px solid transparent;font-size:13px;line-height:1.35;margin-bottom:2px}
+.zp-focus b{font-weight:600}
+.zp-focus-link{border:none;background:transparent;color:var(--accent);font-weight:600;font-size:13px;padding:0;text-decoration:underline;cursor:pointer}
+.zp-details{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:8px 12px;font-size:13px}
+.zp-details>summary{cursor:pointer;font-weight:600;color:var(--text2);list-style:none;display:flex;align-items:center;gap:6px;min-height:28px}
+.zp-details>summary::-webkit-details-marker{display:none}
+.zp-details>summary::before{content:"▸";color:var(--accent);font-size:11px}
+.zp-details[open]>summary::before{content:"▾"}
+.zp-details[open]>summary{margin-bottom:4px;color:var(--text)}
+.zp-side .zp-nav-more.grp{padding:10px 10px 4px;color:var(--text2)}
+.zp-side .zp-nav-more.grp:hover{color:var(--text)}
 ::-webkit-scrollbar{width:8px;height:8px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}

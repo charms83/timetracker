@@ -72,8 +72,11 @@ func (a *App) localUserCreate(w http.ResponseWriter, r *http.Request, u User) {
 		name = username
 	}
 	productive := role != "admin"
-	if v, has := in["productive"]; has {
+	if v, has := in["productive"]; has && role != "admin" {
 		productive = truthy(v)
+	}
+	if role == "admin" {
+		productive = false
 	}
 	pw, err := GeneratePassword()
 	if err != nil {

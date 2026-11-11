@@ -25,6 +25,9 @@ import { AssistantView, AssistantHint, AssistantToggle, useAssistantAutoOpen } f
 import TeamView from "./zp-team.jsx";
 import PersonalView from "./zp-personal.jsx";
 import { ServerUserBox, ServerBanner, ClientHint, MonthApprovalCard, useJiraModule } from "./zp-servermode.jsx";
+import { LeaveRequestCard } from "./zp-leave.jsx";
+import { DevicesPanel } from "./zp-devices.jsx";
+import { GapFiller } from "./zp-gaps.jsx";
 import { call, api as uiApi, isServerMode, useServerMode, ImpreciseMark, NowCard, QuickStart, TimerActions, DayTimeline, PlaneSettingsTab, PlaneSyncView, TicketInput, projColor, projectFromTicket, resolveTask, ticketLabel, useActivities, reloadActivities, MissingBanner, BrowserTicketBar } from "./zp-ui.jsx";
 
 /* ═══ API ══════════════════════════════════════ */
@@ -159,17 +162,23 @@ function TimeEntryModal({ entry, projects, onSave, onClose, defaultDate }) {
     if (!start && durMin==null) return;
     if (Number.isNaN(durMin) || durMin===0) { setErr("Dauer nicht lesbar – z. B. 1h 30, 45m, 1,5h."); return; }
     setLoading(true);
-    const startLocal = start || "08:00";
-    const startISO = new Date(`${date}T${startLocal}`).toISOString();
-    const endISO   = durMin ? new Date(new Date(startISO).getTime()+durMin*60000).toISOString() : end ? new Date(`${date}T${end}`).toISOString() : null;
-    const durSecs  = endISO ? Math.floor((new Date(endISO)-new Date(startISO))/1000) : null;
-    if (durSecs !== null && durSecs <= 0) { setErr("Ende muss nach dem Start liegen."); setLoading(false); return; }
     // Aufgabe aus Ticket-Feld ermitteln (lokal oder aus Plane übernommen)
     let tId = null;
     const tk = ticket.trim();
     if (tk && projId) {
       const cur = tasks.find(t => t.id === taskId || String(t.id) === String(taskId));
       tId = (cur && (cur.jira_ticket === tk || cur.title === tk)) ? cur.id : await resolveTask(parseInt(projId), tk, picked?.name);
+    }
+    const autoPlace = !isEdit && !start && durMin > 0; // Tempo-Stil: nur Dauer → Server legt Uhrzeit in freie Lücke
+    let startISO = null, endISO = null, durSecs = null;
+    if (autoPlace) {
+      durSecs = durMin * 60;
+    } else {
+      const startLocal = start || "08:00";
+      startISO = new Date(`${date}T${startLocal}`).toISOString();
+      endISO   = durMin ? new Date(new Date(startISO).getTime()+durMin*60000).toISOString() : end ? new Date(`${date}T${end}`).toISOString() : null;
+      durSecs  = endISO ? Math.floor((new Date(endISO)-new Date(startISO))/1000) : null;
+      if (durSecs !== null && durSecs <= 0) { setErr("Ende muss nach dem Start liegen."); setLoading(false); return; }
     }
     // Warnung bei sehr kurzen Einträgen (< 5min)
     if (durSecs !== null && durSecs < 300) {
@@ -185,11 +194,12 @@ function TimeEntryModal({ entry, projects, onSave, onClose, defaultDate }) {
       });
       if (!r || r.error) { setErr(r?.error || "Speichern fehlgeschlagen – läuft der Dienst?"); setLoading(false); return; }
     } else {
-      const r = await api("POST", "/time-entries", {
+      const body = {
         project_id: projId ? parseInt(projId) : null, task_id: tId,
-        start_time: startISO, end_time: endISO,
         duration_seconds: durSecs, comment, billable, date, activity: activity || null
-      });
+      };
+      if (!autoPlace) { body.start_time = startISO; body.end_time = endISO; }
+      const r = await api("POST", "/time-entries", body);
       if (!r || r.error) { setErr(r?.error || "Speichern fehlgeschlagen – läuft der Dienst?"); setLoading(false); return; }
     }
     setLoading(false);
@@ -197,12 +207,12 @@ function TimeEntryModal({ entry, projects, onSave, onClose, defaultDate }) {
   };
 
   return (
-    <Modal title={isEdit ? "⏱ Zeiteintrag bearbeiten" : "⏱ Manueller Zeiteintrag"} onClose={onClose} width={480}>
+    <Modal title={isEdit ? "⏱ Zeiteintrag bearbeiten" : "⏱ Zeit eintragen"} onClose={onClose} width={480}>
       <div style={{padding:"14px 18px 18px"}}>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-          <Field label="PROJEKT *">
+          <Field label="PROJEKT">
             <select style={sel} value={projId} onChange={e=>{setProjId(e.target.value);setTaskId("");}}>
-              <option value="">– kein Projekt (nur Zeiteintrag) –</option>
+              <option value="">– ohne Projekt / Ticket –</option>
               {projects.filter(p=>p.status!=="archived").map(p=>
                 <option key={p.id} value={p.id}>{p.customer_name ? `${p.customer_name} – `:""}{p.name}</option>
               )}
@@ -218,16 +228,19 @@ function TimeEntryModal({ entry, projects, onSave, onClose, defaultDate }) {
           <Field label="DATUM">
             <input style={inp} type="date" value={date} onChange={e=>setDate(e.target.value)}/>
           </Field>
-          <Field label="START">
+          <Field label="DAUER">
+            <input style={inp} placeholder="1h 30" value={dur} onChange={e=>setDur(e.target.value)} title="wie Tempo: 1h 30, 45m, 1,5h – ohne Start/Ende legt der Assistent die Uhrzeit"/>
+          </Field>
+          <Field label="START (opt.)">
             <input style={inp} type="time" value={start} onChange={e=>setStart(e.target.value)}/>
           </Field>
-          <Field label="ENDE">
+          <Field label="ENDE (opt.)">
             <input style={inp} type="time" value={end} disabled={durMin>0} onChange={e=>setEnd(e.target.value)}/>
           </Field>
-          <Field label="ODER DAUER">
-            <input style={inp} placeholder="1h 30" value={dur} onChange={e=>setDur(e.target.value)} title="z. B. 1h 30, 45m, 1,5h, 90 – ohne Start ab 08:00"/>
-          </Field>
         </div>
+        {!isEdit && !start && !!dur.trim() && (
+          <div style={{fontSize:12,color:"var(--text2)",margin:"-4px 0 10px"}}>Ohne Start/Ende: Uhrzeit wird passend in eine freie Lücke des Tages gelegt.</div>
+        )}
         <div style={{display:"grid",gridTemplateColumns:"2fr 1fr",gap:12}}>
           <Field label="KOMMENTAR">
             <input style={inp} placeholder="Was wurde gemacht?" value={comment} onChange={e=>setComment(e.target.value)} onKeyDown={e=>e.key==="Enter"&&save()}/>
@@ -542,19 +555,32 @@ function TimerView({ timer, elapsed, onStart, onStop, onSwitch, workday, todayDa
     <div style={{display:"flex",gap:16,alignItems:"flex-start"}}>
     <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",gap:10}}>
 
-      {/* ══ JETZT · SCHNELLSTART · PAUSE/STOPP (wie Schnellfenster) ══ */}
+      {/* ══ JETZT: ein Fokusblock zuerst (ADHD: nicht alles auf einmal) ══ */}
       <MissingBanner/>
       {isToday&&<AssistantHint/>}
-      {isToday&&!isServerMode()&&<CurrentMeetingBar timer={timer} onChanged={onRefresh}/>}
-      {isToday&&!isServerMode()&&<MeetingSuggestions projects={projects} onChanged={onRefresh}/>}
+      {isToday && !timer.active && !pauseState?.active && (
+        <div className="zp-focus" role="status">
+          <b>Als Nächstes:</b> Ticket starten (unten) oder Zeit nachtragen.
+          <button type="button" className="zp-focus-link" onClick={()=>{ location.hash="vorschlaege/nachtragen"; }}>Nachtragen öffnen</button>
+        </div>
+      )}
       <div className="zp-panel">
         {isToday&&<BrowserTicketBar timer={timer} onChanged={onRefresh}/>}
         <NowCard timer={timer} pauseState={pauseState}/>
-        <QuickStart projects={projects} onChanged={onRefresh}/>
+        <QuickStart projects={projects} onChanged={onRefresh} timer={timer}/>
         <TimerActions timer={timer} pauseState={pauseState} onChanged={onRefresh}
           onManual={()=>{ setManualDate(expandedDay||today()); setManual(true); }}
           onPauseEntry={()=>{ onDateChange(expandedDay||today()); setPauseOpen(true); }}/>
       </div>
+      {isToday && (
+        <details className="zp-details">
+          <summary>Termine & Meetings (optional)</summary>
+          <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:8}}>
+            <CurrentMeetingBar timer={timer} onChanged={onRefresh}/>
+            <MeetingSuggestions projects={projects} onChanged={onRefresh}/>
+          </div>
+        </details>
+      )}
 
       <DaySummaryLine date={today()} tick={Math.floor(bookedSecs/300)}/>
       <OverlapCard tick={Math.floor(bookedSecs/300)} onChanged={onRefresh}/>
@@ -1284,10 +1310,12 @@ function SshView() {
       </div>
 
       {data && !data.log_exists && (
-        <div style={{background:"rgba(180,210,41,0.08)",border:"1px solid rgba(180,210,41,0.3)",borderRadius:6,padding:"12px 16px",marginBottom:16,color:"var(--text2)",fontSize:12,lineHeight:1.6}}>
-          <b style={{color:"var(--accent)"}}>SSH-Protokoll noch nicht aktiv.</b> Einmal im Terminal ausführen, dann neues Terminal-Fenster öffnen:<br/>
-          <code style={{color:"var(--hi)"}}>echo 'source ~/zeitprotokoll/scripts/ssh-log.zsh' &gt;&gt; ~/.zshrc</code>
-        </div>
+        isServerMode()
+          ? <div style={{marginBottom:16}}><ClientHint title="SSH-Protokoll optional">Sitzungen liefert die Mac-App (ssh-log). Im Browser kannst du Zeiten trotzdem normal nachtragen – unter Vorschläge › Nachtragen.</ClientHint></div>
+          : <div style={{background:"rgba(180,210,41,0.08)",border:"1px solid rgba(180,210,41,0.3)",borderRadius:6,padding:"12px 16px",marginBottom:16,color:"var(--text2)",fontSize:12,lineHeight:1.6}}>
+              <b style={{color:"var(--accent)"}}>SSH-Protokoll noch nicht aktiv.</b> Einmal im Terminal ausführen, dann neues Terminal-Fenster öffnen:<br/>
+              <code style={{color:"var(--hi)"}}>echo 'source ~/zeitprotokoll/scripts/ssh-log.zsh' &gt;&gt; ~/.zshrc</code>
+            </div>
       )}
 
       {loading&&!data&&<div style={{color:"var(--text3)",padding:"20px 0"}}>Lade…</div>}
@@ -1561,26 +1589,33 @@ export default function App() {
   const [assistOn, setAssistOn] = useState(false);
   useEffect(()=>{ api("GET","/assistant").then(r=>r&&!r.error&&setAssistOn(!!r.enabled)); },[]);
   useAssistantAutoOpen(setView);
-  // Einfach: nur der Alltag. Erweitert: zusätzliche Ansichten (Stundenzettel, Planung, SSH-Rohdaten, Ticket-Bereiche)
+  // Einfach = ruhige Primärziele (ADHD: wenig Wahl auf einmal). Alles Weitere unter „Mehr“, nichts entfernt.
   const [uiMode, setUiMode] = useState(() => { try { return localStorage.getItem("zp-ui-mode") || "einfach"; } catch (_) { return "einfach"; } });
   const toggleMode = () => { const m = uiMode==="einfach" ? "erweitert" : "einfach"; setUiMode(m); try { localStorage.setItem("zp-ui-mode", m); } catch (_) {} };
   const adv = uiMode==="erweitert";
+  const [navMore, setNavMore] = useState(() => { try { return localStorage.getItem("zp-nav-more") === "1"; } catch (_) { return false; } });
+  const toggleNavMore = () => { const n = !navMore; setNavMore(n); try { localStorage.setItem("zp-nav-more", n ? "1" : "0"); } catch (_) {} };
   // Servermodus: Bereiche „Team“ (Teamleitung) und „Personal“ je Rolle; bei Rollenkombination untereinander mit Überschriften
   const isLead = serverMode && !!srvMe?.is_lead, isHr = serverMode && !!srvMe?.is_hr;
   const roleAreas = isLead || isHr;
   const showEmpl = !(roleAreas && srvMe?.productive === false);   // Konten ohne Zeiterfassung sehen den Mitarbeiter-Bereich nicht
   const emplL = roleAreas ? "Mitarbeiter · " : "";
-  useEffect(()=>{ if(serverMode&&srvMe&&!showEmpl&&!["team","personal","einstellungen"].includes(view)){ const v=isLead?"team":"personal"; location.hash=v; setView(v); } },[serverMode,srvMe,showEmpl,view,isLead]);
+  useEffect(()=>{ if(serverMode&&srvMe&&!showEmpl&&!["team","personal","einstellungen","koppeln"].includes(view)){ const v=isLead?"team":"personal"; location.hash=v; setView(v); } },[serverMode,srvMe,showEmpl,view,isLead]);
+  // Primär: Alltag (max. ~6 Ziele). Sekundär: alles andere – erreichbar, nicht gleich sichtbar.
+  const NAV_PRIMARY = showEmpl ? ["timer","planung","woche","vorschlaege","uebertragen"] : [];
+  const NAV_MORE = showEmpl ? [
+    "kalender","abwesenheiten","stundenzettel","report","projects",
+    ...(assistOn ? ["assistent"] : []),
+    ...(adv ? ["ssh","plane", ...(jiraOn===false ? [] : ["jira"])] : []),
+  ] : [];
   const NAV_GROUPS = [
     ...(showEmpl ? [
-    { label:emplL+"Erfassen",  ids:["timer","planung","woche","kalender","abwesenheiten", ...(adv?["stundenzettel"]:[])] },
-    { label:emplL+"Prüfen",    ids:["vorschlaege","uebertragen"] },
-    { label:emplL+"Auswerten", ids:["report","projects", ...(adv?["ssh"]:[])] },
-    ...(adv ? [{ label:emplL+"Tickets", ids:["plane","jira"] }] : []),
+      { label: emplL + "Jetzt", ids: NAV_PRIMARY, primary: true },
+      { label: emplL + "Mehr", ids: NAV_MORE, more: true },
     ] : []),
     ...(isLead ? [{ label:"Team", ids:["team"] }] : []),
     ...(isHr ? [{ label:"Personal", ids:["personal"] }] : []),
-    { label:"",          ids:[...(showEmpl?["assistent"]:[]),"einstellungen"] },
+    { label:"", ids:["einstellungen"] },
   ];
   const nav = [
     ...(isLead ? [{id:"team", label:"Team", icon:<UsersIcon size={16}/>}] : []),
@@ -1601,6 +1636,11 @@ export default function App() {
     ...(assistOn ? [{id:"assistent", label:"Assistent", icon:<Compass size={16}/>}] : []),
     {id:"einstellungen",  label:"Einstellungen",   icon:<Settings size={16}/>},
   ];
+  // Desktop und Mobile dieselbe Rollen-Filterung (NAV_GROUPS), sonst sieht man falsche Einträge
+  const navAllowed = new Set(NAV_GROUPS.flatMap(g => g.ids));
+  const viewInMore = NAV_MORE.includes(view);
+  const moreOpen = navMore || viewInMore || adv;
+  const navShown = nav.filter(n => navAllowed.has(n.id) && (NAV_PRIMARY.includes(n.id) || n.id==="einstellungen" || n.id==="team" || n.id==="personal" || moreOpen || !NAV_MORE.includes(n.id)));
 
   return (
     <div style={{minHeight:"100vh",position:"relative"}}>
@@ -1614,17 +1654,33 @@ export default function App() {
           <div><div className="name">Zeitprotokoll</div><div className="sub" title="Version – Details unter Einstellungen › Server">Beispiel{version?` · v${version}`:""}</div></div>
         </div>
         <nav>
-          {NAV_GROUPS.map(g=>{ const items=g.ids.map(id=>nav.find(n=>n.id===id)).filter(Boolean); if(!items.length) return null; return (
-            <div key={g.label}>
-              <div className="grp">{g.label}</div>
+          {NAV_GROUPS.map(g=>{
+            if (g.more) {
+              return (
+                <div key={g.label || "mehr"}>
+                  <button type="button" className="grp zp-nav-more" aria-expanded={moreOpen} onClick={toggleNavMore}
+                    style={{display:"flex",alignItems:"center",gap:6,width:"100%",border:"none",background:"transparent",cursor:"pointer",textAlign:"left"}}>
+                    <span style={{flex:1}}>{g.label || "Mehr"}</span>
+                    <span style={{fontSize:11,fontWeight:500}}>{moreOpen ? "▾" : "▸"}</span>
+                  </button>
+                  {moreOpen && g.ids.map(id=>nav.find(n=>n.id===id)).filter(Boolean).map(n=>(
+                    <button key={n.id} className="item" aria-current={view===n.id||(n.id==="jira"&&view==="tempo")?"page":undefined} onClick={()=>{ location.hash=n.id; setView(n.id); }}>
+                      {n.icon}<span>{n.label}</span>
+                    </button>))}
+                </div>);
+            }
+            const items=g.ids.map(id=>nav.find(n=>n.id===id)).filter(Boolean); if(!items.length) return null;
+            return (
+            <div key={g.label || items[0].id}>
+              {g.label ? <div className="grp">{g.label}</div> : null}
               {items.map(n=>(
                 <button key={n.id} className="item" aria-current={view===n.id||(n.id==="jira"&&view==="tempo")?"page":undefined} onClick={()=>{ location.hash=n.id; setView(n.id); }}>
                   {n.icon}<span>{n.label}</span>
                 </button>))}
             </div>); })}
         </nav>
-        <button onClick={toggleMode} title="Weitere Ansichten ein-/ausblenden" style={{margin:"8px 12px 0",border:"1px dashed var(--line)",background:"transparent",color:"var(--text2)",borderRadius:8,padding:"6px 10px",fontSize:12,textAlign:"left",cursor:"pointer"}}>
-          {adv ? "◂ Einfache Ansicht" : "▸ Mehr Ansichten (Stundenzettel, Planung, SSH, Tickets)"}</button>
+        <button onClick={toggleMode} title="SSH und Ticket-Bereiche ein-/ausblenden" style={{margin:"8px 12px 0",border:"1px dashed var(--line)",background:"transparent",color:"var(--text2)",borderRadius:8,padding:"6px 10px",fontSize:12,textAlign:"left",cursor:"pointer"}}>
+          {adv ? "◂ Ruhige Ansicht" : "▸ Technik (SSH, Plane/Jira)"}</button>
         {timer.active&&(
           <button className="run" onClick={()=>{ location.hash="timer"; setView("timer"); }} style={{border:"none",textAlign:"left",color:"var(--text)"}}>
             <div style={{display:"flex",alignItems:"center",gap:7}}><span style={SB.timerDot}/><b style={{fontVariantNumeric:"tabular-nums"}}>{fmtDur(elapsed)}</b><span style={{color:"var(--text2)"}}>läuft</span></div>
@@ -1644,12 +1700,17 @@ export default function App() {
         </div>
 
         <nav style={SB.tabs}>
-          {nav.map(n=>(
-            <button key={n.id} style={{...SB.tabBtn,...(view===n.id?SB.tabActive:{})}} onClick={()=>setView(n.id)}>
+          {navShown.map(n=>(
+            <button key={n.id} style={{...SB.tabBtn,...(view===n.id?SB.tabActive:{})}} onClick={()=>{ location.hash=n.id; setView(n.id); }}>
               <span style={SB.navIcon}>{n.icon}</span>
               <span>{n.label}</span>
             </button>
           ))}
+          {showEmpl && NAV_MORE.length > 0 && (
+            <button type="button" style={{...SB.tabBtn, opacity: moreOpen ? 1 : 0.85}} onClick={toggleNavMore} aria-expanded={moreOpen}>
+              <span>{moreOpen ? "Weniger" : "Mehr"}</span>
+            </button>
+          )}
         </nav>
 
         <div style={{flex:1}}/>
@@ -1693,9 +1754,9 @@ export default function App() {
           {view==="projects"&&<><CleanupPanel onChanged={()=>{ loadProjects(); setPvKey(k=>k+1); }}/><div style={{height:12}}/><ProjectSourcesPanel onChanged={()=>{ loadProjects(); setPvKey(k=>k+1); }}/><ProjectsView key={pvKey} onRefreshNeeded={()=>{loadProjects();}}/></>}
           {view==="stundenzettel"&&<TimesheetView/>}
           {view==="report"&&<ReportViewNeu/>}
-          {view==="ssh"&&(serverMode?<ClientHint title="SSH-Sitzungen brauchen den Mac-Client">SSH-Sitzungen werden auf deinem Rechner erkannt (Terminal-Protokoll). Der Server nimmt sie nur als Vorschlag vom Client entgegen – im Browser ist diese Ansicht nicht verfügbar.</ClientHint>:<SshView/>)}
+          {view==="ssh"&&<SshView/>}
           {view==="planung"&&<TodoView/>}
-          {view==="koppeln"&&(serverMode?<ClientHint title="Kopplung braucht den Mac-Client">Das Browser-Add-on wird mit dem Mac-Client gekoppelt.</ClientHint>:<PairApprove nonce={location.hash.split("/")[1]||""} onDone={()=>{ location.hash="timer"; setView("timer"); }}/>)}
+          {view==="koppeln"&&<PairApprove nonce={location.hash.split("/")[1]||""} onDone={()=>{ location.hash="timer"; setView("timer"); }}/>}
           {view==="abwesenheiten"&&<AbwesenheitenView/>}
           {view==="plane"&&<PlaneArea onOpenSettings={()=>{ location.hash="einstellungen/plane"; setView("einstellungen"); }}/>}
           {(view==="jira"||view==="tempo")&&<JiraArea key={view} initialTab={view==="tempo"?"tempo":"tickets"} onOpenSettings={()=>{ location.hash="einstellungen/jira"; setView("einstellungen"); }}/>}
@@ -1763,32 +1824,56 @@ function ArbeitszeitSettings() {
 
 /* Vorschläge: Termine, erkannte Meetings, SSH-Sitzungen – das sind KEINE Buchungen, erst „Buchen“ macht Zeit daraus */
 function VorschlaegeView({ projects, onChanged }) {
-  const [tab, setTab] = useState(() => location.hash.split("/")[1] === "ssh" ? "ssh" : "termine");
+  const sm = isServerMode();
+  const [tab, setTab] = useState(() => {
+    const h = location.hash.split("/")[1];
+    if (h === "ssh") return "ssh";
+    if (h === "nachtragen" || sm) return "nachtragen";
+    return "termine";
+  });
   const chip = (k, l) => <button key={k} onClick={()=>setTab(k)} style={{border:"1px solid "+(tab===k?"var(--accent)":"var(--line)"),background:tab===k?"var(--accent-soft)":"var(--card)",color:tab===k?"var(--accent)":"var(--text2)",borderRadius:20,padding:"5px 14px",fontSize:12,fontWeight:tab===k?600:500,cursor:"pointer"}}>{l}</button>;
   return (<div>
     <div className="zp-card" style={{padding:"12px 16px",marginBottom:12,fontSize:13}}>
-      <b>Vorschläge sind noch keine Buchungen.</b> <span style={{color:"var(--text2)"}}>Termine, erkannte Meetings und SSH-Sitzungen sammelt das System nur als Hinweis. Erst wenn du „Buchen“ wählst, wird daraus Zeit – sonst einfach ignorieren.</span>
+      <b>Vorschläge sind noch keine Buchungen.</b> <span style={{color:"var(--text2)"}}>
+        {sm
+          ? "Lücken nachtragen geht hier im Browser (Dauer oder Von–Bis). Termine/SSH kommen optional von der Mac-App."
+          : "Termine, erkannte Meetings und SSH-Sitzungen sammelt das System nur als Hinweis. Erst wenn du „Buchen“ wählst, wird daraus Zeit – sonst einfach ignorieren."}
+      </span>
     </div>
-    <div style={{display:"flex",gap:6,marginBottom:12}}>{chip("termine","Termine & Meetings")}{chip("ssh","SSH-Sitzungen")}</div>
-    {tab==="termine" && (isServerMode() ? <ClientHint title="Termine und Meetings brauchen den Mac-Client">Meetings und Kalendertermine erkennt der Mac-Client auf deinem Rechner und schlägt sie dort vor. Im Browser gibt es diese Vorschläge nicht.</ClientHint> : <MeetingSuggestions projects={projects} onChanged={onChanged} days={14} emptyText="Keine offenen Termine oder Meetings der letzten 14 Tage."/>)}
-    {tab==="ssh" && (isServerMode() ? <ClientHint title="SSH-Sitzungen brauchen den Mac-Client"/> : <SshView/>)}
+    <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+      {sm && chip("nachtragen","Nachtragen")}
+      {chip("termine","Termine & Meetings")}
+      {chip("ssh","SSH-Sitzungen")}
+    </div>
+    {tab==="nachtragen" && <div className="zp-card" style={{padding:"14px 16px"}}><GapFiller onChanged={onChanged} initialDate={/^\d{4}-\d{2}-\d{2}$/.test(location.hash.split("/")[2] || "") ? location.hash.split("/")[2] : null}/></div>}
+    {tab==="termine" && <MeetingSuggestions projects={projects} onChanged={onChanged} days={14} emptyText={sm ? "Keine offenen Termine oder Meetings. Optional: Mac-App mit Kalender-Freigabe – Nachtragen geht trotzdem unter „Nachtragen“." : "Keine offenen Termine oder Meetings der letzten 14 Tage."}/>}
+    {tab==="ssh" && <SshView/>}
   </div>);
 }
 
 /* Übertragen: was geht nach Tempo, was nach Plane – an einer Stelle */
 function UebertragenView() {
   const jiraOn = useJiraOn();
-  const [tab, setTab] = useState(() => location.hash.split("/")[1] === "plane" ? "plane" : "tempo");
-  const t = jiraOn===false ? "plane" : tab;
-  const chip = (k, l, d) => <button key={k} onClick={()=>setTab(k)} style={{flex:1,textAlign:"left",border:"1px solid "+(t===k?"var(--accent)":"var(--line)"),background:t===k?"var(--accent-soft)":"var(--card)",borderRadius:10,padding:"10px 14px",cursor:"pointer",color:"var(--text)"}}>
+  const sm = isServerMode();
+  const [tab, setTab] = useState(() => {
+    const h = location.hash.split("/")[1];
+    if (h === "plane") return "plane";
+    if (h === "import") return "import";
+    return "tempo";
+  });
+  const t = jiraOn===false && tab!=="import" ? "plane" : tab;
+  const chip = (k, l, d) => <button key={k} onClick={()=>setTab(k)} style={{flex:1,minWidth:160,textAlign:"left",border:"1px solid "+(t===k?"var(--accent)":"var(--line)"),background:t===k?"var(--accent-soft)":"var(--card)",borderRadius:10,padding:"10px 14px",cursor:"pointer",color:"var(--text)"}}>
     <div style={{fontWeight:600}}>{l}</div><div style={{fontSize:12,color:"var(--text2)"}}>{d}</div></button>;
   return (<div>
-    {isServerMode()&&<MonthApprovalCard/>}
+    {sm&&<MonthApprovalCard/>}
     <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
-      {jiraOn!==false && chip("tempo","Nach Tempo","Abrechnung – jede Buchung als Worklog (Kunden in Jira direkt, Plane-Projekte aufs Übergangs-Ticket)")}
-      {chip("plane","Nach Plane","Zeiten auf Plane-Tickets – nur Projekte, die in Plane sind")}
+      {jiraOn!==false && chip("tempo","Nach Tempo","Abrechnung – jede Buchung als Worklog")}
+      {chip("plane","Nach Plane","Summen auf Plane-Tickets")}
+      {sm && jiraOn!==false && chip("import","Aus Tempo holen","Arbeitszeitkonto von Anfang an (nur lesen)")}
     </div>
-    {t==="tempo" ? <TempoOutboxView onOpenSettings={()=>{location.hash="einstellungen/tempo";}}/> : <PlaneSyncView onOpenSettings={()=>{location.hash="einstellungen/plane";}}/>}
+    {t==="import" ? <div className="zp-card" style={{padding:"14px 16px"}}><div style={{fontWeight:600,marginBottom:8}}>Zeiten aus Tempo</div><TempoSyncCard onChanged={()=>window.dispatchEvent(new Event("zp:entry-changed"))}/></div>
+      : t==="tempo" ? <TempoOutboxView onOpenSettings={()=>{location.hash="einstellungen/tempo";}}/>
+      : <PlaneSyncView onOpenSettings={()=>{location.hash="einstellungen/plane";}}/>}
   </div>);
 }
 
@@ -1797,7 +1882,7 @@ function AbwesenheitenView({ only = "abwesenheiten" }) {
   const [settings,  setSettings]  = useState(null);
   const [absences,  setAbsences]  = useState([]);
   const [editAbs,   setEditAbs]   = useState(null);
-  const [absForm,   setAbsForm]   = useState({date_from:"",date_to:"",type:"urlaub",hours:"",note:""});
+  const [absForm,   setAbsForm]   = useState({date_from:"",date_to:"",type: isServerMode() ? "krankheit" : "urlaub",hours:"",note:""});
   const [saving,    setSaving]    = useState(false);
   const [localSettings, setLocal] = useState(null);
 
@@ -1857,10 +1942,14 @@ function AbwesenheitenView({ only = "abwesenheiten" }) {
 
   const saveAbsence = async () => {
     if (!absForm.date_from || !absForm.type) return;
+    if (isServerMode() && !editAbs && absForm.type === "urlaub") {
+      alert("Urlaub bitte über den Antrag oben stellen (mit Genehmigung).");
+      return;
+    }
     if (editAbs?.id) await api("PUT", `/absences/${editAbs.id}`, absForm);
     else             await api("POST", "/absences", absForm);
     setEditAbs(null);
-    setAbsForm({date_from:"",date_to:"",type:"urlaub",hours:"",note:""});
+    setAbsForm({date_from:"",date_to:"",type: isServerMode() ? "krankheit" : "urlaub",hours:"",note:""});
     load();
   };
 
@@ -2057,15 +2146,12 @@ function AbwesenheitenView({ only = "abwesenheiten" }) {
       {/* ── Abwesenheiten ── */}
       {tab==="abwesenheiten" && (
         <div>
-          {!isServerMode()&&<div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,padding:"12px 18px",marginBottom:12,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
-            <CalendarDays size={18} style={{color:"var(--accent)"}}/>
-            <div style={{flex:"1 1 260px",fontSize:13}}><b>Im Mac-Kalender anzeigen</b><div style={{fontSize:12,color:"var(--text2)"}}>Einmal abonnieren – danach erscheinen neue und geänderte Abwesenheiten automatisch (Kalender „Zeitprotokoll Abwesenheiten“, stündlich aktualisiert).<br/>So geht’s: Adresse kopieren → im Kalender <b>Ablage › Neues Kalenderabonnement …</b> → einfügen → bei „Ort“ <b>Auf meinem Mac</b> wählen (nicht iCloud – iCloud kommt an deinen Rechner nicht heran).</div></div>
-            <AboUrl url={`http://127.0.0.1:${location.port || 3747}/api/calendar/abwesenheiten.ics`}/>
-            <a href="/api/calendar/abwesenheiten.ics?download=1" style={{fontSize:12}}>.ics herunterladen</a>
-          </div>}
-          {/* Formular */}
+          {isServerMode()&&<div style={{marginBottom:12}}><LeaveRequestCard/></div>}
+          <AbsenceIcsPanel/>
+          {/* Formular – Urlaub im Servermodus über Antrag (oben), hier Krankheit/Sonstiges */}
           <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,padding:"16px 18px",marginBottom:12}}>
             <div style={{color:"var(--hi)",fontWeight:700,fontSize:12,marginBottom:12}}>{editAbs?"Abwesenheit bearbeiten":"Neue Abwesenheit"}</div>
+            {isServerMode() && !editAbs && <div style={{fontSize:12,color:"var(--text2)",marginBottom:10}}>Urlaub bitte oben als Antrag stellen (Genehmigung). Hier: Krankheit, Feiertag, Sonstiges.</div>}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10,marginBottom:10}}>
               <Field label="VON">
                 <input style={inp} type="date" value={absForm.date_from} onChange={e=>setAbsForm(v=>({...v,date_from:e.target.value,date_to:v.date_to||e.target.value}))}/>
@@ -2075,7 +2161,7 @@ function AbwesenheitenView({ only = "abwesenheiten" }) {
               </Field>
               <Field label="TYP">
                 <select style={sel} value={absForm.type} onChange={e=>setAbsForm(v=>({...v,type:e.target.value}))}>
-                  {Object.entries(ABS_TYPES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+                  {Object.entries(ABS_TYPES).filter(([k]) => !(isServerMode() && !editAbs && k==="urlaub")).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
                 </select>
               </Field>
               <Field label="STUNDEN (leer = Soll)" hint="leer = ganzer Tag">
@@ -2086,15 +2172,21 @@ function AbwesenheitenView({ only = "abwesenheiten" }) {
               <input style={inp} placeholder="z.B. Resturlaub 2025" value={absForm.note} onChange={e=>setAbsForm(v=>({...v,note:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&saveAbsence()}/>
             </Field>
             <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-              {editAbs&&<Btn onClick={()=>{setEditAbs(null);setAbsForm({date_from:"",date_to:"",type:"urlaub",hours:"",note:""});}}>Abbrechen</Btn>}
+              {editAbs&&<Btn onClick={()=>{setEditAbs(null);setAbsForm({date_from:"",date_to:"",type: isServerMode() ? "krankheit" : "urlaub",hours:"",note:""});}}>Abbrechen</Btn>}
               <Btn variant="primary" onClick={saveAbsence} disabled={!absForm.date_from}><Check size={14}/> {editAbs?"Speichern":"Eintragen"}</Btn>
             </div>
           </div>
 
           {/* Urlaubs-Übersicht */}
           {settings?.vacation_days_per_year > 0 && (() => {
-            const used = absences.filter(a => a.type==="urlaub" && a.date_from.startsWith(new Date().getFullYear())).length;
-            const total = settings.vacation_days_per_year;
+            const y = String(new Date().getFullYear());
+            const used = absences.filter(a => a.type==="urlaub" && String(a.date_from||"").startsWith(y)).reduce((s,a) => {
+              const from = a.date_from, to = a.date_to || a.date_from;
+              if (!from || !to) return s;
+              const days = Math.round((new Date(to+"T12:00") - new Date(from+"T12:00")) / 86400000) + 1;
+              return s + Math.max(1, days);
+            }, 0);
+            const total = Number(settings.vacation_days_per_year) || 0;
             const remain = total - used;
             return (
               <div style={{display:"flex",gap:16,background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,padding:"12px 16px",marginBottom:12}}>
@@ -2179,7 +2271,10 @@ function EinstellungenView() {
   const [sub,     setSub]     = useState(() => OLD[h1] ? h1 : (location.hash.split("/")[2] || ""));
   const connRaw = ["plane","jira","tempo","tempocsvimport"].includes(sub) ? sub : "jira";
   const conn = !sm ? connRaw : jiraMod===false ? "plane" : connRaw==="tempocsvimport" ? "jira" : connRaw;
-  const wt = sm ? "system" : (["audit","server","system","integrity","update","logs"].includes(sub) ? sub : "server");
+  // Servermodus: User prüft eigene Daten selbst (Überschneidungen); Technik bleibt /admin. Assistent nicht vermischen.
+  const wt = sm
+    ? (["integrity", "system"].includes(sub) ? sub : "system")
+    : (["audit", "server", "system", "integrity", "update", "logs"].includes(sub) ? sub : "server");
   const [settings,setSettings]= useState(null);
   const [local,   setLocal]   = useState({});
   const [saved,   setSaved]   = useState(false);
@@ -2250,12 +2345,24 @@ function EinstellungenView() {
         {pill(conn!=="plane","Jira & Tempo",()=>go("verbindungen","jira"))}{pill(conn==="plane","Plane",()=>go("verbindungen","plane"))}</div>}
       {tab==="wartung" && !sm && <div style={{display:"flex",gap:4,margin:"-6px 0 12px",borderBottom:"1px solid var(--line)",flexWrap:"wrap"}}>
         {[["server","Server & Sicherung"],["audit","Änderungsprotokoll"],["integrity","Datenkonsistenz"],["update","Update"],["logs","System-Log"],["system","Allgemein"]].map(([k,l])=>pill(wt===k,l,()=>go("wartung",k)))}</div>}
+      {tab==="wartung" && sm && <div style={{display:"flex",gap:4,margin:"-6px 0 12px",borderBottom:"1px solid var(--line)",flexWrap:"wrap"}}>
+        {[["integrity","Daten prüfen"],["system","Allgemein"]].map(([k,l])=>pill(wt===k,l,()=>go("wartung",k)))}</div>}
 
       {tab==="verbindungen" && conn==="plane" && <PlaneSettingsTab/>}
       {tab==="verbindungen" && conn!=="plane" && <JiraTempoSettings initial={conn==="tempo"?"tempo":conn==="tempocsvimport"?"csv":"jira"}/>}
       {tab==="arbeitszeit" && <ArbeitszeitSettings/>}
       {tab==="erkennung" && (sm
-        ? <ClientHint title="Erkennung braucht den Mac-Client">Meetings, SSH-Sitzungen, Zeit am Mac (Anwesenheit), Browser-Add-on und Kopplung laufen auf deinem Rechner im Mac-Client. Im Browser gibt es dazu keine Einstellungen; Zeiterfassung, Freigabe und Übertragung funktionieren hier vollständig.</ClientHint>
+        ? <>
+            <AddonSettings/>
+            <DevicesPanel/>
+            <details className="zp-details" style={{marginTop:8}}>
+              <summary>Mac-App (optional: Meetings, Anwesenheit, SSH)</summary>
+              <div style={{display:"flex",flexDirection:"column",gap:10,marginTop:10}}>
+                <ClientHint title="Nur mit Mac-App">Meetings, Kalender, Anwesenheit und SSH meldet die Mac-App an den Server. Im Browser buchst und trackst du trotzdem vollständig – Add-on koppelt direkt (Popup › verbinden).</ClientHint>
+                <PresenceToggle/><BrowserToggle/><MeetingSettingsTab/>
+              </div>
+            </details>
+          </>
         : <><PresenceToggle/><AddonSettings/><BrowserToggle/><MeetingSettingsTab/></>)}
       {tab==="wartung" && !sm && wt==="audit" && <AuditTab/>}
       {tab==="wartung" && !sm && wt==="server" && <ServerView/>}
@@ -2321,8 +2428,8 @@ function EinstellungenView() {
       {/* ── Tempo CSV Import ── */}
 
 
-      {/* ── Datenkonsistenz ── */}
-      {tab==="wartung" && !sm && wt==="integrity" && <IntegrityTab/>}
+      {/* ── Daten prüfen (eigene Buchungen; Servermodus + lokal) ── */}
+      {tab==="wartung" && wt==="integrity" && <IntegrityTab/>}
 
 
       {/* ── System Log ── */}
@@ -2460,6 +2567,10 @@ function IntegrityTab() {
 
   return (
     <div>
+      <p style={{fontSize:12.5,color:"var(--text2)",margin:"0 0 12px",lineHeight:1.45}}>
+        Prüft <b>deine</b> Buchungen (Überschneidungen, fehlendes Ende, …). Nicht die Admin-Selbsttests.
+        Offene Überschneidungen siehst und löst du auch direkt unter Heute („Doppelt gebucht?“).
+      </p>
       <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
         <Btn onClick={check} disabled={loading}><RotateCcw size={14}/> {loading?"Prüfe…":"Konsistenz prüfen"}</Btn>
         {data&&<span style={{color:"var(--text3)",fontSize:11}}>Geprüft: {new Date(data.checkedAt).toLocaleTimeString("de-DE")}</span>}
@@ -2488,7 +2599,7 @@ function IntegrityTab() {
                 <span style={{color:"var(--text3)",fontSize:10,marginRight:8}}>{TYPE_LABEL[issue.type]||issue.type}</span>
                 <span style={{color:"var(--text)",fontSize:12}}>{issue.message}</span>
               </div>
-              {issue.type==="overlap"&&<a href="#assistent" style={{fontSize:11,color:"var(--accent)",flexShrink:0}}>lösen ›</a>}
+              {issue.type==="overlap"&&<a href="#" style={{fontSize:11,color:"var(--accent)",flexShrink:0}} title="Unter Heute: Doppelt gebucht?">Heute ›</a>}
               <span style={{color:"var(--text3)",fontSize:11,flexShrink:0}}>{issue.date}</span>
             </div>
           ))}
@@ -3167,4 +3278,62 @@ function AboUrl({ url }) {
     <input readOnly value={url} onFocus={e=>e.target.select()} style={{width:330,maxWidth:"100%",fontSize:12,padding:"6px 8px",fontFamily:"ui-monospace, monospace"}}/>
     <button onClick={copy} style={{padding:"7px 14px",borderRadius:7,fontWeight:600,border:"none",background:"var(--accent-fill, var(--accent))",color:"#fff",cursor:"pointer"}}>{ok ? "Kopiert ✓" : "Adresse kopieren"}</button>
   </span>;
+}
+
+/* Abwesenheiten-ICS: lokal ohne Token; Team-Server mit Geräte-Token (Kalender kann kein Cookie).
+   Bestehendes calendar-Token wiederverwenden – Klartext nur nach Neuausstellung sichtbar. */
+function AbsenceIcsPanel() {
+  const sm = isServerMode();
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  const [calDev, setCalDev] = useState(null); // aktives calendar-Gerät (ohne Klartext)
+  useEffect(() => {
+    if (!sm) { setUrl(`http://127.0.0.1:${location.port || 3747}/api/calendar/abwesenheiten.ics`); return; }
+    call("GET", "/devices").then(r => {
+      const list = Array.isArray(r) ? r : [];
+      const d = list.find(x => x.kind === "calendar" && x.active !== false && !x.revoked_at) || null;
+      setCalDev(d || null);
+    });
+  }, [sm]);
+  const mint = async (revokeId) => {
+    if (busy) return;
+    setBusy(true); setMsg(null);
+    if (revokeId) {
+      const del = await call("DELETE", `/devices/${revokeId}`);
+      if (del?.error) { setBusy(false); setMsg({ err: true, text: del.error }); return; }
+    }
+    const r = await call("POST", "/devices", { label: "Kalender-Abo", kind: "calendar" });
+    setBusy(false);
+    if (r?.error) { setMsg({ err: true, text: r.error }); return; }
+    setCalDev({ id: r.id, kind: "calendar", label: r.label || "Kalender-Abo", active: true });
+    setUrl(`${location.origin}/api/calendar/abwesenheiten.ics?token=${encodeURIComponent(r.token)}`);
+    setMsg({ text: "Adresse erzeugt – jetzt kopieren und im Kalender abonnieren (Token nur einmal sichtbar)." });
+  };
+  const make = () => mint(null);
+  const renew = () => {
+    if (!confirm("Neue Abo-Adresse erzeugen? Die alte funktioniert danach nicht mehr – im Kalender neu abonnieren.")) return;
+    mint(calDev?.id);
+  };
+  return (
+    <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,padding:"12px 18px",marginBottom:12,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+      <CalendarDays size={18} style={{color:"var(--accent)"}}/>
+      <div style={{flex:"1 1 260px",fontSize:13}}>
+        <b>Im Kalender anzeigen</b>
+        <div style={{fontSize:12,color:"var(--text2)"}}>
+          Einmal abonnieren – danach erscheinen neue und geänderte Abwesenheiten automatisch (Kalender „Zeitprotokoll Abwesenheiten“, stündlich aktualisiert).
+          <br/>So geht’s: Adresse kopieren → im Kalender <b>Ablage › Neues Kalenderabonnement …</b> → einfügen
+          {sm ? " → Token steckt schon in der Adresse." : <> → bei „Ort“ <b>Auf meinem Mac</b> wählen (nicht iCloud).</>}
+        </div>
+      </div>
+      {sm && calDev && !url && (
+        <div style={{fontSize:12.5,color:"var(--accent)",fontWeight:600}}>Abo aktiv{calDev.last_used ? ` · zuletzt genutzt` : ""} – Adresse liegt im Kalender (Klartext nur bei Neuausstellung).</div>
+      )}
+      {sm && !url && !calDev && <button onClick={make} disabled={busy} style={{padding:"7px 14px",borderRadius:7,fontWeight:600,border:"none",background:"var(--accent-fill, var(--accent))",color:"#fff",cursor:"pointer"}}>{busy ? "…" : "Abo-Adresse erzeugen"}</button>}
+      {url && <AboUrl url={url}/>}
+      {sm && (url || calDev) && <button onClick={renew} disabled={busy} style={{padding:"6px 10px",borderRadius:7,fontSize:12,border:"1px solid var(--border)",background:"transparent",color:"var(--text2)",cursor:"pointer"}}>Neue Adresse</button>}
+      <a href="/api/calendar/abwesenheiten.ics?download=1" style={{fontSize:12}}>.ics herunterladen</a>
+      {msg && <div style={{flex:"1 1 100%",fontSize:12,color:msg.err?"var(--stop)":"var(--accent)"}}>{msg.err?"✗ ":"✓ "}{msg.text}</div>}
+    </div>
+  );
 }

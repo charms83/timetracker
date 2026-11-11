@@ -14,7 +14,12 @@ button{font:inherit;font-weight:600;padding:7px 10px;border-radius:8px;border:1p
 button:hover:not(:disabled){border-color:var(--acc)}
 button.primary{background:var(--acc);border-color:var(--acc);color:var(--onacc)}
 button:disabled{opacity:.55;cursor:default}
-#pair{width:100%}
+#pair,#saveCfg{flex:1}
+.lab{display:block;font-size:11px;color:var(--muted);margin:8px 0 3px}
+input[type=url],input[type=password]{width:100%;font:inherit;padding:7px 9px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+.cfg{margin-top:10px;font-size:12px;color:var(--muted)}
+.cfg summary{cursor:pointer}
+.cfg button{margin-top:6px;width:100%}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:6px}
 .tk{margin-top:2px;word-break:break-word}
 .sys{color:var(--muted);font-size:12px}

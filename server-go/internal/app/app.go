@@ -104,18 +104,23 @@ func (a *App) Protect(next http.Handler) http.Handler {
 		}
 		switch r.Method {
 		case http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch:
+			o := r.Header.Get("Origin")
+			extOK := isBrowserExtensionOrigin(o) && addonCSRFExempt(r.URL.Path)
 			if r.Header.Get("Sec-Fetch-Site") == "cross-site" { // Browser meldet: Aufruf von fremder Webseite
-				writeJSON(w, http.StatusForbidden, map[string]any{"error": "Aufruf von fremder Adresse abgelehnt"})
-				return
-			}
-			if o := r.Header.Get("Origin"); o != "" {
+				if !extOK {
+					writeJSON(w, http.StatusForbidden, map[string]any{"error": "Aufruf von fremder Adresse abgelehnt"})
+					return
+				}
+			} else if o != "" {
 				if o == "null" {
 					writeJSON(w, http.StatusForbidden, map[string]any{"error": "Aufruf von fremder Adresse abgelehnt"})
 					return
 				}
 				if u, err := url.Parse(o); err != nil || u.Host != r.Host {
-					writeJSON(w, http.StatusForbidden, map[string]any{"error": "Aufruf von fremder Adresse abgelehnt"})
-					return
+					if !extOK {
+						writeJSON(w, http.StatusForbidden, map[string]any{"error": "Aufruf von fremder Adresse abgelehnt"})
+						return
+					}
 				}
 			}
 		}
@@ -156,14 +161,19 @@ func (a *App) Routes(mux *http.ServeMux) {
 	a.routesTimer(mux)
 	a.routesSettings(mux)
 	a.routesAbsences(mux)
+	a.routesAbsenceICS(mux)
 	a.routesKonto(mux)
 	a.routesTagwerk(mux)
 	a.routesChecks(mux)
 	a.routesPresence(mux)
+	a.routesMeetings(mux) // Meetings/Kalender vom Mac-Client (Parität zu Node)
+	a.routesSSH(mux)      // SSH-Sitzungen vom Mac-Client (zsh-Log → Sync)
 	a.routesReports(mux)
 	a.routesHolidays(mux)
 	a.routesPlane(mux)
+	a.routesPlaneWorkspaces(mux)
 	a.routesTempo(mux)
+	a.routesTempoSync(mux)
 	a.routesJiraInstances(mux)
 	a.routesTempoTickets(mux)
 	a.routesSources(mux)
@@ -178,7 +188,11 @@ func (a *App) Routes(mux *http.ServeMux) {
 	a.routesLocalAuth(mux)
 	a.routesOIDC(mux)
 	a.routesApproval(mux)
-	a.routesNachtrag(mux) // Nachtragen nach Monatsschluss (Teamleitung/Personal)
+	a.routesLeave(mux)    // Urlaubsantrag (Genehmigung Teamleitung, Vertretung Personal)
+	a.routesDevices(mux)      // Geräte-Token + Client-Hinweise (Mac/Add-on) – nicht Abrechnung
+	a.routesPairing(mux)      // Browser-Add-on: /api/pair/* + /api/ext/state
+	a.routesIntegrations(mux) // Abrechnungsprogramme: zpint_… + /api/integrations/payroll
+	a.routesNachtrag(mux)     // Nachtragen nach Monatsschluss (Teamleitung/Personal)
 	a.routesProfilePage(mux)
 	a.routesTeams(mux)
 	a.routesLocalUsers(mux)
@@ -254,7 +268,7 @@ func (a *App) auth(h func(http.ResponseWriter, *http.Request, User)) http.Handle
 				return
 			}
 			h(w, r, u)
-		default: // local und oidc: Anmeldung per Sitzung (oidc: Anmeldung über authentik folgt; bis dahin nur der scharfe Notfallzugang)
+		default: // local/oidc: Sitzungs-Cookie. Abrechnungs-/Integrations-API: eigener Bearer zpint_… (siehe integrations.go).
 			u, ok := a.sessionUser(r)
 			if !ok {
 				writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "login_required"})
@@ -281,10 +295,13 @@ func (a *App) auth(h func(http.ResponseWriter, *http.Request, User)) http.Handle
 	}
 }
 
-// timeAccount: Konto, das Zeiten erfasst. Das lokale Testkonto „Administrator“ (kind local, nicht produktiv) ist nur für die Verwaltung da;
-// Konten aus LDAP/authentik und produktive lokale Konten erfassen Zeiten (auch wenn sie zusätzlich Administrator sind).
+// timeAccount: Konto, das Zeiten erfasst. Technischer Admin (role=admin) und Notfallzugang erfassen nie Zeiten –
+// auch nicht per LDAP/OIDC-Admin-Gruppe (kein Mischkonto). Reine lokale Admin-Konten: productive=false.
 func (u User) timeAccount() bool {
-	return !(u.Kind == "local" && !u.Productive) && u.Role != "breakglass"
+	if u.Role == "admin" || u.Role == "breakglass" {
+		return false
+	}
+	return !(u.Kind == "local" && !u.Productive)
 }
 
 // adminAccountAllowed: was ein reines Administrationskonto aufrufen darf (alles andere ist verboten)
@@ -323,6 +340,12 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
+}
+
+// jsonDecodeSoft: Body optional (z. B. leerer POST) – Fehler werden ignoriert.
+func jsonDecodeSoft(r *http.Request, v any) error {
+	r.Body = http.MaxBytesReader(nil, r.Body, 1<<16)
+	return json.NewDecoder(r.Body).Decode(v)
 }
 
 func (a *App) fail(w http.ResponseWriter, err error) {

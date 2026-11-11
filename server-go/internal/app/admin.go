@@ -35,11 +35,21 @@ func (a *App) adminOnly(h func(http.ResponseWriter, *http.Request, User)) http.H
 
 func (a *App) routesAdmin(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin", func(w http.ResponseWriter, r *http.Request) {
+		u, ok := a.sessionUser(r)
+		if !ok {
+			http.Redirect(w, r, "/login?next=/admin", http.StatusSeeOther)
+			return
+		}
+		if u.Role != "admin" && u.Role != "breakglass" {
+			http.Redirect(w, r, "/", http.StatusSeeOther) // Mitarbeiter gehören nicht in die Administration
+			return
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(adminHTML)
 	})
 	mux.HandleFunc("GET /api/admin/status", a.adminOnly(a.adminStatus))
+	mux.HandleFunc("GET /api/admin/update", a.adminOnly(a.adminUpdateInfo))
 	mux.HandleFunc("GET /api/admin/selfcheck", a.adminOnly(a.adminSelfcheck))
 	mux.HandleFunc("POST /api/admin/selfcheck", a.adminOnly(a.adminSelfcheck))
 	mux.HandleFunc("GET /api/admin/logs", a.adminOnly(a.adminLogs))
@@ -49,6 +59,7 @@ func (a *App) routesAdmin(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/admin/emergency/close-month", a.adminOnly(a.emergencyCloseMonth))
 	mux.HandleFunc("GET /api/admin/config", a.adminOnly(a.adminConfigGet))
 	mux.HandleFunc("PUT /api/admin/config", a.adminOnly(a.adminConfigPut))
+	a.routesAdminAuth(mux)
 }
 
 func (a *App) adminStatus(w http.ResponseWriter, r *http.Request, u User) {
@@ -70,13 +81,14 @@ func (a *App) adminStatus(w http.ResponseWriter, r *http.Request, u User) {
 		rows.Close()
 	}
 	since := time.Now().Add(-24 * time.Hour).UTC().Format(isoMillis)
-	c := a.conf(ctx, "plane_base_url")
+	_, planeOK := a.primaryPlaneWorkspace(ctx)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"version": serverVersion, "go": runtime.Version(), "started": a.Started.UTC().Format(time.RFC3339),
+		"version": ServerVersion(), "commit": Commit, "built": Built, "go": runtime.Version(),
+		"started": a.Started.UTC().Format(time.RFC3339),
 		"uptime_seconds": int64(time.Since(a.Started).Seconds()), "timezone": a.Loc.String(),
 		"database": map[string]any{"ok": dbOK, "migrations": migs},
 		"setup": map[string]any{"done": a.conf(ctx, "setup_done") == "1", "auth_mode": a.conf(ctx, "auth_mode"),
-			"allow_http": a.AllowHTTP, "plane_configured": c != "" && a.conf(ctx, "plane_workspace") != ""},
+			"allow_http": a.AllowHTTP, "plane_configured": planeOK},
 		"counts": map[string]any{
 			"users": count(`SELECT COUNT(*) FROM users`), "users_disabled": count(`SELECT COUNT(*) FROM users WHERE disabled`),
 			"projects": count(`SELECT COUNT(*) FROM projects`), "time_entries": count(`SELECT COUNT(*) FROM time_entries`),
@@ -84,6 +96,50 @@ func (a *App) adminStatus(w http.ResponseWriter, r *http.Request, u User) {
 			"errors_24h":              count(`SELECT COUNT(*) FROM system_logs WHERE level='error' AND timestamp >= $1`, since),
 			"warnings_24h":            count(`SELECT COUNT(*) FROM system_logs WHERE level='warn' AND timestamp >= $1`, since),
 		},
+	})
+}
+
+// adminUpdateInfo: wie man den Server aktualisiert (kein Upload – bewusst sicher).
+func (a *App) adminUpdateInfo(w http.ResponseWriter, r *http.Request, u User) {
+	ctx := r.Context()
+	var migs []string
+	if rows, err := a.DB.Query(ctx, `SELECT name FROM schema_migrations ORDER BY name`); err == nil {
+		for rows.Next() {
+			var n string
+			if rows.Scan(&n) == nil {
+				migs = append(migs, n)
+			}
+		}
+		rows.Close()
+	}
+	last := ""
+	if len(migs) > 0 {
+		last = migs[len(migs)-1]
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"version": ServerVersion(), "commit": Commit, "built": Built, "go": runtime.Version(),
+		"started": a.Started.UTC().Format(time.RFC3339),
+		"migrations": len(migs), "last_migration": last,
+		"in_app_upload": false, // kein .tar.gz-Upload – Binary nur über Installer/Image
+		"linux": map[string]any{
+			"title": "Linux (systemd)",
+			"steps": []string{
+				"Vorher: Datenbank sichern (pg_dump).",
+				"Paket bauen bzw. von der Ablage holen: zeitprotokoll-server-<version>.tar.gz (+ .sha256 prüfen).",
+				"Entpacken und als root: ./install.sh --upgrade",
+				"Prüfen: zeitprotokoll-server status   bzw. hier Selbsttest.",
+			},
+			"command": "./install.sh --upgrade",
+		},
+		"openshift": map[string]any{
+			"title": "OpenShift / Container",
+			"steps": []string{
+				"Neues Image bauen und in die Registry schieben.",
+				"Deployment-Image-Tag aktualisieren (Rollout).",
+				"Migrationen laufen beim Start; bei Fehler: „Datenbank neuer als Programm“ → passendes Image.",
+			},
+		},
+		"hint": "Es gibt kein In-App-Upload von Programmdateien (Sicherheit). Updates laufen über Installer oder Image.",
 	})
 }
 
@@ -197,6 +253,9 @@ func (a *App) adminUserUpdate(w http.ResponseWriter, r *http.Request, u User) {
 	if v, has := in["productive"]; has && kind == "local" {
 		productive = truthy(v)
 	}
+	if role == "admin" {
+		productive = false // nie Doppelrolle: Admin erfasst keine Zeiten
+	}
 	var suggestBlocked *bool // Ticket-Vorschläge für diese Person sperren (nur Administrator)
 	if v, has := in["suggest_blocked"]; has {
 		b := truthy(v)
@@ -282,7 +341,16 @@ func (a *App) applyAdminConfig(ctx context.Context, key, val string) error {
 	switch key {
 	case "plane_base_url":
 		_, err := a.setPlaneBase(ctx, val)
+		if err == nil {
+			a.mirrorPlaneConfigToWorkspace(ctx)
+		}
 		return err
+	case "plane_workspace":
+		if err := a.setConf(ctx, key, val); err != nil {
+			return err
+		}
+		a.mirrorPlaneConfigToWorkspace(ctx)
+		return nil
 	}
 	if contains(mailConfigKeys, key) {
 		return a.applyMailConfig(ctx, key, val)

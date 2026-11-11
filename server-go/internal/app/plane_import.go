@@ -162,6 +162,7 @@ var planeImportRunning sync.Map // Person → true (ein Import je Person)
 
 func (a *App) routesPlaneImport(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/integrations/plane/import", a.auth(a.planeImportRoute))
+	mux.HandleFunc("POST /api/integrations/plane/pull", a.auth(a.planeImportRoute)) // Alias wie Node „Aus Plane holen“
 }
 
 func (a *App) planeImportRoute(w http.ResponseWriter, r *http.Request, u User) {
@@ -170,6 +171,10 @@ func (a *App) planeImportRoute(w http.ResponseWriter, r *http.Request, u User) {
 		return
 	}
 	dry := truthy(in["dry_run"])
+	wsRaw := strings.TrimSpace(r.URL.Query().Get("workspace"))
+	if wsRaw == "" {
+		wsRaw = asStr(in["workspace"])
+	}
 	if _, busy := planeImportRunning.LoadOrStore(u.ID, true); busy {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "Import läuft bereits"})
 		return
@@ -177,7 +182,7 @@ func (a *App) planeImportRoute(w http.ResponseWriter, r *http.Request, u User) {
 	defer planeImportRunning.Delete(u.ID)
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 15*time.Minute)
 	defer cancel()
-	res, err := a.planeImport(ctx, u.ID, asStr(in["from"]), asStr(in["to"]), dry)
+	res, err := a.planeImport(ctx, u.ID, asStr(in["from"]), asStr(in["to"]), dry, wsRaw)
 	if err != nil {
 		var ue errUser
 		if errors.As(err, &ue) {
@@ -191,18 +196,25 @@ func (a *App) planeImportRoute(w http.ResponseWriter, r *http.Request, u User) {
 }
 
 type importProject struct {
-	ID          int64
-	Plane, Name string
-	Ident       string
+	ID, WorkspaceID int64
+	Plane, Name     string
+	Ident           string
 }
 
-func (a *App) planeImport(ctx context.Context, uid int64, from, to string, dry bool) (map[string]any, error) {
-	c, err := a.planeCfg(ctx, uid)
+func (a *App) planeImport(ctx context.Context, uid int64, from, to string, dry bool, workspaceRaw string) (map[string]any, error) {
+	cfgs, err := a.planeCfgsForQuery(ctx, uid, workspaceRaw)
 	if err != nil {
 		return nil, err
 	}
-	if !c.ok() {
-		return nil, &planeErr{Status: 400, Msg: "Plane ist nicht eingerichtet (Adresse/Workspace in der Servereinrichtung, API-Schlüssel im Profil)"}
+	if len(cfgs) == 0 {
+		c, err := a.planeCfg(ctx, uid)
+		if err != nil {
+			return nil, err
+		}
+		if !c.ok() {
+			return nil, &planeErr{Status: 400, Msg: "Plane ist nicht eingerichtet (Adresse/Workspace in der Servereinrichtung, API-Schlüssel im Profil)"}
+		}
+		cfgs = []planeCfg{c}
 	}
 	st, err := a.userSettings(ctx, uid)
 	if err != nil {
@@ -210,10 +222,6 @@ func (a *App) planeImport(ctx context.Context, uid int64, from, to string, dry b
 	}
 	if from, to, err = planeImportRange(from, to, st["tracking_start_date"], time.Now().In(a.Loc)); err != nil {
 		return nil, err
-	}
-	meID := a.planeMeID(ctx, uid, c)
-	if meID == "" {
-		return nil, &planeErr{Status: 400, Msg: "Plane-Benutzer nicht ermittelbar – API-Schlüssel prüfen"}
 	}
 	projects, err := a.importProjects(ctx, uid)
 	if err != nil {
@@ -224,7 +232,36 @@ func (a *App) planeImport(ctx context.Context, uid int64, from, to string, dry b
 		_ = a.DB.QueryRow(ctx, `SELECT UPPER(TRIM(jira_ticket)) FROM tasks WHERE user_id=$1 AND plane_work_item_id=$2 AND jira_ticket IS NOT NULL LIMIT 1`, uid, wi).Scan(&k)
 		return k
 	}
-	wls, stats, errs := a.fetchPlaneWorklogs(ctx, uid, c, projects, meID, localKey)
+	var wls []planeWL
+	stats := map[string]int{}
+	var errs []string
+	anyMe := false
+	for _, c := range cfgs {
+		if !c.ok() {
+			continue
+		}
+		meID := a.planeMeID(ctx, uid, c)
+		if meID == "" {
+			errs = append(errs, "Workspace „"+c.WS+"“: Plane-Benutzer nicht ermittelbar")
+			continue
+		}
+		anyMe = true
+		var subset []importProject
+		for _, p := range projects {
+			if c.ID == 0 || p.WorkspaceID == 0 || p.WorkspaceID == c.ID {
+				subset = append(subset, p)
+			}
+		}
+		part, stPart, ePart := a.fetchPlaneWorklogs(ctx, uid, c, subset, meID, localKey)
+		wls = append(wls, part...)
+		for k, v := range stPart {
+			stats[k] += v
+		}
+		errs = append(errs, ePart...)
+	}
+	if !anyMe {
+		return nil, &planeErr{Status: 400, Msg: "Plane-Benutzer nicht ermittelbar – API-Schlüssel prüfen"}
+	}
 	known, local, locked, used, err := a.importState(ctx, uid, from, to)
 	if err != nil {
 		return nil, err
@@ -269,7 +306,8 @@ func (a *App) planeImport(ctx context.Context, uid int64, from, to string, dry b
 
 // importProjects: nur Projekte, die als Plane-Quelle verknüpft sind
 func (a *App) importProjects(ctx context.Context, uid int64) ([]importProject, error) {
-	rows, err := a.DB.Query(ctx, `SELECT DISTINCT p.id, p.plane_project_id, p.name, COALESCE(NULLIF(p.plane_identifier,''), p.jira_key, '')
+	rows, err := a.DB.Query(ctx, `SELECT DISTINCT p.id, p.plane_project_id, p.name, COALESCE(NULLIF(p.plane_identifier,''), p.jira_key, ''),
+		COALESCE(p.plane_workspace_id, s.workspace_id, 0)
 		FROM projects p JOIN project_sources s ON s.project_id=p.id AND s.user_id=p.user_id AND s.system='plane' AND s.status='linked' AND s.gone=0
 		WHERE p.user_id=$1 AND p.plane_project_id IS NOT NULL ORDER BY p.id`, uid)
 	if err != nil {
@@ -279,7 +317,7 @@ func (a *App) importProjects(ctx context.Context, uid int64) ([]importProject, e
 	var out []importProject
 	for rows.Next() {
 		var p importProject
-		if err := rows.Scan(&p.ID, &p.Plane, &p.Name, &p.Ident); err != nil {
+		if err := rows.Scan(&p.ID, &p.Plane, &p.Name, &p.Ident, &p.WorkspaceID); err != nil {
 			return nil, err
 		}
 		out = append(out, p)

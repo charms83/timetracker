@@ -17,8 +17,8 @@ import (
    • Arbeitstag: work_days bleibt nur Anzeige (Beginn/Ende); Pausen hängen nie an einem Arbeitstag (work_day_id NULL) und zählen
      damit wie freie Pausen im Konto (konto.go). Pausen-Schreibwege prüfen die Monatssperre in der Transaktion (Pausen haben keinen
      eigenen Trigger, verändern aber das Ist eines Monats).
-   • Abwesenheits-Hinweise: erkannt wird im Server nichts (Kalender bleibt im Client, Tempo-Abgleich fehlt noch); geliefert werden die
-     gespeicherten Hinweise, übernommen wird unter der Monatssperre (Trigger absences_lock). */
+   • Abwesenheits-Hinweise: Kalender (ganztägig, meetingsCalendar→fromCalendarAbsences) und Tempo (fromTempoAbsences);
+     Übernahme unter der Monatssperre (Trigger absences_lock). */
 
 func (a *App) routesWorkday(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/workday", a.auth(a.workdayGet))

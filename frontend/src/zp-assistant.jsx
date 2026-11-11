@@ -6,7 +6,7 @@
 ═══════════════════════════════════════════════════════════════════ */
 import { useState, useEffect, useCallback } from "react";
 import { Check, ChevronLeft, ChevronRight, Compass, X, ExternalLink, RefreshCw } from "lucide-react";
-import { api, call, btn, lab, inpS, isServerMode } from "./zp-ui.jsx";
+import { api, call, btn, lab, inpS, isServerMode, PlaneWorkspacesPanel } from "./zp-ui.jsx";
 import { JiraInstancesPanel, ClientHint } from "./zp-servermode.jsx";
 import { TlsTrust } from "./zp-jira.jsx";
 import { ProjectSourcesPanel, DuplicatesPanel, PendingPanel } from "./zp-projects.jsx";
@@ -108,7 +108,11 @@ const TASK_UI = {
   overlaps: { body: p => <OverlapCard {...p} days={31} emptyText="Keine Überschneidungen mehr offen." /> },
   tempo_errors: { body: () => <button style={btn(true)} onClick={() => go("uebertragen")}><ExternalLink size={13} /> Zu Übertragen › Nach Tempo</button> },
   tempo_noticket: { body: () => <button style={btn(true)} onClick={() => go("uebertragen")}><ExternalLink size={13} /> Ticket zuordnen (Übertragen › Nach Tempo)</button> },
-  selfcheck: { body: () => <SelfCheckCard /> },
+  "setup:plane": { body: () => <div><Para>Plane-API-Schlüssel je Workspace (Adresse legt die Administration fest).</Para><PlaneWorkspacesPanel/></div> },
+  "setup:jira": { body: () => <div><Para>Persönlichen Jira-/Tempo-Zugang hinterlegen.</Para><JiraInstancesPanel mode="tokens"/></div> },
+  selfcheck: { body: () => isServerMode()
+    ? <div style={{ fontSize: 12.5, color: "var(--text2)" }}>Selbstprüfung liegt unter <a href="/admin">Administration</a> (nur technischer Admin).</div>
+    : <SelfCheckCard /> },
 };
 function TasksView({ onSetup }) {
   const [list, setList] = useState(null); const [open, setOpen] = useState({}); const [tick, setTick] = useState(0);
@@ -129,7 +133,9 @@ function TasksView({ onSetup }) {
         </div>
         {ui && isOpen && <div style={{ marginTop: 10 }}>{ui.body({ onChanged: changed, tick })}</div>}
       </div>); })}
-    <div style={{ fontSize: 11, color: "var(--text2)" }}>Geprüft wird nur die eigene Datenbank, ohne Netz – neu, wenn sich Buchungen oder Projekte ändern. Plane/Jira liest das System einmal im Monat oder auf Knopfdruck ein.</div>
+    <div style={{ fontSize: 11, color: "var(--text2)" }}>{isServerMode()
+      ? "Geprüft wird deine Datenbank auf dem Team-Server (ohne zusätzliches Netz außer dem Assistenten-Hinweis auf Tempo-Abgleich). Tempo-/Plane-Aufrufe nur bei den Aufgaben, die du startest."
+      : "Geprüft wird nur die eigene Datenbank, ohne Netz – neu, wenn sich Buchungen oder Projekte ändern. Plane/Jira liest das System einmal im Monat oder auf Knopfdruck ein."}</div>
   </div>);
 }
 
@@ -145,7 +151,9 @@ export function AssistantView() {
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
         <Compass size={22} style={{ color: "var(--accent)" }} />
         <div style={{ flex: 1 }}><h1 className="zp-display" style={{ margin: 0, fontSize: 22 }}>Nachtragen</h1>
-          <div style={{ color: "var(--text2)", fontSize: 12 }}>Der Assistent zeigt je Tag, was am Mac lief und was noch fehlt – und schlägt passende Tickets vor.</div></div>
+          <div style={{ color: "var(--text2)", fontSize: 12 }}>{isServerMode()
+            ? "Je Tag: was fehlt und welche Tickets passen – im Browser eintragen (Mac-App optional für Termine/SSH)."
+            : "Der Assistent zeigt je Tag, was am Mac lief und was noch fehlt – und schlägt passende Tickets vor."}</div></div>
         <a href="#assistent" style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600 }}>Alle Aufgaben ›</a>
       </div>
       <GapFiller initialDate={/^\d{4}-\d{2}-\d{2}$/.test(sub[2] || "") ? sub[2] : null} />
@@ -294,15 +302,40 @@ function StepPlane({ f, reload }) {
   const sm = isServerMode();
   const [v, setV] = useState({ plane_base_url: "", plane_workspace: "", plane_api_key: "" }); const [st, setSt] = useState(null); const [busy, setBusy] = useState(false);
   useEffect(() => { api("GET", "/settings").then(s => s && setV({ plane_base_url: s.plane_base_url || "", plane_workspace: s.plane_workspace || "", plane_api_key: s.plane_api_key || "" })); if (f.plane.configured) test(); }, []);   // eslint-disable-line
-  const test = async () => { setBusy(true); setSt(await call("GET", "/integrations/plane/status")); setBusy(false); };
-  const save = async () => { await call("PUT", "/settings", sm ? { plane_api_key: v.plane_api_key } : { ...v, plane_base_url: v.plane_base_url.trim().replace(/\/+$/, "").replace(/\/api(\/v1)?$/, ""), plane_workspace: v.plane_workspace.trim() }); await test(); reload(); };
+  const test = async () => {
+    setBusy(true);
+    if (sm) {
+      const list = await api("GET", "/plane/workspaces");
+      const arr = Array.isArray(list) ? list : [];
+      if (!arr.length) { setSt({ connected: false, message: "Kein Workspace eingerichtet" }); setBusy(false); return; }
+      let ok = 0; let msg = "";
+      for (const w of arr) {
+        const r = await call("GET", `/integrations/plane/status?workspace=${w.id}`);
+        if (r.configured && r.connected) { ok++; if (!msg) msg = r.message; }
+        else if (!msg) msg = r.error || r.message || `„${w.name}“ nicht verbunden`;
+      }
+      setSt(ok ? { connected: true, message: arr.length === 1 ? msg : `${ok} von ${arr.length} Workspaces verbunden` } : { connected: false, message: msg || "Keine Verbindung" });
+    } else {
+      setSt(await call("GET", "/integrations/plane/status"));
+    }
+    setBusy(false);
+  };
+  const save = async () => { await call("PUT", "/settings", { ...v, plane_base_url: v.plane_base_url.trim().replace(/\/+$/, "").replace(/\/api(\/v1)?$/, ""), plane_workspace: v.plane_workspace.trim() }); await test(); reload(); };
+  if (sm) return (<>
+    <Para>Plane ist das Hauptsystem. Der Administrator trägt nur Adresse und Workspace-Kennung ein – <b>ohne</b> Plane-Token. Du trägst deinen persönlichen API-Schlüssel ein (Plane › Profil › API Tokens) und schaltest danach einzeln ein, welche Workspaces du nutzt. Workspaces auf derselben Adresse teilen den Schlüssel.</Para>
+    <PlaneWorkspacesPanel />
+    <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+      <button style={btn(true)} onClick={async () => { await test(); reload(); }} disabled={busy}>{busy ? "Prüfe…" : "Verbindungen testen"}</button>
+      <button style={btn(false)} onClick={() => go("einstellungen/plane")}><ExternalLink size={13} /> Alle Plane-Einstellungen</button>
+    </div>
+    {st && <Msg m={st.connected ? { text: st.message } : { err: 1, text: st.error || st.message || "Keine Verbindung" }} />}
+  </>);
   return (<>
-    <Para>{sm ? "Plane ist das Hauptsystem. Adresse und Workspace legt der Administrator fest; du trägst nur deinen persönlichen API-Token ein (Plane › Profil › API Tokens)." : "Plane ist das Hauptsystem. Adresse, Workspace (steht in der URL, z. B. „example“) und ein API-Token (Plane › Profil › API Tokens)."}</Para>
-    {sm ? <div style={{ fontSize: 12, color: "var(--text2)", padding: "8px 10px", borderRadius: 8, background: "var(--bg)" }}>Adresse: <b style={{ color: "var(--text)" }}>{v.plane_base_url || "(noch nicht eingetragen)"}</b>{v.plane_workspace ? <> · Workspace <b style={{ color: "var(--text)" }}>{v.plane_workspace}</b></> : null} – legt der Administrator fest.</div> : (<>
+    <Para>Plane ist das Hauptsystem. Adresse, Workspace (steht in der URL, z. B. „example“) und ein API-Token (Plane › Profil › API Tokens).</Para>
     <label style={lab}>Plane-Adresse</label>
-    <input style={inpS} placeholder="https://plane.example.com" value={v.plane_base_url} onChange={e => setV({ ...v, plane_base_url: e.target.value })} /></>)}
-    <div style={{ display: "grid", gridTemplateColumns: sm ? "1fr" : "1fr 1fr", gap: 10 }}>
-      {!sm && <div><label style={lab}>Workspace</label><input style={inpS} placeholder="example" value={v.plane_workspace} onChange={e => setV({ ...v, plane_workspace: e.target.value })} /></div>}
+    <input style={inpS} placeholder="https://plane.example.com" value={v.plane_base_url} onChange={e => setV({ ...v, plane_base_url: e.target.value })} />
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div><label style={lab}>Workspace</label><input style={inpS} placeholder="example" value={v.plane_workspace} onChange={e => setV({ ...v, plane_workspace: e.target.value })} /></div>
       <div><label style={lab}>API-Token</label><input style={inpS} type="password" value={v.plane_api_key} onChange={e => setV({ ...v, plane_api_key: e.target.value })} /></div>
     </div>
     <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
@@ -447,12 +480,21 @@ function StepTempo({ f, reload }) {
 
 /* ── 7 Kalender & Meetings ── */
 function StepMeetings({ reload }) {
+  const sm = isServerMode();
   const [v, setV] = useState(null); const [st, setSt] = useState(null);
   const load = () => { api("GET", "/meetings/config").then(r => r && !r.error && setV(r)); api("GET", "/meetings/status").then(r => r && !r.error && setSt(r)); };
   useEffect(load, []);
-  if (!v) return isServerMode() ? <ClientHint title="Meeting-Erkennung braucht den Mac-Client" /> : null;
+  if (!v) return null;
   const set = async (k, x) => { await call("PUT", "/settings", { [k]: x ? "1" : "0" }); load(); reload(); };
   const age = st?.signal_age_s;
+  if (sm) return (<>
+    <Para>Im Browser trackst du Tickets mit dem <b>Add-on</b>. Meetings, Kalender und Anwesenheit liefert optional die <b>Mac-App</b> – ohne sie funktioniert Buchen und Übertragen vollständig.</Para>
+    <ClientHint title="Mac-App optional">Einstellungen › Erkennung: Add-on koppeln. Meetings/Kalender nur, wenn die Mac-App läuft.</ClientHint>
+    <button style={{ ...btn(true), marginTop: 10 }} onClick={() => go("einstellungen/erkennung")}><ExternalLink size={13} /> Zu Erkennung / Add-on</button>
+    {st && <div style={{ fontSize: 12, color: "var(--text2)", marginTop: 8 }}>
+      Mac-App: {age == null ? "noch nie gemeldet" : age < 180 ? "✓ verbunden" : `zuletzt vor ${Math.round(age / 60)} min`}
+    </div>}
+  </>);
   return (<>
     <Para>Erkennt laufende Meetings am <b>Programmstart</b> (Teams, Zoom, Webex, Slack, Jitsi) und an der Browser-Adresse. Dann fragt es „Timer starten?“. <b>Kein Mikrofon, keine Kamera, kein Bildschirminhalt.</b> Termine aus dem macOS-Kalender werden im Kalender angezeigt und im Tracker vorbelegt.</Para>
     <Toggle on={v.detect} onChange={x => set("meeting_detect", x)} label="Meeting-Programme erkennen" />
@@ -469,8 +511,14 @@ function StepMeetings({ reload }) {
 
 /* ── 8 SSH ── */
 function StepSsh({ f, reload }) {
-  if (isServerMode()) return <ClientHint title="SSH-Sitzungen brauchen den Mac-Client" />;
-  const set = async x => { await call("PUT", "/settings", { ssh_watch_enabled: x ? "1" : "0" }); reload(); };
+  const sm = isServerMode();
+  const set = async x => { await call("PUT", "/settings", { ssh_watch_enabled: x ? "1" : "0" }); await call("POST", "/ssh-tracking", { enabled: !!x }); reload(); };
+  if (sm) return (<>
+    <Para>SSH-Sitzungen meldet die Mac-App. Im Browser kannst du Zeiten trotzdem unter Vorschläge › Nachtragen eintragen.</Para>
+    <ClientHint title="Optional">Nur nötig, wenn du Terminal-Sitzungen automatisch als Vorschlag willst.</ClientHint>
+    <Toggle on={f.ssh.enabled} onChange={set} label="SSH-Vorschläge anzeigen (wenn Mac liefert)" />
+    <button style={{ ...btn(false), marginTop: 8 }} onClick={() => go("vorschlaege/nachtragen")}><ExternalLink size={13} /> Nachtragen öffnen</button>
+  </>);
   return (<>
     <Para>Zeichnet SSH-Sitzungen aus dem Terminal auf. Mehrere kurze Sitzungen („nur mal nachgeschaut“) lassen sich unter SSH zu einer Buchung je Tag zusammenführen.</Para>
     <Toggle on={f.ssh.enabled} onChange={set} label="SSH-Sitzungen erfassen" />

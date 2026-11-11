@@ -3,7 +3,7 @@
 Chronologie und letzter Stand der Arbeit: `Verlauf.md`.
 
 ## Ziel
-Das Zeitprotokoll (Einzelplatz: Mac, Browser-Oberfläche, Add-on, bucht nach Plane und Jira/Tempo) wird zum Team-Server, der Tempo Timesheets ablöst. Es hält die Zeiten selbst und genau; Plane und Jira sind Buchungsziele. Vier Oberflächen je Rolle: Administration, Mitarbeiter, Teamleiter, Personal. Konzept und Entscheidungen: `Gesamt-Spezifikation.md`, Vergleich ähnlicher Systeme: `Systemvergleich-und-Struktur.md`.
+Das Zeitprotokoll (Einzelplatz: Mac, Browser-Oberfläche, Add-on, bucht nach Plane und Jira/Tempo) wird zum Team-Server, der Tempo Timesheets ablöst. **Vollständig** heißt: Mitarbeiter-Alltag wie am lokalen Mac (Timer, Mini, Meetings, Anwesenheit, Tempo/Plane) **und** Teamleitung, Personal und Administration als gleichwertige, ordentliche Oberflächen – nicht als Nachtrag. Es hält die Zeiten selbst und genau; Plane und Jira sind Buchungsziele. Vier Oberflächen je Rolle: Administration, Mitarbeiter, Teamleiter, Personal. Konzept und Entscheidungen: `Gesamt-Spezifikation.md`, Vergleich ähnlicher Systeme: `Systemvergleich-und-Struktur.md`.
 
 ## Aufbau
 - **Lokaler Tracker** (Node.js, React/Vite, Electron, Browser-Add-on): läuft unverändert weiter.
@@ -11,11 +11,11 @@ Das Zeitprotokoll (Einzelplatz: Mac, Browser-Oberfläche, Add-on, bucht nach Pla
 - **Betrieb:** lokal `scripts/dev.sh` (Postgres über Homebrew, Test auf Port 8090), Linux-Paket `scripts/package.sh` + `deploy/linux/install.sh` (systemd), OpenShift `Containerfile` + `deploy/openshift/`. Umzug/Cluster: `Betrieb-Migration.md`.
 
 ## Fertig (Go-Server)
-Anmeldung: lokale Konten (Einzelbetrieb), Notfallzugang (nur Betrieb, nie Zeiten), LDAP/AD, OIDC (authentik/Keycloak/Entra). Rollen kombinierbar, Teams, Sichtbarkeit je Rolle. Monatsfreigabe mit Sperre in der Datenbank. Plane: Buchung als Summe je Ticket, Quellen, Tickets, Import (auf Anforderung). Jira Data Center + Tempo: mehrere Instanzen, Push, Ticket-Vorschlag (Light), Übergangs-Ticket. Arbeitsalltag: To-do, Arbeitstag, Monatsende/Lücken, Assistent (regelbasiert), alles abschaltbar (Vorschläge in vier Stufen). Admin-Oberfläche, Befehlszeile (`server help`), Selbsttest, Audit mit Hash-Kette. Sicherheit: mehrere unabhängige Reviews je Baustein, siehe `Sicherheit-Server-ISO27001.md`.
+Anmeldung: lokale Konten (Einzelbetrieb), Notfallzugang (nur Betrieb, nie Zeiten), LDAP/AD, OIDC (authentik/Keycloak/Entra). Fachrollen kombinierbar (Mitarbeiter/Teamleiter/Personal); technischer Admin = getrenntes Konto ohne Zeiterfassung (LDAP-Admin-Gruppe, keine Doppelrolle). Teams, Sichtbarkeit je Rolle. Monatsfreigabe mit Sperre in der Datenbank. Plane: Buchung als Summe je Ticket, Quellen, Tickets, Import (auf Anforderung). Jira Data Center + Tempo: mehrere Instanzen, Push, Ticket-Vorschlag (Light), Übergangs-Ticket. Arbeitsalltag: To-do, Arbeitstag, Monatsende/Lücken, Assistent (regelbasiert), alles abschaltbar (Vorschläge in vier Stufen). Admin-Oberfläche `/admin`, Nutzer-GUI `/` wie lokales Zeitprotokoll im Servermodus, Befehlszeile (`server help`), Selbsttest, Audit mit Hash-Kette. Sicherheit: mehrere unabhängige Reviews je Baustein, siehe `Sicherheit-Server-ISO27001.md`.
 
 ## Schnellstart und Auslieferung
 - **Testen auf dem Mac:** `scripts/dev.sh` (Postgres per Homebrew, eigene Datenbank `zeitprotokoll_dev`, Schlüssel in `~/.zeitprotokoll-dev-key`, Port 8090); Befehle gegen dieselbe Datenbank: `scripts/dev.sh status|check|user …|team …|ldap …|oidc …`. Oberfläche bauen: `scripts/build-web.sh` (nach `server-go/web`, berührt `frontend/dist` des lokalen Trackers nicht). Erste Einrichtung unter `/setup` (Token steht im Log), Anmeldung `/login`; Administrator landet in `/admin`, Mitarbeiter in der Oberfläche `/`.
-- **Linux (systemd):** `scripts/package.sh` baut `dist/zeitprotokoll-server-<version>.tar.gz` (amd64/arm64, mit Oberfläche); darin `install.sh` (Erstinstallation, `--upgrade`, `--uninstall [--purge]`), Dienstdatei mit Härtung, Konfigurationsvorlage. Nur syntaktisch geprüft, nicht auf einem Linux-Rechner gelaufen.
+- **Linux (systemd):** `scripts/package.sh` baut `dist/zeitprotokoll-server-<version>.tar.gz` (amd64/arm64, Version per ldflags, mit Oberfläche); darin `install.sh` (Erstinstallation, `--upgrade` mit Binary-Backup, `--uninstall [--purge]`). Admin-Tab **Update** + `docs/Betrieb-Update.md`. Noch nicht auf einem Linux-Rechner gelaufen.
 - **OpenShift:** `Containerfile`, `deploy/openshift/` (Deployment, Route, Netzwerkregeln …). Nicht gebaut/angewendet.
 - **Bereinigter Export für GitLab:** `export-sanitized.sh` im Projektwurzelordner (enthält die echten Namen, nicht im Export); der Stand im GitLab-Projekt ist eine Momentaufnahme vom 10.11. und muss nach größeren Änderungen neu erzeugt werden.
 
@@ -24,15 +24,44 @@ Monatsschluss nach einem Werktag, Nachtragen nur Teamleitung/Personal, Teams aus
 
 ## Zuletzt fertig (Fortsetzung nach 10.11.)
 - Oberfläche: Nachtragen-Dialog (Team/Personal, Begründung 10–500), „geschlossen“-Anzeige in der Monatsfreigabe, Hinweistexte und Tempo-Hash-Tests an Node angeglichen.
-- E-Mail-Erinnerungen SMTP (abschaltbar, `/admin`, Migration 020 `notify_sent`, Inhalt ohne Zeiten) über `notifyApproval`. Exchange-OAuth und Urlaubsantrag folgen.
+- E-Mail-Erinnerungen SMTP (abschaltbar, `/admin`, Migration 020 `notify_sent`, Inhalt ohne Zeiten) über `notifyApproval`.
+- Tempo→lokal Abgleich (`GET/POST /api/tempo-sync`, Spiegel `source=tempo`, 12‑h-Automatik, Grundimport).
+- Urlaubsantrag mit Genehmigung Teamleitung / Vertretung Personal (Migration 021 `leave_requests`, UI Abwesenheiten + Team/Personal).
+- Geräte-Token + Client-Hinweise (Migration 021 `client_hints`, `device_tokens.kind`, UI Einstellungen › Erkennung; Ingest `POST /api/client/hints`).
+- Meetings/Kalender-Parität (`meetings.go`): Mac liefert Signale/Termine, Server speichert und schlägt vor – Alltag wie lokales Mac-System.
+- SSH-Parität (`ssh.go` + Mac `ssh-sync.js`): Log → Server, Ansicht/Buchen/Nachtragen wie lokal.
+- Tempo-Abwesenheitsvorschläge nach Abgleich (`is_absence` + `absence_hints`); gemeinsame Zähler Mehr-Pod (Migration 022 `rate_events`/`rate_blocks` für Login/Plane/Jira).
+- Mehrere Plane-Workspaces (Migration 023/024/025): Admin `/admin` nur Adresse/Kennung (**ohne** Plane-Token); Nutzer Schlüssel je Host + Auswahl je Workspace; Scan, Tickets, Import, Push, Status und To-do über gewählte Workspaces; `plane_workspace_id` an Projekt/Aufgabe/Buchung; `plane_me_id` je Workspace.
+- Web-Maske LDAP/OIDC in `/admin` (neben CLI); `server rekey`; DB-Rollen-Skript `deploy/postgres/roles.sql`.
+- Admin ohne Doppelrolle (Migration 026); Bugbot: LDAP-Rollenwechsel beendet Sitzungen, Urlaubstage nur serverseitig, Ablehnen-Abbruch, Mobile-Nav filtert wie Desktop.
+
+## GUI / Rollen – wie weit (11.11.)
+| Rolle | Sieht | Status |
+|---|---|---|
+| Admin | nur `/admin` | fertig verdrahtet (keine Doppelrolle) |
+| Mitarbeiter | `/` Zeit-UI | fertig verdrahtet |
+| Teamleiter | `#team` + Mitarbeiter | fertig verdrahtet |
+| Personal | `#personal` + Mitarbeiter (+ Freigabe) | fertig verdrahtet; CSV-Auswertung da; Abrechnungs-API da; `exportiert`-Sperre offen |
+| Misch (Lead+HR usw.) | additive Nav | fertig verdrahtet |
+
+**GUI-Kern: gebaut.** Team/Personal: Übersicht-CSV + Buchungs-CSV + Buchungsprotokoll; Selbstfreigabe und Urlaubsablehnung mit Dialog. Assistent-Parität. Mac-Client Team-Session + Mini-Timer über Session. **Abrechnungs-API** (`zpint_…`, Projektstunden + Lohn) gebaut – `exportiert`/Formate offen. Timer ohne Ticket + Tempo-Dauerbuchung; User-Datenprüfung; Todo-Feld-Sync; Kalender→Abwesenheits-Hinweise; Vorschläge Termin/SSH; Abwesenheiten-ICS-Abo.
+
+## Client / Installation (Stand)
+
+| Baustein | Stand |
+|---|---|
+| **Mac-App Team** | Session-Cookie am Go-Server; Tray zeigt Server; **Tray › Team-Server-Adresse …** editierbar; Mini/API über Session |
+| **Browser-Add-on** | Server-URL im Popup; Go: `/api/pair/*`, `/api/ext/state`, `X-ZP-Token` → `device_tokens` (kind=addon); CSRF-Ausnahme nur für Add-on-Pfade; UI `#koppeln` + Einstellungen › Erkennung |
+| **Web-GUI (Nicht-Admin)** | Ruhige Nav („Jetzt“ + einklappbares „Mehr“); Heute mit Fokuszeile; Termine/Mac-Optionen zugeklappt; Tempo-Import unter Übertragen; Plane-Workspace ohne Fake-„Alle“; Urlaub über Antrag |
+| **Linux-Installer** | `deploy/linux/install.sh` (Erst/Upgrade/Uninstall + Health-Check). Modularer Dialog-Installer: eigener Branch/PR `cursor/modular-installer-c03b` |
+| **OpenShift / Docker** | Manifeste/Compose im Repo; Betrieb noch nicht gegen echte Cluster abgenommen |
 
 ## Offen (Reihenfolge)
-1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, OIDC, SMTP).
-2. Exchange-OAuth/Graph für E-Mail; Urlaubsantrag mit Genehmigung durch die Teamleitung (Vertretung Personal).
-3. Mehrere Plane-Workspaces (Admin legt fest), Abgleich von Tempo zurück + Grundimport, Exporte (Lohn/Kunden; später entschieden).
-4. Geräte-Token und Annahme-Schnittstelle für Client-Vorschläge; gemeinsame Zähler (Anmeldesperre, Plane-/Jira-Bremse) für Mehr-Pod-Betrieb; getrennte Datenbank-Rollen; `server rekey`.
-5. Client: Mac-App spricht den Server an (nur lokale Erkennung: SSH, Meetings, Anwesenheit), Härtung, später Tray/Windows.
-6. Jira Cloud / Tempo Cloud / Plane Cloud (nachrangig).
+    1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, OIDC, SMTP) inkl. Add-on-Kopplung.
+    2. Exchange-OAuth/Graph und mehrere Mail-Konten (später).
+    3. Exporte (Lohn/Kunden; später entschieden).
+    4. Client: Windows-Tray; Mac-Härtung (Zertifikat-Pin schon optional).
+    5. Jira Cloud / Tempo Cloud / Plane Cloud (nachrangig).
 
 ## Entscheidungen (Kurzfassung, Details in der Spezifikation)
 Go + PostgreSQL; Plane per persönlichem Token; Jira Data Center + Cloud, Tempo nur als Brücke, Jira-Instanzen vom Admin; Server zuerst, Client danach; Freigabe ausschließlich Personal; Monatsschluss automatisch nach 1 Werktag, danach nachtragen nur Teamleitung/Personal; Tracken ohne Ticket erlaubt, Ticket-Vorschlag light und abschaltbar; technischer Admin sieht keine Zeiten; kein Import aus dem lokalen Tracker, Historie nur aus Tempo und Plane.

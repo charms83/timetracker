@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"sort"
@@ -116,16 +117,31 @@ func myItemsFilter(list []map[string]any, states map[string][2]string, meID stri
 
 func (a *App) planeMyItems(w http.ResponseWriter, r *http.Request, u User) {
 	ctx := r.Context()
-	c, err := a.planeCfg(ctx, u.ID)
+	wsRaw := r.URL.Query().Get("workspace")
+	cfgs, err := a.planeCfgsForQuery(ctx, u.ID, wsRaw)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	if !c.ok() {
+	var okCfgs []planeCfg
+	for _, c := range cfgs {
+		if c.ok() {
+			okCfgs = append(okCfgs, c)
+		}
+	}
+	if len(okCfgs) == 0 {
 		writeJSON(w, http.StatusOK, []any{})
 		return
 	}
-	ck := c.Base + "|" + c.WS + "|" + descHash(c.Key)[:8] // Fingerabdruck, nie der Schlüssel selbst
+	// Cache-Key über alle Workspaces (ohne API-Schlüssel)
+	var b strings.Builder
+	for i, c := range okCfgs {
+		if i > 0 {
+			b.WriteByte('|')
+		}
+		fmt.Fprintf(&b, "%d:%s:%s:%s", c.ID, c.Base, c.WS, descHash(c.Key)[:8])
+	}
+	ck := b.String()
 	v, _ := myItemsByUser.LoadOrStore(u.ID, &myItemsState{})
 	ms := v.(*myItemsState)
 	ms.mu.Lock()
@@ -140,6 +156,7 @@ func (a *App) planeMyItems(w http.ResponseWriter, r *http.Request, u User) {
 	if wait == nil {
 		done := make(chan struct{})
 		ms.inflight = done
+		cfgsCopy := append([]planeCfg(nil), okCfgs...)
 		go a.safely("plane-meine", func() { // läuft unabhängig vom Request zu Ende (Ergebnis für den nächsten Aufruf)
 			defer func() {
 				ms.mu.Lock()
@@ -149,7 +166,7 @@ func (a *App) planeMyItems(w http.ResponseWriter, r *http.Request, u User) {
 			}()
 			lctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
-			items, err := a.loadMyItems(lctx, u.ID, c)
+			items, err := a.loadMyItemsMulti(lctx, u.ID, cfgsCopy)
 			if err != nil {
 				a.sysLog(lctx, u.ID, "warn", "plane", "Meine Work-Items: "+err.Error())
 				return
@@ -177,8 +194,7 @@ func (a *App) planeMyItems(w http.ResponseWriter, r *http.Request, u User) {
 		writeJSON(w, http.StatusOK, cur.items)
 		return
 	}
-	// lief noch mit dem alten Schlüssel: jetzt einmal mit dem neuen laden
-	items, err := a.loadMyItems(ctx, u.ID, c)
+	items, err := a.loadMyItemsMulti(ctx, u.ID, okCfgs)
 	if err != nil {
 		a.planeFail(w, err)
 		return
@@ -187,6 +203,41 @@ func (a *App) planeMyItems(w http.ResponseWriter, r *http.Request, u User) {
 	ms.cache = &myItemsCached{at: time.Now(), key: ck, items: items}
 	ms.mu.Unlock()
 	writeJSON(w, http.StatusOK, items)
+}
+
+// loadMyItemsMulti: ein oder mehrere Workspaces; Ergebnis mit workspace_id / workspace-Name.
+func (a *App) loadMyItemsMulti(ctx context.Context, uid int64, cfgs []planeCfg) ([]map[string]any, error) {
+	seen := map[string]bool{}
+	out := []map[string]any{}
+	var firstErr error
+	for _, c := range cfgs {
+		part, err := a.loadMyItems(ctx, uid, c)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			a.sysLog(ctx, uid, "warn", "plane", "Meine Work-Items Workspace "+c.WS+": "+err.Error())
+			continue
+		}
+		for _, row := range part {
+			if row["workspace_id"] == nil {
+				row["workspace_id"] = c.ID
+			}
+			if row["workspace"] == nil || asStr(row["workspace"]) == "" {
+				row["workspace"] = c.WS
+			}
+			k := strings.ToUpper(asStr(row["key"])) + ":" + fmt.Sprint(row["workspace_id"])
+			if asStr(row["key"]) == "" || seen[k] {
+				continue
+			}
+			seen[k] = true
+			out = append(out, row)
+		}
+	}
+	if len(out) == 0 && firstErr != nil {
+		return nil, firstErr
+	}
+	return out, nil
 }
 
 func (a *App) loadMyItems(ctx context.Context, uid int64, c planeCfg) ([]map[string]any, error) {
@@ -233,7 +284,7 @@ func (a *App) loadMyItems(ctx context.Context, uid int64, c planeCfg) ([]map[str
 // planeMap = Node GET /api/integrations/plane/map: {configured, open, skipped, mapped, projects}
 func (a *App) planeMap(w http.ResponseWriter, r *http.Request, u User) {
 	ctx := r.Context()
-	c, err := a.planeCfg(ctx, u.ID)
+	c, err := a.planeCfgSelect(ctx, u.ID, r.URL.Query().Get("workspace"))
 	if err != nil {
 		a.fail(w, err)
 		return

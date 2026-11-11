@@ -4,9 +4,10 @@
    Abgefragt wird nur beim Öffnen, bei Filter-/Monatswechsel und über „Aktualisieren“.
 ═══════════════════════════════════════════════════════════════════ */
 import { useState, useEffect, useCallback } from "react";
-import { UserCog, Check, X, RotateCcw, Search } from "lucide-react";
+import { UserCog, Check, X, RotateCcw, Search, Download } from "lucide-react";
 import { call, Box, inpS, btn, useServerMode } from "./zp-ui.jsx";
-import { MonthNav, RefreshBtn, PeopleTable, PersonDetail, ReasonDialog, Empty, Err, STATUS, prevMonth, monthLabel, friendly, when } from "./zp-people.jsx";
+import { MonthNav, RefreshBtn, PeopleTable, PersonDetail, ReasonDialog, Empty, Err, STATUS, prevMonth, monthLabel, friendly, when, peopleOverviewCsv } from "./zp-people.jsx";
+import { LeavePendingPanel } from "./zp-leave.jsx";
 
 const LIMIT = 50;
 const SELF_MSG = "Nicht möglich: Eigene Monate gibt das Personal nicht selbst frei (oder keine Berechtigung). Bitte eine andere Person aus dem Personal bitten.";
@@ -14,8 +15,10 @@ const sBtn = { ...btn(false), padding: "4px 10px", fontSize: 12 };
 
 /* Schaltflächen je Person und Monat. status: Monatsstatus; onDone({text, err}) meldet das Ergebnis. */
 function ApprovalButtons({ userId, name, month, status, onDone, compact }) {
-  const [dlg, setDlg] = useState(null);   // "reject" | "reopen"
+  const { me } = useServerMode();
+  const [dlg, setDlg] = useState(null);   // "reject" | "reopen" | "self"
   const [busy, setBusy] = useState(false);
+  const self = me && Number(me.id) === Number(userId);
   const post = async (path, body) => {
     const r = await call("POST", `/approval/${path}`, { user_id: userId, month, ...body });
     if (r.error) return /nicht gefunden|HTTP 404/i.test(r.error) ? SELF_MSG : /^HTTP 409$/.test(r.error) ? "Konflikt (409): Der Monat hat inzwischen einen anderen Status. Bitte aktualisieren." : r.error;
@@ -23,6 +26,7 @@ function ApprovalButtons({ userId, name, month, status, onDone, compact }) {
   };
   const approve = async () => {
     if (busy) return;
+    if (self) { setDlg("self"); return; } // einzige Person im Personal: Pflichtkommentar ≥ 10
     if (!confirm(`${name}: ${monthLabel(month)} jetzt freigeben?\n\nDanach ist der Monat gesperrt; Nachträge sind nur nach Wiedereröffnung möglich.`)) return;
     setBusy(true);
     const e = await post("decide", { decision: "approve", comment: "" });
@@ -39,8 +43,10 @@ function ApprovalButtons({ userId, name, month, status, onDone, compact }) {
     <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap" }}>
       {status === "submitted" && <>
         <button style={{ ...btn(true), padding: "4px 10px", fontSize: 12 }} disabled={busy} onClick={approve}><Check size={13} /> Freigeben</button>
-        <button style={sBtn} disabled={busy} onClick={() => setDlg("reject")}><X size={13} /> Ablehnen</button></>}
-      {canReopen && <button style={sBtn} disabled={busy} onClick={() => setDlg("reopen")} title="Monat wieder öffnen"><RotateCcw size={13} /> {compact ? "Wiedereröffnen" : "Wiedereröffnen"}</button>}
+        {!self && <button style={sBtn} disabled={busy} onClick={() => setDlg("reject")}><X size={13} /> Ablehnen</button>}</>}
+      {canReopen && !self && <button style={sBtn} disabled={busy} onClick={() => setDlg("reopen")} title="Monat wieder öffnen"><RotateCcw size={13} /> {compact ? "Wiedereröffnen" : "Wiedereröffnen"}</button>}
+      {dlg === "self" && <ReasonDialog title={`${monthLabel(month)} selbst freigeben`} text="Du bist die einzige Person im Personal. Die Begründung wird im Verlauf als Selbstfreigabe protokolliert; der Monat ist danach gesperrt." label="Begründung" confirmLabel="Freigeben" min={10}
+        onSubmit={sub("decide", { decision: "approve" }, `${name}: ${monthLabel(month)} freigegeben`)} onClose={() => setDlg(null)} />}
       {dlg === "reject" && <ReasonDialog title={`${name}: ${monthLabel(month)} ablehnen`} text="Die Person sieht den Kommentar, korrigiert den Monat und reicht ihn neu ein." label="Kommentar" confirmLabel="Ablehnen" danger
         onSubmit={sub("decide", { decision: "reject" }, `${name}: ${monthLabel(month)} abgelehnt`)} onClose={() => setDlg(null)} />}
       {dlg === "reopen" && <ReasonDialog title={`${name}: ${monthLabel(month)} wiedereröffnen`} text="Der Monat wird wieder bearbeitbar; die Begründung wird im Verlauf protokolliert." label="Begründung" confirmLabel="Wiedereröffnen"
@@ -97,7 +103,7 @@ export default function PersonalView() {
       </div>
       {msg && <div role="status" style={{ fontSize: 13, marginBottom: 12, color: msg.err ? "var(--stop)" : "var(--accent)" }}>{msg.err ? "✗ " : "✓ "}{msg.text}</div>}
 
-      <Box title="Offene Freigaben" sub="Eingereichte Monate aller Personen. Eigene Monate gibt das Personal nicht selbst frei (keine Selbstfreigabe)."
+      <Box title="Offene Freigaben" sub="Eingereichte Monate. Eigene Monate nur, wenn du die einzige Person im Personal bist (Begründung Pflicht)."
         right={<RefreshBtn onClick={refresh} busy={busy} />}>
         {!items ? (pending && pending.error ? <Err>{friendly(pending.error)}</Err> : <div style={{ color: "var(--text3)", fontSize: 12 }}>Lade…</div>)
           : !items.length ? <Empty>Keine offenen Freigaben.</Empty>
@@ -110,8 +116,12 @@ export default function PersonalView() {
             </div>))}
       </Box>
 
-      <Box title="Alle Personen" sub="Monatsübersicht mit Status, Salden und Hinweisen; Klick auf eine Zeile öffnet die Details."
-        right={<MonthNav month={month} onChange={filt(setMonth)} />}>
+      <div style={{ margin: "12px 0" }}><LeavePendingPanel /></div>
+
+      <Box title="Alle Personen" sub="Monatsübersicht mit Status, Salden und Hinweisen; Klick auf eine Zeile öffnet die Details. CSV = aktuelle Auswahl (kein Lohn-Export)."
+        right={<div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button style={sBtn} disabled={!people?.length} onClick={() => peopleOverviewCsv(people, month, "personal")} title="Übersicht als CSV"><Download size={13} /> CSV</button>
+          <MonthNav month={month} onChange={filt(setMonth)} /></div>}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
           <select style={{ ...inpS, width: "auto" }} value={team} onChange={e => filt(setTeam)(e.target.value)} aria-label="Team">
             <option value="">Alle Teams</option><option value="none">Ohne Team</option>{teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>

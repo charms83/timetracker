@@ -47,7 +47,7 @@ export function AddonSettings() {
   return (
     <div className="zp-card" style={{ padding: "12px 16px", marginBottom: 12, fontSize: 13 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}><Puzzle size={16} style={{ color: "var(--accent)" }} /><b>Browser-Add-on</b></div>
-      <div style={{ fontSize: 12, color: "var(--text2)", margin: "4px 0 8px" }}>Jira- oder Plane-Ticket im Browser offen → im Add-on „▶ Tracken“. Der Timer läuft dann hier ganz normal, bis du ihn stoppst. Das Add-on sieht nur deine Jira- und Plane-Seiten und spricht nur mit Zeitprotokoll auf diesem Mac.</div>
+      <div style={{ fontSize: 12, color: "var(--text2)", margin: "4px 0 8px" }}>Jira- oder Plane-Ticket im Browser offen → im Add-on „▶ Tracken“. Der Timer läuft dann hier ganz normal, bis du ihn stoppst.</div>
       {desk ? (browsers === null ? <div style={{ color: "var(--text2)" }}>Suche Browser …</div> : <>
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
           <span style={{ flex: 1, fontSize: 12, color: "var(--text2)" }}>Auf diesem Mac gefunden: {browsers.map(b => b.name).join(", ") || "keine"}</span>
@@ -64,7 +64,12 @@ export function AddonSettings() {
               : <button style={{ ...btn(false), padding: "3px 10px" }} onClick={() => install(b.name)}>Einrichten</button>}
           </div>
           {msg[b.name] && <div style={{ fontSize: 12, color: "var(--text2)", marginTop: 4 }}>{msg[b.name]}</div>}
-        </div>))}</>) : <div style={{ fontSize: 12, color: "var(--text2)" }}>Einrichten: Zeitprotokoll-Symbol oben in der Menüleiste › <b>„Browser-Add-ons einrichten …“</b> – die Mac-App findet deine Browser und richtet alle auf einmal ein.</div>}
+        </div>))}</>) : (
+        <div style={{ fontSize: 12, color: "var(--text2)", lineHeight: 1.45 }}>
+          <b>Im Browser (Team-Server):</b> Add-on installieren → Popup › Server-Adresse eintragen → <b>verbinden</b> → hier erlauben (#koppeln).
+          {typeof window !== "undefined" && window.zpDesktop ? null : <> Optional Mac-App: Menüleiste › „Browser-Add-ons einrichten …“.</>}
+        </div>
+      )}
       <div style={{ marginTop: 10 }}><b style={{ fontSize: 12.5 }}>Verbundene Add-ons</b></div>
       {!clients.length && <div style={{ fontSize: 12, color: "var(--text2)" }}>keine</div>}
       {clients.map(c => (

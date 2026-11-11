@@ -1,6 +1,6 @@
 # Betrieb auf OpenShift
 
-1. **Datenbank:** PostgreSQL (eigene VM oder vorhandener Server), eigener Benutzer `zeitprotokoll` mit Rechten nur auf die eigene Datenbank; Verbindung mit `sslmode=verify-full`. Getrennte Rollen (Betrieb/Migration) sind noch offen.
+1. **Datenbank:** PostgreSQL (eigene VM oder vorhandener Server). Empfohlen: getrennte Rollen laut `deploy/postgres/roles.sql` (`zeitprotokoll_owner` für Migrationen, `zeitprotokoll` für Laufzeit); Verbindung mit `sslmode=verify-full`.
 2. **Image bauen:** `cd server-go && podman build -t <registry>/example/zeitprotokoll-server:<tag> -f Containerfile .` und pushen. Tag fest vergeben.
 3. **Secret anlegen** (Vorlage `deploy/openshift/secret.example.yaml`, Werte nie ins Repository): `DATABASE_URL`, `ZP_SECRET_KEY` (≥ 32 Zeichen, im Tresor sichern – ohne ihn sind alle gespeicherten Tokens unlesbar).
 4. **Konfiguration anpassen:** `configmap.yaml` (`ZP_PUBLIC_URL`), `route.yaml` (Host), `deployment.yaml` (Image), `networkpolicy.yaml` (Ziele).

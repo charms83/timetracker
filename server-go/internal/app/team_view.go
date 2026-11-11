@@ -100,8 +100,8 @@ func hidden(w http.ResponseWriter) {
 func leadAllowed(u User) bool { return u.IsLead && u.Role != "breakglass" && u.timeAccount() }
 func hrAllowed(u User) bool   { return u.IsHR && u.Role != "breakglass" && u.timeAccount() }
 
-// activeSQL: zeiterfassende, aktive Personen (kein reines Admin-Testkonto, kein Notfallzugang, nicht gesperrt)
-const activeSQL = `u.role<>'breakglass' AND NOT u.disabled AND NOT (u.kind='local' AND NOT u.productive)`
+// activeSQL: zeiterfassende, aktive Personen (kein technischer Admin, kein Notfallzugang, nicht gesperrt)
+const activeSQL = `u.role<>'breakglass' AND u.role<>'admin' AND NOT u.disabled AND NOT (u.kind='local' AND NOT u.productive)`
 
 type teamRef struct {
 	ID     int64  `json:"id"`

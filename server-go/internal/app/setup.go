@@ -252,7 +252,7 @@ func (a *App) setPlaneBase(ctx context.Context, newURL string) (int64, error) {
 			return err
 		}
 		cleared = tag.RowsAffected()
-		if _, err := tx.Exec(ctx, `DELETE FROM user_settings WHERE key='plane_me_id'`); err != nil {
+		if _, err := tx.Exec(ctx, `DELETE FROM user_settings WHERE key='plane_me_id' OR key LIKE 'plane_me_id:%'`); err != nil {
 			return err
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO server_config(key,value) VALUES('plane_base_url',$1) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()`, newURL)

@@ -46,7 +46,7 @@ func (a *App) soleHR(ctx context.Context, uid int64) bool {
 	var n int
 	var me bool
 	err := a.DB.QueryRow(ctx, `SELECT COUNT(*), COALESCE(bool_or(id=$1), false) FROM users
-		WHERE is_hr AND NOT disabled AND role<>'breakglass' AND NOT (kind='local' AND NOT productive)`, uid).Scan(&n, &me)
+		WHERE is_hr AND NOT disabled AND role<>'breakglass' AND role<>'admin' AND NOT (kind='local' AND NOT productive)`, uid).Scan(&n, &me)
 	return err == nil && n == 1 && me
 }
 

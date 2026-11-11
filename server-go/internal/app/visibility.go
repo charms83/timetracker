@@ -9,7 +9,7 @@ import (
 )
 
 /* Sichtbarkeit: Mitarbeiter sehen sich selbst, Teamleiter die Mitglieder ihrer Teams, Personal (is_hr) alle.
-   Die Rollen sind kombinierbar. Der technische Administrator sieht über seine Rolle KEINE Zeitdaten.
+   Fachrollen sind kombinierbar; der technische Administrator ist ein getrenntes Konto und sieht KEINE Zeitdaten.
    Fremde Daten gibt es nur lesend über „?user=<id>“ an ausgewählten GET-Routen (asTarget); alles Schreibende bleibt eigene Daten. */
 
 // canSee: darf viewer die Zeitdaten von target lesen?
@@ -75,7 +75,8 @@ func (a *App) asTarget(h func(http.ResponseWriter, *http.Request, User)) func(ht
 			return
 		}
 		t := User{ID: id, Role: "user", Kind: "viewed"}
-		if err := a.DB.QueryRow(r.Context(), `SELECT email, name FROM users WHERE id=$1 AND role<>'breakglass'`, id).Scan(&t.Email, &t.Name); err != nil {
+		// Keine Zeitdaten-Ansicht für Admin-/Notfallkonten (auch nicht „leer“)
+		if err := a.DB.QueryRow(r.Context(), `SELECT email, name FROM users WHERE id=$1 AND role<>'breakglass' AND role<>'admin'`, id).Scan(&t.Email, &t.Name); err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]any{"error": "nicht gefunden"})
 			return
 		}

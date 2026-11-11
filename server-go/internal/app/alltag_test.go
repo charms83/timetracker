@@ -22,7 +22,9 @@ func TestAlltagRoutesRegistered(t *testing.T) {
 		{"POST", "/api/workday/pause/start"}, {"POST", "/api/workday/pause/end"},
 		{"GET", "/api/month-end"}, {"POST", "/api/month-end/ok"}, {"GET", "/api/missing-hours"},
 		{"GET", "/api/gap-suggest"}, {"POST", "/api/gap-suggest/learn"}, {"GET", "/api/suggest-now"},
-		{"GET", "/api/absence-hints"}, {"POST", "/api/absence-hints/abc"}, {"GET", "/api/ticket-estimates"}, {"PUT", "/api/ticket-estimates/AB-1"},
+		{"GET", "/api/absence-hints"}, {"POST", "/api/absence-hints/abc"}, {"POST", "/api/absences/from-tempo"},
+		{"GET", "/api/calendar/abwesenheiten.ics"}, {"GET", "/api/absences.ics"},
+		{"GET", "/api/ticket-estimates"}, {"PUT", "/api/ticket-estimates/AB-1"},
 	} {
 		req, _ := http.NewRequest(p[0], p[1], nil)
 		if _, pat := mux.Handler(req); pat == "" {
@@ -40,18 +42,20 @@ func TestAlltagRoutesRegistered(t *testing.T) {
 
 func TestSuggestSwitchFourLevels(t *testing.T) {
 	for _, tc := range []struct {
-		kind       string
+		kind, role string
 		productive bool
 		want       bool
 	}{
-		{"local", false, false}, // technisches Admin-/Testkonto
-		{"local", true, true},   // Admin, der selbst Zeiten erfasst
-		{"oidc", false, true},   // OIDC/LDAP immer zeiterfassend
-		{"ldap", false, true},
-		{"oidc", true, true},
+		{"local", "admin", false, false}, // technisches Admin-Konto
+		{"local", "user", true, true},
+		{"oidc", "admin", true, false}, // Admin-Gruppe: nie Zeiterfassung (keine Doppelrolle)
+		{"oidc", "user", false, true},  // OIDC/LDAP-Mitarbeiter zeiterfassend
+		{"ldap", "user", false, true},
+		{"oidc", "lead", true, true},
+		{"ldap", "breakglass", true, false},
 	} {
-		if got := tracksTime(tc.kind, tc.productive); got != tc.want {
-			t.Errorf("tracksTime(%s,%v)=%v", tc.kind, tc.productive, got)
+		if got := tracksTime(tc.kind, tc.role, tc.productive); got != tc.want {
+			t.Errorf("tracksTime(%s,%s,%v)=%v", tc.kind, tc.role, tc.productive, got)
 		}
 	}
 	for _, tc := range []struct {

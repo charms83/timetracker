@@ -111,7 +111,9 @@ func (a *App) tempoSetup(ctx context.Context, uid int64) (*tempoSetup, map[strin
 	if st["tempo_plane_mode"] == "ticket" {
 		p.PlaneMode = "ticket"
 	}
-	if pb, ws := strings.TrimRight(a.conf(ctx, "plane_base_url"), "/"), normWS(a.conf(ctx, "plane_workspace")); pb != "" && ws != "" {
+	if w, ok := a.primaryPlaneWorkspace(ctx); ok {
+		p.PlaneURL = strings.TrimRight(w.BaseURL, "/") + "/" + normWS(w.Workspace)
+	} else if pb, ws := strings.TrimRight(a.conf(ctx, "plane_base_url"), "/"), normWS(a.conf(ctx, "plane_workspace")); pb != "" && ws != "" {
 		p.PlaneURL = pb + "/" + ws
 	}
 	personSince := st["tempo_push_since"]
@@ -668,8 +670,19 @@ func (r *tempoResult) msg(m string) {
 }
 
 func asInt(v any) int {
-	n, _ := v.(int)
-	return n
+	switch x := v.(type) {
+	case int:
+		return x
+	case int32:
+		return int(x)
+	case int64:
+		return int(x)
+	case float64:
+		return int(x)
+	case float32:
+		return int(x)
+	}
+	return int(asFloat(v))
 }
 
 func (a *App) tempoLogResult(ctx context.Context, uid int64, r *tempoResult) {
@@ -1409,7 +1422,18 @@ func (a *App) tempoOutbox(w http.ResponseWriter, r *http.Request, u User) {
 				needs++
 			}
 		}
-		days = append(days, map[string]any{"date": d, "entries": es, "minutes": sum, "open": open, "needs": needs, "gaps": []any{}})
+		// Lücken wie Node (presence.dayOverview) – ab 10 Min, für Tempo-Ausgang „nichts gebucht“
+		gaps := []any{}
+		if ov, err := a.dayOverview(ctx, u.ID, d); err == nil {
+			if gs, ok := ov["gaps"].([]span); ok {
+				for _, g := range gs {
+					if g.E-g.S >= 10 {
+						gaps = append(gaps, map[string]any{"s": g.S, "e": g.E})
+					}
+				}
+			}
+		}
+		days = append(days, map[string]any{"date": d, "entries": es, "minutes": sum, "open": open, "needs": needs, "gaps": gaps})
 	}
 	monthTickets, err := a.maps(ctx, `SELECT instance_id, month, worker, issue_key, created_at, closed_at, close_error FROM tempo_month_tickets WHERE user_id=$1 ORDER BY month DESC LIMIT 24`, u.ID)
 	if err != nil {

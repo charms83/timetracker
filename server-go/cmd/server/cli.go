@@ -25,6 +25,7 @@ Aufruf:  server [Befehl]
   oidc show|set|set-secret|link …    authentik/OIDC-Anmeldung einrichten (siehe: server oidc)
   ldap show|set|test|link …          LDAP/AD-Anmeldung einrichten (siehe: server ldap)
   status                             Zustand: Version, Datenbank, Anmeldung, Zähler
+  version                            Programmversion (ohne Datenbank)
   check [--fix] [--force]            Selbsttest; --fix zieht Migrationen nach und räumt auf,
                                      --force löscht außerdem nicht lesbare Zugangsdaten
   logs [-n 100] [--level warn|error|info] [--category plane] [-q Text] [-f]
@@ -41,6 +42,8 @@ Aufruf:  server [Befehl]
                                      module_tempo 1/0 schaltet Jira/Tempo ein/aus, module_suggest 1/0 die Ticket-Vorschläge
   user set-suggest <benutzer> <on|off>   Ticket-Vorschläge für eine Person erlauben/sperren
   jira list|add|set|remove …         Jira-Instanzen verwalten (server jira für Hilfe)
+  rekey --from-env|--from-file --to-env|--to-file [--yes]
+                                     verschlüsselte Werte auf einen neuen Schlüssel umstellen
   migrate                            Datenbank-Migrationen ausführen
   help                               diese Hilfe
 
@@ -50,6 +53,16 @@ Umgebung: DATABASE_URL (Pflicht), ZP_SECRET_KEY, ZP_TZ. Auf OpenShift:  oc exec 
 func runCLI(args []string) int {
 	if args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
 		fmt.Print(usage)
+		return 0
+	}
+	if args[0] == "version" || args[0] == "--version" || args[0] == "-V" {
+		fmt.Println(app.ServerVersion())
+		if app.Commit != "" {
+			fmt.Println("commit:", app.Commit)
+		}
+		if app.Built != "" {
+			fmt.Println("built:", app.Built)
+		}
 		return 0
 	}
 	cfg, err := config.Load()
@@ -128,6 +141,8 @@ func runCLI(args []string) int {
 			a = &app.App{DB: pool, Log: log, Key: make([]byte, 32)}
 		}
 		return cmdConfig(ctx, a, pool, args[1:])
+	case "rekey":
+		return cmdRekey(ctx, pool, cfg, args[1:])
 	}
 	fmt.Fprintf(os.Stderr, "Unbekannter Befehl %q\n\n%s", args[0], usage)
 	return 2
@@ -163,11 +178,20 @@ func one(ctx context.Context, pool *pgxpool.Pool, sql string, args ...any) strin
 }
 
 func cmdStatus(ctx context.Context, pool *pgxpool.Pool, cfg config.Config) int {
+	prog := app.ServerVersion()
+	if app.Commit != "" {
+		prog += " (" + app.Commit + ")"
+	}
+	fmt.Println("Programm:       ", prog)
+	if app.Built != "" {
+		fmt.Println("Gebaut:         ", app.Built)
+	}
 	fmt.Println("Datenbank:      ", strings.SplitN(one(ctx, pool, `SELECT version()`), " on ", 2)[0])
 	fmt.Println("Migrationen:    ", one(ctx, pool, `SELECT COUNT(*) FROM schema_migrations`), "angewendet,", len(db.MigrationNames()), "im Programm")
 	fmt.Println("Eingerichtet:   ", one(ctx, pool, `SELECT COALESCE((SELECT value FROM server_config WHERE key='setup_done'),'nein')`))
 	fmt.Println("Anmeldung:      ", one(ctx, pool, `SELECT COALESCE((SELECT value FROM server_config WHERE key='auth_mode'),'-')`))
-	fmt.Println("Plane:          ", one(ctx, pool, `SELECT COALESCE((SELECT value FROM server_config WHERE key='plane_base_url'),'-')`), "/", one(ctx, pool, `SELECT COALESCE((SELECT value FROM server_config WHERE key='plane_workspace'),'-')`))
+	fmt.Println("Plane:          ", one(ctx, pool, `SELECT COALESCE((SELECT value FROM server_config WHERE key='plane_base_url'),'-')`), "/", one(ctx, pool, `SELECT COALESCE((SELECT value FROM server_config WHERE key='plane_workspace'),'-')`),
+		"(Workspaces:", one(ctx, pool, `SELECT COUNT(*) FROM plane_workspaces`), "ein:", one(ctx, pool, `SELECT COUNT(*) FROM plane_workspaces WHERE enabled`)+")")
 	fmt.Println("Benutzer:       ", one(ctx, pool, `SELECT COUNT(*) FROM users`), "(gesperrt:", one(ctx, pool, `SELECT COUNT(*) FROM users WHERE disabled`)+")")
 	fmt.Println("Projekte:       ", one(ctx, pool, `SELECT COUNT(*) FROM projects`))
 	fmt.Println("Zeiteinträge:   ", one(ctx, pool, `SELECT COUNT(*) FROM time_entries`))

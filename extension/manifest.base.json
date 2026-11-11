@@ -1,13 +1,17 @@
 {
   "manifest_version": 3,
   "name": "Zeitprotokoll",
-  "version": "1.0.2",
-  "description": "Startet den Timer der lokalen Zeitprotokoll-App auf dem geöffneten Jira- oder Plane-Ticket.",
+  "version": "1.1.0",
+  "description": "Startet den Timer von Zeitprotokoll (lokal oder Team-Server) auf dem geöffneten Jira- oder Plane-Ticket.",
   "permissions": ["storage", "alarms"],
   "host_permissions": [
     "http://127.0.0.1:3747/*",
     "https://jira.example.com/*",
     "https://plane.example.com/*"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
   ],
   "action": {
     "default_title": "Zeitprotokoll",

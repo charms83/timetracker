@@ -3,8 +3,27 @@
    Monatswahl, Status-Badge, Personentabelle, Personen-Detail, Kommentar-Dialog, Fehlertexte.
 ═══════════════════════════════════════════════════════════════════ */
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { ChevronLeft, ChevronRight, ArrowLeft, RefreshCw, Info, Lock, PencilLine, Plus, Trash2, Pencil } from "lucide-react";
+import { ChevronLeft, ChevronRight, ArrowLeft, RefreshCw, Info, Lock, PencilLine, Plus, Trash2, Pencil, Download } from "lucide-react";
 import { call, Box, lab, btn, hm, inpS } from "./zp-ui.jsx";
+
+const teamText = p => (p.teams && p.teams.length ? p.teams.map(t => t.name).join(", ") : p.team || "–");
+
+/* CSV-Auswertung (kein Lohn-Export mit „exportiert“-Sperre – das bleibt bewusst offen) */
+export function downloadCsv(name, rows) {
+  const csv = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(";")).join("\r\n");
+  Object.assign(document.createElement("a"), { href: "data:text/csv;charset=utf-8,\uFEFF" + encodeURIComponent(csv), download: name }).click();
+}
+export function peopleOverviewCsv(people, month, prefix = "uebersicht") {
+  if (!people?.length) return;
+  downloadCsv(`zeitprotokoll-${prefix}-${month}.csv`, [
+    ["Name", "Team", "Status", "Soll bis heute (h)", "Ist (h)", "Saldo (h)", "Konto (h)", "Hinweise", "Nachgetragen", "Spät erfasst"],
+    ...people.map(p => [
+      p.name, teamText(p), (STATUS[p.status] || STATUS.unknown)[0],
+      num(p.soll_bis_heute_h), num(p.ist_h), num(p.saldo_h), num(p.konto_h),
+      p.checks_open || 0, p.nachtraege || (p.nachgetragen ? 1 : 0), p.late_entries || 0,
+    ]),
+  ]);
+}
 
 /* ── Monate, Zahlen, Zeit ── */
 const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
@@ -94,7 +113,6 @@ const th = { textAlign: "left", fontSize: 11, fontWeight: 600, color: "var(--tex
 const thr = { ...th, textAlign: "right" };
 const td = { padding: "8px 8px", borderBottom: "1px solid var(--line)", verticalAlign: "middle", fontSize: 13 };
 const tdr = { ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" };
-const teamText = p => (p.teams && p.teams.length ? p.teams.map(t => t.name).join(", ") : p.team || "–");
 
 export function Flags({ p }) {
   const nach = p.nachgetragen || (p.nachtraege || 0) > 0, late = (p.late_entries || 0) > 0;
@@ -154,13 +172,14 @@ export function PersonDetail({ person, month, onMonth, onBack, renderActions, on
 
   const load = useCallback(async () => {
     setBusy(true);
-    const [st, ent, ov, ab] = await Promise.all([
+    const [st, ent, ov, ab, au] = await Promise.all([
       call("GET", `/approval/status?month=${month}&${q}`),
       call("GET", `/time-entries?from=${from}&to=${to}&${q}`),
       call("GET", `/overview?from=${from}&to=${to}&${q}`),
       call("GET", `/absences?from=${from}&to=${to}&${q}`),
+      call("GET", `/audit?from=${from}&limit=200&${q}`),
     ]);
-    setD({ st, ent, ov, ab });
+    setD({ st, ent, ov, ab, au });
     setBusy(false);
   }, [month, from, to, q]);
   useEffect(() => { setD(null); load(); }, [load]);
@@ -169,6 +188,18 @@ export function PersonDetail({ person, month, onMonth, onBack, renderActions, on
   const denied = d && [d.st, d.ent, d.ov].every(x => x.error) && /nicht gefunden|HTTP 404/i.test(d.st.error);
   const status = d && !d.st.error ? d.st.status : null;
   const entries = d && !d.ent.error ? (Array.isArray(d.ent) ? d.ent : d.ent.items || []) : null;
+  const auditRows = d && !d.au?.error ? (Array.isArray(d.au) ? d.au : d.au?.rows || d.au?.items || []) : null;
+  const csvEntries = () => {
+    if (!entries?.length) return;
+    downloadCsv(`zeitprotokoll-buchungen-${person.name.replace(/\s+/g, "_")}-${month}.csv`, [
+      ["Datum", "Beginn", "Ende", "Stunden", "Ticket", "Aufgabe", "Projekt", "Kommentar", "Nachgetragen von"],
+      ...entries.map(e => [
+        (e.date || e.start_time || "").slice(0, 10), hm(e.start_time), hm(e.end_time),
+        Math.round(entryHours(e) * 100) / 100, e.jira_ticket || e.ticket || "", e.task_title || "", e.project_name || "",
+        e.comment || e.note || "", e.entered_by_name || "",
+      ]),
+    ]);
+  };
 
   // Tagesliste
   const days = useMemo(() => {
@@ -228,7 +259,8 @@ export function PersonDetail({ person, month, onMonth, onBack, renderActions, on
             </table>)}
         </Box>
 
-        <Box title="Buchungen des Monats" sub="Nach Tag gruppiert, nur lesend.">
+        <Box title="Buchungen des Monats" sub="Nach Tag gruppiert, nur lesend."
+          right={entries?.length ? <button style={{ ...btn(false), padding: "4px 10px", fontSize: 12 }} onClick={csvEntries}><Download size={13} /> CSV</button> : null}>
           {!days ? <Err>{friendly(d.ent.error)}</Err> : !days.length ? <Empty>Keine Buchungen in diesem Monat.</Empty> : days.map(day => (
             <div key={day.date} style={{ marginBottom: 10 }}>
               <div style={{ display: "flex", gap: 10, fontSize: 12.5, fontWeight: 600, borderBottom: "1px solid var(--line)", padding: "3px 0" }}>
@@ -255,6 +287,19 @@ export function PersonDetail({ person, month, onMonth, onBack, renderActions, on
             <div key={i} style={{ display: "flex", gap: 10, fontSize: 12, color: "var(--text2)", borderTop: i ? "1px solid var(--line)" : "none", padding: "4px 0", flexWrap: "wrap" }}>
               <span style={{ minWidth: 104 }}>{when(h.at)}</span><span style={{ minWidth: 100, color: "var(--text)" }}>{ACT[h.action] || h.action}</span>
               <span style={{ minWidth: 90 }}>{h.actor || ""}</span><span style={{ flex: 1 }}>{h.comment ? `„${h.comment}“` : ""}</span></div>))}
+        </Box>
+
+        <Box title="Buchungsprotokoll" sub="Änderungen an Zeiteinträgen (inkl. Nachträge) im Monat – nur lesend.">
+          {d.au?.error ? <Err>{friendly(d.au.error)}</Err>
+            : !auditRows ? <div style={{ color: "var(--text3)", fontSize: 12 }}>Lade…</div>
+            : !auditRows.length ? <Empty>Keine Protokolleinträge in diesem Monat.</Empty>
+            : auditRows.map((h, i) => (
+              <div key={h.id || i} style={{ display: "flex", gap: 10, fontSize: 12, color: "var(--text2)", borderTop: i ? "1px solid var(--line)" : "none", padding: "4px 0", flexWrap: "wrap" }}>
+                <span style={{ minWidth: 104 }}>{when(h.ts || h.at)}</span>
+                <span style={{ minWidth: 70, color: "var(--text)" }}>{h.action === "create" ? "angelegt" : h.action === "update" ? "geändert" : h.action === "delete" ? "gelöscht" : h.action}</span>
+                <span style={{ minWidth: 90 }}>{typeof h.actor === "string" ? h.actor : ""}</span>
+                <span style={{ flex: 1 }}>{h.origin === "nachtrag" ? "Nachtrag" : h.origin || ""}{h.row_id != null ? ` · #${h.row_id}` : ""}</span>
+              </div>))}
         </Box>
 
         <NachtragenPanel person={person} month={month} status={status} entries={entries || []} absences={absences || []} onDone={reload} />

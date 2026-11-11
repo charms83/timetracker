@@ -1,17 +1,58 @@
-// Zeitprotokoll – Hintergrundskript. Einzige Stelle, die 127.0.0.1:3747 anspricht.
+// Zeitprotokoll – Hintergrundskript. Spricht mit lokaler App oder Team-Server.
 const api_ = globalThis.browser ?? globalThis.chrome;
-const BASE = "http://127.0.0.1:3747/api";
-const MSG_DOWN = "Zeitprotokoll läuft nicht – bitte die Mac-App starten.";
+const DEFAULT_BASE = "http://127.0.0.1:3747";
+const MSG_DOWN = "Zeitprotokoll nicht erreichbar – App oder Server-Adresse prüfen.";
 const PAIR_MAX_MS = 3 * 60 * 1000;
 const PAIR_EVERY_MS = 1500;
 
-async function getToken() {
-  try { return (await api_.storage.local.get("token")).token || null; } catch (_) { return null; }
+async function getStore(keys) {
+  try { return await api_.storage.local.get(keys); } catch (_) { return {}; }
 }
-async function clearToken() { try { await api_.storage.local.remove("token"); } catch (_) {} }
+async function setStore(obj) {
+  try { await api_.storage.local.set(obj); } catch (_) {}
+}
+async function removeStore(keys) {
+  try { await api_.storage.local.remove(keys); } catch (_) {}
+}
+
+function normalizeBase(raw) {
+  let s = String(raw || "").trim().replace(/\/+$/, "");
+  if (!s) return DEFAULT_BASE;
+  if (!/^https?:\/\//i.test(s)) s = "https://" + s;
+  try {
+    const u = new URL(s);
+    if (u.username || u.password || u.search || u.hash) return null;
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    return u.origin + (u.pathname === "/" ? "" : u.pathname.replace(/\/+$/, ""));
+  } catch (_) { return null; }
+}
+
+async function getBase() {
+  const s = await getStore(["baseUrl"]);
+  return normalizeBase(s.baseUrl) || DEFAULT_BASE;
+}
+
+async function getToken() {
+  const s = await getStore(["token"]);
+  return s.token || null;
+}
+async function clearToken() { await removeStore(["token"]); }
+
+async function ensureHost(base) {
+  const origin = base.replace(/\/+$/, "") + "/*";
+  try {
+    if (api_.permissions && api_.permissions.contains) {
+      const ok = await api_.permissions.contains({ origins: [origin] });
+      if (ok) return true;
+      return await api_.permissions.request({ origins: [origin] });
+    }
+  } catch (_) {}
+  return true; // Manifest enthält 127.0.0.1; andere Origins brauchen optional_host_permissions
+}
 
 // Ergebnis: {ok, status, data} | {offline:true} | {unpaired:true}
 async function api(path, { method = "GET", body, auth = true } = {}) {
+  const base = await getBase();
   const headers = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (auth) {
@@ -21,7 +62,7 @@ async function api(path, { method = "GET", body, auth = true } = {}) {
   }
   let res;
   try {
-    res = await fetch(BASE + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    res = await fetch(base + "/api" + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   } catch (_) { return { offline: true }; }
   let data = null;
   try { data = await res.json(); } catch (_) {}
@@ -80,14 +121,17 @@ function browserName() {
   return "Chromium";
 }
 async function setPairing(p) {
-  try { if (p) await api_.storage.local.set({ pairing: p }); else await api_.storage.local.remove("pairing"); } catch (_) {}
+  if (p) await setStore({ pairing: p }); else await removeStore(["pairing"]);
 }
 async function getPairing() {
-  try { return (await api_.storage.local.get("pairing")).pairing || null; } catch (_) { return null; }
+  const s = await getStore(["pairing"]);
+  return s.pairing || null;
 }
 
 async function startPairing() {
   if (pairLoop) return { pending: true };
+  const base = await getBase();
+  if (!(await ensureHost(base))) return { error: "Zugriff auf " + base + " nicht erlaubt – bitte in den Browser-Einstellungen freigeben." };
   const r = await api("/pair/start", {
     method: "POST", auth: false,
     body: { client: browserName(), ext_version: api_.runtime.getManifest().version },
@@ -114,7 +158,7 @@ async function runPairLoop() {
       if (r.offline) { await setPairing({ error: MSG_DOWN }); return; }
       if (r.status === 404) { await setPairing({ error: "Verbindung abgelehnt oder abgelaufen." }); return; }
       if (r.ok && r.data && r.data.token) {
-        await api_.storage.local.set({ token: r.data.token });
+        await setStore({ token: r.data.token });
         await setPairing(null);
         await refresh();
         return;
@@ -131,6 +175,38 @@ async function pairStatus() {
   return { pending: true };
 }
 
+async function getConfig() {
+  const base = await getBase();
+  const token = await getToken();
+  return { baseUrl: base, hasToken: !!token, defaultBase: DEFAULT_BASE };
+}
+
+async function saveConfig({ baseUrl, token }) {
+  const next = normalizeBase(baseUrl);
+  if (!next) return { error: "Adresse ungültig (https://… oder http://127.0.0.1:3747)." };
+  if (!(await ensureHost(next))) return { error: "Browser hat den Zugriff auf diese Adresse nicht freigegeben." };
+  const cur = await getBase();
+  const patch = { baseUrl: next === DEFAULT_BASE ? "" : next };
+  if (token !== undefined) {
+    const t = String(token || "").trim();
+    if (t) patch.token = t; else await clearToken();
+  }
+  if (next !== cur) {
+    await clearToken();
+    await setPairing(null);
+  }
+  await setStore(patch);
+  if (patch.token) return { ...await getConfig(), ok: true, paired: true };
+  return { ...await getConfig(), ok: true };
+}
+
+async function disconnect() {
+  await clearToken();
+  await setPairing(null);
+  await setBadge(null);
+  return { paired: false, ok: true };
+}
+
 // ---- Nachrichten (Popup / Content) ----
 async function handle(m) {
   switch (m && m.type) {
@@ -143,7 +219,10 @@ async function handle(m) {
     case "todo": return act("/todo", { title: m.title || m.ticket_title || m.key, jira_ticket: m.key, ticket_title: m.title || "", when: "today" });
     case "pair": await setPairing(null); return startPairing();
     case "pairStatus": return pairStatus();
-    case "openApp": try { await api_.tabs.create({ url: "http://127.0.0.1:3747/" }); } catch (_) {} return { ok: true };
+    case "getConfig": return getConfig();
+    case "saveConfig": return saveConfig(m);
+    case "disconnect": return disconnect();
+    case "openApp": try { await api_.tabs.create({ url: (await getBase()) + "/" }); } catch (_) {} return { ok: true };
   }
   return { error: "unbekannt" };
 }

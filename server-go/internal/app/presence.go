@@ -12,7 +12,7 @@ import (
 
 /* Anwesenheit am Mac + Tagesüberblick (wie backend/presence.js).
    Die Mac-App meldet jede Minute, ob jemand am Rechner ist. Gespeichert wird nur die Minute – kein Inhalt.
-   Daraus entstehen „von wann bis wann“ und Lücken ohne Buchung. SSH-Sitzungen bleiben lokal am Mac (leer). */
+   Daraus entstehen „von wann bis wann“ und Lücken ohne Buchung. Termine/SSH kommen aus calendar_events / ssh_sessions. */
 
 type span struct {
 	S int `json:"s"`
@@ -275,9 +275,13 @@ func (a *App) dayOverview(ctx context.Context, uid int64, date string) (map[stri
 	if isToday {
 		nowVal = nowMin
 	}
+	ssh, err := a.sshDaySpans(ctx, uid, date)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]any{
 		"date": date, "tracking": tracking, "presence": pres, "overlaps": overlaps, "presence_minutes": presMin, "work": work,
-		"pauses": pauses, "entries": entries, "events": events, "ssh": []any{}, "gaps": gaps, "gap_minutes": gapMin,
+		"pauses": pauses, "entries": entries, "events": events, "ssh": ssh, "gaps": gaps, "gap_minutes": gapMin,
 		"booked_minutes": int(math.Round(bookedSecs / 60)), "now": nowVal,
 	}, nil
 }

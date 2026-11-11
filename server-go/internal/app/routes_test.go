@@ -13,6 +13,14 @@ func TestRoutesRegister(t *testing.T) {
 	for _, p := range [][2]string{
 		{"POST", "/api/absences/import-holidays"}, {"PUT", "/api/absences/5"}, {"GET", "/api/plan/today"},
 		{"GET", "/api/integrations/plane/status"}, {"POST", "/api/time-entries/resolve-overlap"},
+		{"GET", "/api/admin/plane-workspaces"}, {"POST", "/api/admin/plane-workspaces"},
+		{"GET", "/api/admin/update"}, {"GET", "/api/admin/status"},
+		{"GET", "/api/admin/integrations"}, {"GET", "/api/integrations/projects"}, {"GET", "/api/integrations/payroll"},
+		{"POST", "/api/timer/assign"},
+		{"GET", "/api/meetings/now"}, {"GET", "/api/meetings/suggestions"}, {"POST", "/api/meetings/calendar"},
+		{"GET", "/api/ssh-sessions"}, {"POST", "/api/ssh-sessions/sync"}, {"GET", "/api/ssh-tracking"},
+		{"POST", "/api/integrations/plane/pull"},
+		{"GET", "/api/plane/workspaces"}, {"PUT", "/api/plane/workspaces/1/select"}, {"GET", "/api/admin/ldap"}, {"PUT", "/api/admin/oidc"},
 	} {
 		req, _ := http.NewRequest(p[0], p[1], nil)
 		if _, pat := mux.Handler(req); pat == "" {
