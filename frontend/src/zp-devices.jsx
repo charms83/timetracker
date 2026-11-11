@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Smartphone, Plus, Trash2, Copy, Check } from "lucide-react";
 import { call, Box, lab, inpS, btn, useServerMode } from "./zp-ui.jsx";
 
-const KINDS = [["mac", "Mac-Client"], ["addon", "Browser-Add-on"], ["minimal", "Minimal / curl"], ["other", "Sonstiges"]];
+const KINDS = [["mac", "Mac-Client"], ["addon", "Browser-Add-on"], ["calendar", "Kalender-Abo"], ["minimal", "Minimal / curl"], ["other", "Sonstiges"]];
 const when = iso => { try { return new Date(iso).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }); } catch (_) { return ""; } };
 
 export function DevicesPanel() {
@@ -40,7 +40,7 @@ export function DevicesPanel() {
   const revoked = Array.isArray(list) ? list.filter(d => d.revoked_at) : [];
 
   return (
-    <Box title="Geräte-Token" sub="Für Browser-Add-on (Popup: Adresse + Token) und API-Hinweise. Abrechnung: Administrator unter /admin › Abrechnung-API.">
+    <Box title="Geräte-Token" sub="Für Browser-Add-on, Kalender-Abo (Abwesenheiten) und API-Hinweise. Abrechnung: Administrator unter /admin › Abrechnung-API.">
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
         <div style={{ flex: "1 1 140px" }}><label style={lab}>Bezeichnung</label>
           <input style={inpS} value={label} onChange={e => setLabel(e.target.value)} placeholder="z. B. MacBook Dienst" /></div>

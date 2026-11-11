@@ -107,6 +107,7 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - Personal: Selbstfreigabe (einzige Person im Personal) mit ReasonDialog ≥10 Zeichen; Urlaub ablehnen mit ReasonDialog statt `prompt`.
 - Kalender→Abwesenheits-Hinweise (`fromCalendarAbsences` bei Meeting-Kalender-Ingest); `POST /api/absences/from-tempo`.
 - gap-learn verknüpft Termin/SSH; suggest-now mit laufendem Termin/SSH; To-do-Vorschläge mit Termin-Vorbereitung.
+- Abwesenheiten-ICS-Abo (`/api/calendar/abwesenheiten.ics`, Sitzung oder Geräte-Token `?token=`; UI im Servermodus).
 - Offen bleibt: echte Systemtests / Browser-Abnahme; `exportiert`-Sperre.
 
 ## Als Nächstes (Reihenfolge)

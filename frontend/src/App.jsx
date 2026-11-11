@@ -2073,12 +2073,7 @@ function AbwesenheitenView({ only = "abwesenheiten" }) {
       {tab==="abwesenheiten" && (
         <div>
           {isServerMode()&&<div style={{marginBottom:12}}><LeaveRequestCard/></div>}
-          {!isServerMode()&&<div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,padding:"12px 18px",marginBottom:12,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
-            <CalendarDays size={18} style={{color:"var(--accent)"}}/>
-            <div style={{flex:"1 1 260px",fontSize:13}}><b>Im Mac-Kalender anzeigen</b><div style={{fontSize:12,color:"var(--text2)"}}>Einmal abonnieren – danach erscheinen neue und geänderte Abwesenheiten automatisch (Kalender „Zeitprotokoll Abwesenheiten“, stündlich aktualisiert).<br/>So geht’s: Adresse kopieren → im Kalender <b>Ablage › Neues Kalenderabonnement …</b> → einfügen → bei „Ort“ <b>Auf meinem Mac</b> wählen (nicht iCloud – iCloud kommt an deinen Rechner nicht heran).</div></div>
-            <AboUrl url={`http://127.0.0.1:${location.port || 3747}/api/calendar/abwesenheiten.ics`}/>
-            <a href="/api/calendar/abwesenheiten.ics?download=1" style={{fontSize:12}}>.ics herunterladen</a>
-          </div>}
+          <AbsenceIcsPanel/>
           {/* Formular */}
           <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,padding:"16px 18px",marginBottom:12}}>
             <div style={{color:"var(--hi)",fontWeight:700,fontSize:12,marginBottom:12}}>{editAbs?"Abwesenheit bearbeiten":"Neue Abwesenheit"}</div>
@@ -3192,4 +3187,42 @@ function AboUrl({ url }) {
     <input readOnly value={url} onFocus={e=>e.target.select()} style={{width:330,maxWidth:"100%",fontSize:12,padding:"6px 8px",fontFamily:"ui-monospace, monospace"}}/>
     <button onClick={copy} style={{padding:"7px 14px",borderRadius:7,fontWeight:600,border:"none",background:"var(--accent-fill, var(--accent))",color:"#fff",cursor:"pointer"}}>{ok ? "Kopiert ✓" : "Adresse kopieren"}</button>
   </span>;
+}
+
+/* Abwesenheiten-ICS: lokal ohne Token; Team-Server mit Geräte-Token (Kalender kann kein Cookie) */
+function AbsenceIcsPanel() {
+  const sm = isServerMode();
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+  useEffect(() => {
+    if (!sm) setUrl(`http://127.0.0.1:${location.port || 3747}/api/calendar/abwesenheiten.ics`);
+  }, [sm]);
+  const make = async () => {
+    if (busy) return;
+    setBusy(true); setMsg(null);
+    const r = await call("POST", "/devices", { label: "Kalender-Abo", kind: "calendar" });
+    setBusy(false);
+    if (r?.error) { setMsg({ err: true, text: r.error }); return; }
+    setUrl(`${location.origin}/api/calendar/abwesenheiten.ics?token=${encodeURIComponent(r.token)}`);
+    setMsg({ text: "Adresse erzeugt – jetzt kopieren und im Kalender abonnieren (Token nur einmal sichtbar)." });
+  };
+  return (
+    <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,padding:"12px 18px",marginBottom:12,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
+      <CalendarDays size={18} style={{color:"var(--accent)"}}/>
+      <div style={{flex:"1 1 260px",fontSize:13}}>
+        <b>Im Mac-Kalender anzeigen</b>
+        <div style={{fontSize:12,color:"var(--text2)"}}>
+          Einmal abonnieren – danach erscheinen neue und geänderte Abwesenheiten automatisch (Kalender „Zeitprotokoll Abwesenheiten“, stündlich aktualisiert).
+          <br/>So geht’s: Adresse kopieren → im Kalender <b>Ablage › Neues Kalenderabonnement …</b> → einfügen
+          {sm ? " → bei Nachfrage anmelden/Token ist schon in der Adresse." : <> → bei „Ort“ <b>Auf meinem Mac</b> wählen (nicht iCloud – iCloud kommt an deinen Rechner nicht heran).</>}
+        </div>
+      </div>
+      {sm && !url && <button onClick={make} disabled={busy} style={{padding:"7px 14px",borderRadius:7,fontWeight:600,border:"none",background:"var(--accent-fill, var(--accent))",color:"#fff",cursor:"pointer"}}>{busy ? "…" : "Abo-Adresse erzeugen"}</button>}
+      {url && <AboUrl url={url}/>}
+      {sm && url && <button onClick={make} disabled={busy} style={{padding:"6px 10px",borderRadius:7,fontSize:12,border:"1px solid var(--border)",background:"transparent",color:"var(--text2)",cursor:"pointer"}}>Neue Adresse</button>}
+      <a href="/api/calendar/abwesenheiten.ics?download=1" style={{fontSize:12}}>.ics herunterladen</a>
+      {msg && <div style={{flex:"1 1 100%",fontSize:12,color:msg.err?"var(--stop)":"var(--accent)"}}>{msg.err?"✗ ":"✓ "}{msg.text}</div>}
+    </div>
+  );
 }

@@ -103,7 +103,7 @@ Vorschläge („Light“, Regeln/Textabgleich, keine KI) folgen einem gemeinsame
 | `/absence-hints`, `/absence-hints/{key}` | GET/POST | zp-assistant | gebaut (liefert gespeicherte Hinweise; Übernahme unter Monatssperre) |
 | `/ticket-estimates`, `/ticket-estimates/{ticket}` | GET/PUT | zp-report, zp-ui | gebaut |
 
-Bleibt im Client (Erkennung am Mac): Kalender-/Meeting-Rohdaten. Meetings/Kalender, Anwesenheit und SSH meldet der Mac an den Server; ganztägige Abwesenheits-Termine → `absence_hints` (Übernahme im Assistenten). Tempo-Abwesenheiten nach Sync + `POST /api/absences/from-tempo`. Browser-Add-on: Server-Adresse und Geräte-Token. Todo-Feld-Sync am Server aktiv.
+Bleibt im Client (Erkennung am Mac): Kalender-/Meeting-Rohdaten. Meetings/Kalender, Anwesenheit und SSH meldet der Mac an den Server; ganztägige Abwesenheits-Termine → `absence_hints` (Übernahme im Assistenten). Tempo-Abwesenheiten nach Sync + `POST /api/absences/from-tempo`. Abwesenheiten-ICS-Abo am Server (Sitzung oder Geräte-Token). Browser-Add-on: Server-Adresse und Geräte-Token. Todo-Feld-Sync und Termin-Vorbereitung aktiv.
 
 ## E Betrieb/Aufräumen (Schritt 3) – 13
 

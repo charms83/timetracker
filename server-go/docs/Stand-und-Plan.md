@@ -44,7 +44,7 @@ Monatsschluss nach einem Werktag, Nachtragen nur Teamleitung/Personal, Teams aus
 | Personal | `#personal` + Mitarbeiter (+ Freigabe) | fertig verdrahtet; CSV-Auswertung da; Abrechnungs-API da; `exportiert`-Sperre offen |
 | Misch (Lead+HR usw.) | additive Nav | fertig verdrahtet |
 
-**GUI-Kern: gebaut.** Team/Personal: Übersicht-CSV + Buchungs-CSV + Buchungsprotokoll; Selbstfreigabe und Urlaubsablehnung mit Dialog. Assistent-Parität. Mac-Client Team-Session + Mini-Timer über Session. **Abrechnungs-API** (`zpint_…`, Projektstunden + Lohn) gebaut – `exportiert`/Formate offen. Timer ohne Ticket + Tempo-Dauerbuchung; User-Datenprüfung; Todo-Feld-Sync; Browser-Add-on Server-URL/Token; Kalender→Abwesenheits-Hinweise + Tempo-Abwesenheiten. Fehlt: Browser-Abnahme und echte Systemtests.
+**GUI-Kern: gebaut.** Team/Personal: Übersicht-CSV + Buchungs-CSV + Buchungsprotokoll; Selbstfreigabe und Urlaubsablehnung mit Dialog. Assistent-Parität. Mac-Client Team-Session + Mini-Timer über Session. **Abrechnungs-API** (`zpint_…`, Projektstunden + Lohn) gebaut – `exportiert`/Formate offen. Timer ohne Ticket + Tempo-Dauerbuchung; User-Datenprüfung; Todo-Feld-Sync; Browser-Add-on Server-URL/Token; Kalender→Abwesenheits-Hinweise; Vorschläge Termin/SSH; Abwesenheiten-ICS-Abo. Fehlt: Browser-Abnahme und echte Systemtests.
 
 ## Offen (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, OIDC, SMTP).

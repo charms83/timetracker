@@ -156,6 +156,7 @@ func (a *App) Routes(mux *http.ServeMux) {
 	a.routesTimer(mux)
 	a.routesSettings(mux)
 	a.routesAbsences(mux)
+	a.routesAbsenceICS(mux)
 	a.routesKonto(mux)
 	a.routesTagwerk(mux)
 	a.routesChecks(mux)

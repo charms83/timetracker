@@ -71,9 +71,9 @@ func (a *App) devicesCreate(w http.ResponseWriter, r *http.Request, u User) {
 		kind = "mac"
 	}
 	switch kind {
-	case "mac", "addon", "minimal", "api", "other": // api = Altbestand; Abrechnung nutzt zpint_…
+	case "mac", "addon", "minimal", "api", "other", "calendar": // api = Altbestand; Abrechnung nutzt zpint_…; calendar = ICS-Abo
 	default:
-		badRequest(w, "kind: mac, addon, minimal, api oder other")
+		badRequest(w, "kind: mac, addon, minimal, api, calendar oder other")
 		return
 	}
 	label := truncRunes(strings.TrimSpace(asStr(in["label"])), 80)

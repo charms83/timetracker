@@ -13,7 +13,8 @@ import (
 
 /* Abwesenheiten und Saldo-Korrekturen – Verhalten wie backend/server.js, je Benutzer getrennt.
    Tempo-Abwesenheiten: POST /api/absences/from-tempo (+ automatisch nach Tempo-Sync).
-   Kalender-Hinweise: meetingsCalendar → fromCalendarAbsences. Noch offen: Kalender-Abo (.ics), Feiertage-Import. */
+   Kalender-Hinweise: meetingsCalendar → fromCalendarAbsences.
+   ICS-Abo: absence_ics.go. Feiertage: holidays.go. */
 
 func (a *App) routesAbsences(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/absences", a.auth(a.asTarget(a.absencesList)))
