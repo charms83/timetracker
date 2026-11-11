@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Umbrella, Check, X, Send, Undo2 } from "lucide-react";
 import { call, Box, lab, inpS, btn, useServerMode } from "./zp-ui.jsx";
+import { ReasonDialog } from "./zp-people.jsx";
 
 const ST = { pending: ["offen", "changed"], approved: ["genehmigt", "synced"], rejected: ["abgelehnt", "error"], cancelled: ["storniert", ""] };
 const de = s => s ? new Date(s.length > 10 ? s : s + "T12:00").toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" }) : "–";
@@ -67,22 +68,19 @@ export function LeavePendingPanel() {
   const { serverMode, me } = useServerMode();
   const [list, setList] = useState(null);
   const [busy, setBusy] = useState(false); const [msg, setMsg] = useState(null);
+  const [rejectID, setRejectID] = useState(null);
   const load = useCallback(() => call("GET", "/leave/pending").then(r => setList(Array.isArray(r) ? r : r?.error ? { error: r.error } : [])), []);
   useEffect(() => { if (serverMode && (me?.is_lead || me?.is_hr)) load(); }, [serverMode, me, load]);
   if (!serverMode || !(me?.is_lead || me?.is_hr)) return null;
 
-  const decide = async (id, decision) => {
+  const decide = async (id, decision, note = "") => {
     if (busy) return;
-    let note = "";
-    if (decision === "rejected") {
-      note = prompt("Kommentar zur Ablehnung (optional):");
-      if (note === null) return; // Abbrechen
-      note = note.trim();
-    } else if (!confirm("Urlaub genehmigen? Es wird eine Abwesenheit „Urlaub“ angelegt.")) return;
+    if (decision === "approved" && !confirm("Urlaub genehmigen? Es wird eine Abwesenheit „Urlaub“ angelegt.")) return;
     setBusy(true); setMsg(null);
     const r = await call("POST", `/leave/${id}/decide`, { decision, note });
     setBusy(false);
     if (r?.error) setMsg({ err: true, text: r.error }); else { setMsg({ text: decision === "approved" ? "Genehmigt" : "Abgelehnt" }); load(); }
+    return r?.error || "";
   };
 
   return (
@@ -98,7 +96,10 @@ export function LeavePendingPanel() {
             <span style={{ color: "var(--text2)" }}>{l.days != null ? `${Number(l.days).toLocaleString("de-DE")} Tage` : ""}</span>
             <span style={{ flex: 1, color: "var(--text2)", fontSize: 12 }}>{l.note || ""}</span>
             <button style={{ ...btn(true), padding: "4px 10px", fontSize: 12 }} disabled={busy} onClick={() => decide(l.id, "approved")}><Check size={13} /> Genehmigen</button>
-            <button style={{ ...btn(false), padding: "4px 10px", fontSize: 12 }} disabled={busy} onClick={() => decide(l.id, "rejected")}><X size={13} /> Ablehnen</button>
+            <button style={{ ...btn(false), padding: "4px 10px", fontSize: 12 }} disabled={busy} onClick={() => setRejectID(l.id)}><X size={13} /> Ablehnen</button>
           </div>))}
+      {rejectID != null && <ReasonDialog title="Urlaub ablehnen" text="Die Person sieht den Kommentar am Antrag." label="Kommentar" confirmLabel="Ablehnen" danger min={3}
+        onSubmit={async text => { const e = await decide(rejectID, "rejected", text); if (!e) setRejectID(null); return e; }}
+        onClose={() => setRejectID(null)} />}
     </Box>);
 }

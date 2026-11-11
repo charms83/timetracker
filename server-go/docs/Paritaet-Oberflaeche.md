@@ -91,7 +91,7 @@ Vorschläge („Light“, Regeln/Textabgleich, keine KI) folgen einem gemeinsame
 | `/todo/range` | GET | zp-calendar | gebaut |
 | `/todo/suggest`, `/todo/suggest/dismiss` | GET/POST | zp-todo | gebaut (Light, abschaltbar; ohne Termin-Vorbereitung) |
 | `/todo/templates`, `/todo/templates/{id}` | GET/POST/DELETE | zp-todo | gebaut |
-| `/todo-settings` | PUT | zp-todo | gebaut – Schalter gespeichert, Abgleich nach Plane/Jira/Tempo **offen** (`settings.sync_available:false`) |
+| `/todo-settings` | PUT | zp-todo | gebaut – Schalter + Abgleich Plane/Jira/Tempo (`settings.sync_available:true`) |
 | `/assistant` | GET/PUT | App, zp-assistant | gebaut (regelbasiert, abschaltbar; aus = leeres Gerüst `enabled:false`) |
 | `/assistant/tasks`, `/assistant/reset` | GET/POST | zp-assistant | gebaut: tempo_sync, duplicates, cleanup, tempo_noticket; selfcheck nur Admin (`/admin`) |
 | `/workday` | GET | App | gebaut |
@@ -103,7 +103,7 @@ Vorschläge („Light“, Regeln/Textabgleich, keine KI) folgen einem gemeinsame
 | `/absence-hints`, `/absence-hints/{key}` | GET/POST | zp-assistant | gebaut (liefert gespeicherte Hinweise; Übernahme unter Monatssperre) |
 | `/ticket-estimates`, `/ticket-estimates/{ticket}` | GET/PUT | zp-report, zp-ui | gebaut |
 
-Bleibt im Client (Erkennung am Mac): Browser-Add-on/Pairing, Abwesenheits-Erkennung aus dem Kalender. Meetings/Kalender, Anwesenheit und SSH meldet der Mac an den Server. Offen: Annahme für Abwesenheits-Hinweise; Tempo-Abwesenheiten; Todo-Feld-Sync.
+Bleibt im Client (Erkennung am Mac): Abwesenheits-Erkennung aus dem Kalender. Meetings/Kalender, Anwesenheit und SSH meldet der Mac an den Server. Browser-Add-on: Server-Adresse und Geräte-Token (Pairing oder Token aus Einstellungen › Erkennung). Todo-Feld-Sync am Server aktiv. Offen: Annahme für Abwesenheits-Hinweise; Tempo-Abwesenheiten.
 
 ## E Betrieb/Aufräumen (Schritt 3) – 13
 

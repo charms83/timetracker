@@ -1,6 +1,6 @@
 # Mac-Client am Team-Server (Go)
 
-**Maßstab:** Das vollständige lokale Mac-System (Node + Mini + Tray + Erkennung) – Alltag (Timer, Meetings, Anwesenheit, Tempo/Plane) soll am Team-Server genauso wirken. Team/Personal/Admin sind Zusatz, ersetzen den lokalen Alltag nicht.
+**Ziel:** Der Team-Server ist das vollständige System – Mitarbeiter-Alltag wie am lokalen Mac (Timer, Mini, Meetings, Anwesenheit, Tempo/Plane) **und** Teamleitung, Personal und Administration als gleichwertige Bestandteile, nicht als Nachgedanke.
 
 ## Alltag (so arbeitet man damit)
 

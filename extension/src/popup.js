@@ -71,6 +71,13 @@ function apply(r) {
   render();
 }
 
+async function loadConfig() {
+  const c = await send({ type: "getConfig" });
+  if (!c) return;
+  if ($("baseUrl") && !paired) $("baseUrl").value = c.baseUrl || c.defaultBase || "";
+  if ($("cfgBase")) $("cfgBase").textContent = c.baseUrl || "";
+}
+
 async function detectTicket() {
   ticket = null;
   try {
@@ -93,11 +100,12 @@ async function detectTicket() {
 }
 
 async function load() {
+  await loadConfig();
   const ps = await send({ type: "pairStatus" });
   pairing = !!(ps && ps.pending);
   const r = await send({ type: "state" });
   apply(r);
-  if (r && r.paired) { pairing = false; await detectTicket(); render(); }
+  if (r && r.paired) { pairing = false; await detectTicket(); await loadConfig(); render(); }
   else if (ps && ps.error && !pairing) msg(ps.error, "error");
 }
 
@@ -109,11 +117,25 @@ async function run(m) {
   apply(r);
 }
 
+$("saveCfg").onclick = async () => {
+  msg("");
+  const r = await send({ type: "saveConfig", baseUrl: $("baseUrl").value, token: $("token").value });
+  if (r && r.error) { msg(r.error, "error"); return; }
+  $("token").value = "";
+  if (r && r.hasToken) { paired = true; apply(await send({ type: "state" })); msg("Verbunden."); }
+  else msg("Adresse gespeichert.");
+  await loadConfig();
+};
 $("pair").onclick = async () => {
   msg("");
+  await send({ type: "saveConfig", baseUrl: $("baseUrl").value });
   const r = await send({ type: "pair" });
   if (r && r.error) { msg(r.error, "error"); return; }
   pairing = true; render();
+};
+$("disconnect").onclick = async () => {
+  await send({ type: "disconnect" });
+  paired = false; state = null; msg("Getrennt."); render(); await loadConfig();
 };
 $("pause").onclick = () => run({ type: "pause" });
 $("resume").onclick = () => run({ type: "resume" });
@@ -131,7 +153,6 @@ setInterval(async () => {
     apply(await send({ type: "state" }));
   }
 }, 4000);
-// beim Pairing schneller prüfen
 setInterval(async () => {
   if (!pairing) return;
   const ps = await send({ type: "pairStatus" });

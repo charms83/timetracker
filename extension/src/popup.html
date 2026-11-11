@@ -11,9 +11,17 @@
   <div id="msg" class="msg" hidden></div>
 
   <section id="unpaired" hidden>
-    <p>Verbinde das Add-on einmalig mit der Zeitprotokoll-App auf diesem Mac. Danach kannst Du Tickets aus Jira und Plane mit einem Klick tracken.</p>
-    <button id="pair" class="primary">Mit Zeitprotokoll verbinden</button>
+    <p>Verbinde das Add-on mit der lokalen App oder dem Team-Server. Danach kannst Du Tickets aus Jira und Plane mit einem Klick tracken.</p>
+    <label class="lab" for="baseUrl">Server-Adresse</label>
+    <input id="baseUrl" type="url" placeholder="http://127.0.0.1:3747 oder https://zeit.firma.example" autocomplete="off">
+    <label class="lab" for="token">Geräte-Token (optional)</label>
+    <input id="token" type="password" placeholder="nur wenn schon ausgestellt" autocomplete="off">
+    <div class="row">
+      <button id="saveCfg" class="primary">Speichern</button>
+      <button id="pair">Verbinden</button>
+    </div>
     <p id="waiting" class="hint" hidden>Warte auf Bestätigung in Zeitprotokoll …</p>
+    <p class="hint">Standard ist die Mac-App auf diesem Rechner. Team-Server: Adresse eintragen, dann verbinden oder Token aus Einstellungen › Erkennung einfügen.</p>
   </section>
 
   <section id="paired" hidden>
@@ -32,6 +40,11 @@
       </div>
     </div>
     <p id="noTicket" class="hint" hidden>Öffne ein Jira- oder Plane-Ticket, um es hier zu tracken.</p>
+    <details class="cfg">
+      <summary>Verbindung</summary>
+      <div id="cfgBase" class="hint"></div>
+      <button id="disconnect">Trennen</button>
+    </details>
   </section>
 
   <footer><a href="#" id="openApp">Zeitprotokoll öffnen</a></footer>

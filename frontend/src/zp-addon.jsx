@@ -47,7 +47,7 @@ export function AddonSettings() {
   return (
     <div className="zp-card" style={{ padding: "12px 16px", marginBottom: 12, fontSize: 13 }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}><Puzzle size={16} style={{ color: "var(--accent)" }} /><b>Browser-Add-on</b></div>
-      <div style={{ fontSize: 12, color: "var(--text2)", margin: "4px 0 8px" }}>Jira- oder Plane-Ticket im Browser offen → im Add-on „▶ Tracken“. Der Timer läuft dann hier ganz normal, bis du ihn stoppst. Das Add-on sieht nur deine Jira- und Plane-Seiten und spricht nur mit Zeitprotokoll auf diesem Mac.</div>
+      <div style={{ fontSize: 12, color: "var(--text2)", margin: "4px 0 8px" }}>Jira- oder Plane-Ticket im Browser offen → im Add-on „▶ Tracken“. Der Timer läuft dann hier ganz normal, bis du ihn stoppst. Das Add-on spricht mit der lokalen App oder dem Team-Server (Adresse und Geräte-Token im Add-on-Popup).</div>
       {desk ? (browsers === null ? <div style={{ color: "var(--text2)" }}>Suche Browser …</div> : <>
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
           <span style={{ flex: 1, fontSize: 12, color: "var(--text2)" }}>Auf diesem Mac gefunden: {browsers.map(b => b.name).join(", ") || "keine"}</span>

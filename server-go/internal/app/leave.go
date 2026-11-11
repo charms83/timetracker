@@ -194,6 +194,10 @@ func (a *App) leaveDecide(w http.ResponseWriter, r *http.Request, u User) {
 		return
 	}
 	note := truncRunes(strings.TrimSpace(asStr(in["note"])), 500)
+	if decision == "rejected" && len([]rune(note)) < 3 {
+		badRequest(w, "Ablehnen braucht einen Kommentar")
+		return
+	}
 	ctx := r.Context()
 
 	tx, err := a.DB.Begin(ctx)

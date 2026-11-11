@@ -19,12 +19,9 @@ import (
 
 /* To-dos & Planung – Verhalten wie backend/todo.js (v6.18), je Person getrennt (plan_tasks + Spalten aus Migration 017).
    Spalten: Überfällig · Heute · Morgen (nächster Arbeitstag) · Diese Woche · Später · Eingang.
-   Bewusst anders:
-   • Abgleich nach außen (Fälligkeit → Plane/Jira, Tempo-Plan, Plane-Startdatum) ist noch nicht portiert: die Schalter
-     werden gespeichert und angezeigt, es wird aber nichts übertragen (offen).
-   • Vorschläge sind die „Light“-Variante und dreifach abschaltbar (suggestAllowedFor); Termin-Vorbereitung entfällt
-     (Kalender bleibt im Client).
-   • Kapazität: „meetings“ aus calendar_events (Mac liefert Termine). */
+   Abgleich nach außen (Fälligkeit → Plane/Jira, Tempo-Plan, Plane-Startdatum): todo_sync.go, asynchron nach Create/Update.
+   Vorschläge sind die „Light“-Variante und dreifach abschaltbar (suggestAllowedFor).
+   Kapazität: „meetings“ aus calendar_events (Mac liefert Termine). */
 
 const todoSelect = `SELECT p.*, pr.name AS project_name, t.jira_ticket AS task_ticket, t.title AS task_title,
 	(SELECT COALESCE(SUM(e.duration_seconds),0) FROM time_entries e WHERE e.plan_task_id=p.id AND e.user_id=p.user_id) AS tracked_seconds
@@ -430,7 +427,7 @@ func (a *App) todoBoard(w http.ResponseWriter, r *http.Request, u User) {
 	writeJSON(w, http.StatusOK, map[string]any{"today": t, "tomorrow": tm, "week": wk, "columns": col, "done": done,
 		"capacity": map[string]any{"today": capToday, "tomorrow": capTm},
 		"settings": map[string]any{"sync_due": on("todo_sync_due"), "sync_tempo_plan": on("todo_sync_tempo_plan"), "sync_plane_start": on("todo_sync_plane_start"),
-			"sync_available": false}}) // Abgleich nach Plane/Jira/Tempo im Go-Server noch nicht portiert
+			"sync_available": true}})
 }
 
 func plannedMinutes(list []map[string]any) int {
@@ -644,6 +641,7 @@ func (a *App) todoCreate(w http.ResponseWriter, r *http.Request, u User) {
 		return
 	}
 	todoSuggest.Delete(u.ID)
+	a.todoSyncLater(u.ID, id)
 	a.todoReply(w, r, u, id)
 }
 
@@ -754,6 +752,7 @@ func (a *App) todoUpdate(w http.ResponseWriter, r *http.Request, u User) {
 		return
 	}
 	todoSuggest.Delete(u.ID)
+	a.todoSyncLater(u.ID, id)
 	a.todoReply(w, r, u, id)
 }
 
@@ -763,14 +762,18 @@ func (a *App) todoDelete(w http.ResponseWriter, r *http.Request, u User) {
 		notFound(w)
 		return
 	}
+	ctx := r.Context()
+	var ticket, tempoPlan *string
+	_ = a.DB.QueryRow(ctx, `SELECT jira_ticket, tempo_plan_id FROM plan_tasks WHERE id=$1 AND user_id=$2`, id, u.ID).Scan(&ticket, &tempoPlan)
+	st, _ := a.userSettings(ctx, u.ID)
 	// Buchungen behalten ihren Eintrag, verlieren nur den Verweis (FK ON DELETE SET NULL). Liegt eine davon in einem
 	// eingereichten/freigegebenen Monat, lehnt die Sperre der Datenbank das ab – dann bleibt das To-do stehen.
 	// Läuft der Timer auf diesem To-do, verliert er nur den Verweis (timer_state hat keinen Fremdschlüssel)
-	err := a.inTx(r.Context(), func(tx pgx.Tx) error {
-		if _, err := tx.Exec(r.Context(), `UPDATE timer_state SET plan_task_id=NULL WHERE user_id=$1 AND plan_task_id=$2`, u.ID, id); err != nil {
+	err := a.inTx(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `UPDATE timer_state SET plan_task_id=NULL WHERE user_id=$1 AND plan_task_id=$2`, u.ID, id); err != nil {
 			return err
 		}
-		_, err := tx.Exec(r.Context(), `DELETE FROM plan_tasks WHERE id=$1 AND user_id=$2`, id, u.ID)
+		_, err := tx.Exec(ctx, `DELETE FROM plan_tasks WHERE id=$1 AND user_id=$2`, id, u.ID)
 		return err
 	})
 	if isMonthLocked(err) {
@@ -780,6 +783,15 @@ func (a *App) todoDelete(w http.ResponseWriter, r *http.Request, u User) {
 	if err != nil {
 		a.fail(w, err)
 		return
+	}
+	if deref(tempoPlan) != "" && st["todo_sync_tempo_plan"] != "0" {
+		key := strings.ToUpper(deref(ticket))
+		planID := deref(tempoPlan)
+		go a.safely("todo-sync-del", func() {
+			c, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			a.todoDeleteTempoPlan(c, u.ID, key, planID)
+		})
 	}
 	todoSuggest.Delete(u.ID)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})

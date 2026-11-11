@@ -3,7 +3,7 @@
 Chronologie und letzter Stand der Arbeit: `Verlauf.md`.
 
 ## Ziel
-Das Zeitprotokoll (Einzelplatz: Mac, Browser-Oberfläche, Add-on, bucht nach Plane und Jira/Tempo) wird zum Team-Server, der Tempo Timesheets ablöst. **Maßstab für den Alltag ist das fertige lokale Mac-System** (Timer, Mini, Meetings, Anwesenheit, Tempo/Plane) – Team/Personal/Admin kommen dazu, ersetzen diesen Alltag nicht. Es hält die Zeiten selbst und genau; Plane und Jira sind Buchungsziele. Vier Oberflächen je Rolle: Administration, Mitarbeiter, Teamleiter, Personal. Konzept und Entscheidungen: `Gesamt-Spezifikation.md`, Vergleich ähnlicher Systeme: `Systemvergleich-und-Struktur.md`.
+Das Zeitprotokoll (Einzelplatz: Mac, Browser-Oberfläche, Add-on, bucht nach Plane und Jira/Tempo) wird zum Team-Server, der Tempo Timesheets ablöst. **Vollständig** heißt: Mitarbeiter-Alltag wie am lokalen Mac (Timer, Mini, Meetings, Anwesenheit, Tempo/Plane) **und** Teamleitung, Personal und Administration als gleichwertige, ordentliche Oberflächen – nicht als Nachtrag. Es hält die Zeiten selbst und genau; Plane und Jira sind Buchungsziele. Vier Oberflächen je Rolle: Administration, Mitarbeiter, Teamleiter, Personal. Konzept und Entscheidungen: `Gesamt-Spezifikation.md`, Vergleich ähnlicher Systeme: `Systemvergleich-und-Struktur.md`.
 
 ## Aufbau
 - **Lokaler Tracker** (Node.js, React/Vite, Electron, Browser-Add-on): läuft unverändert weiter.
@@ -44,7 +44,7 @@ Monatsschluss nach einem Werktag, Nachtragen nur Teamleitung/Personal, Teams aus
 | Personal | `#personal` + Mitarbeiter (+ Freigabe) | fertig verdrahtet; CSV-Auswertung da; Abrechnungs-API da; `exportiert`-Sperre offen |
 | Misch (Lead+HR usw.) | additive Nav | fertig verdrahtet |
 
-**GUI-Kern: gebaut.** Team/Personal: Übersicht-CSV + Buchungs-CSV + Buchungsprotokoll. Assistent-Parität. Mac-Client Team-Session + Mini-Timer über Session. **Abrechnungs-API** (`zpint_…`, Projektstunden + Lohn) gebaut – `exportiert`/Formate offen. Timer ohne Ticket + Tempo-Dauerbuchung; User-Datenprüfung (Überschneidungen). Fehlt: Browser-Abnahme; Add-on Server-URL; echte Systemtests.
+**GUI-Kern: gebaut.** Team/Personal: Übersicht-CSV + Buchungs-CSV + Buchungsprotokoll; Selbstfreigabe und Urlaubsablehnung mit Dialog. Assistent-Parität. Mac-Client Team-Session + Mini-Timer über Session. **Abrechnungs-API** (`zpint_…`, Projektstunden + Lohn) gebaut – `exportiert`/Formate offen. Timer ohne Ticket + Tempo-Dauerbuchung; User-Datenprüfung; Todo-Feld-Sync Plane/Jira/Tempo; Browser-Add-on mit Server-Adresse/Geräte-Token. Fehlt: Browser-Abnahme und echte Systemtests.
 
 ## Offen (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, OIDC, SMTP).

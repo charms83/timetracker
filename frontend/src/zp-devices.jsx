@@ -40,7 +40,7 @@ export function DevicesPanel() {
   const revoked = Array.isArray(list) ? list.filter(d => d.revoked_at) : [];
 
   return (
-    <Box title="Geräte-Token" sub="Für Mac-Client und Add-on (Hinweise). Abrechnungsprogramme: Administrator unter /admin › Abrechnung-API.">
+    <Box title="Geräte-Token" sub="Für Browser-Add-on (Popup: Adresse + Token) und API-Hinweise. Abrechnung: Administrator unter /admin › Abrechnung-API.">
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
         <div style={{ flex: "1 1 140px" }}><label style={lab}>Bezeichnung</label>
           <input style={inpS} value={label} onChange={e => setLabel(e.target.value)} placeholder="z. B. MacBook Dienst" /></div>

@@ -102,7 +102,10 @@ Kurzer Überblick: `Stand-und-Plan.md`. Entscheidungen: `Gesamt-Spezifikation.md
 - Meetings/Kalender am Go-Server (`meetings.go`): config/signal/calendar/now/suggestions/book – Alltag wie lokal; Frontend zeigt Vorschläge auch im Servermodus.
 - Nachtragen: `mac_from`/`mac_to`/`mac_h`/`open_h` aus Anwesenheit; gap-suggest `kind:event` aus Kalenderterminen.
 - SSH-Parität: Migration `029_ssh_sessions`, Sync vom Mac, Listen/Buchen/Tracking; gap-suggest `kind:ssh`; Plane-Pull-Alias auf Import.
-- Offen bleibt: Add-on Server-URL; Todo-Feld-Sync; echte Systemtests.
+- Todo-Feld-Sync am Go-Server (Plane `target_date`/`start_date`, Jira `duedate`, Tempo-Plan); `sync_available:true`.
+- Browser-Add-on: konfigurierbare Server-Adresse + Geräte-Token (Pairing oder Token aus Einstellungen › Erkennung).
+- Personal: Selbstfreigabe (einzige Person im Personal) mit ReasonDialog ≥10 Zeichen; Urlaub ablehnen mit ReasonDialog statt `prompt`.
+- Offen bleibt: echte Systemtests / Browser-Abnahme.
 
 ## Als Nächstes (Reihenfolge)
 1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, authentik, SMTP); gefundene Fehler beheben.
