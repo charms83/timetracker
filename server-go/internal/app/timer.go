@@ -17,13 +17,13 @@ import (
 const isoMillis = "2006-01-02T15:04:05.000Z"
 
 func (a *App) routesTimer(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/timer/status", a.auth(a.timerStatus))
+	mux.HandleFunc("GET /api/timer/status", a.authSessionOrDevice(a.timerStatus)) // Add-on/Mac-Token
 	mux.HandleFunc("POST /api/timer/start", a.auth(a.timerStart))
-	mux.HandleFunc("POST /api/timer/stop", a.auth(a.timerStop))
+	mux.HandleFunc("POST /api/timer/stop", a.authSessionOrDevice(a.timerStop))
 	mux.HandleFunc("POST /api/timer/assign", a.auth(a.timerAssign)) // Ticket/Projekt nachträglich am laufenden Timer
-	mux.HandleFunc("GET /api/pause/status", a.auth(a.pauseStatus))
-	mux.HandleFunc("POST /api/pause/start", a.auth(a.pauseStart))
-	mux.HandleFunc("POST /api/pause/stop", a.auth(a.pauseStop))
+	mux.HandleFunc("GET /api/pause/status", a.authSessionOrDevice(a.pauseStatus))
+	mux.HandleFunc("POST /api/pause/start", a.authSessionOrDevice(a.pauseStart))
+	mux.HandleFunc("POST /api/pause/stop", a.authSessionOrDevice(a.pauseStop))
 }
 
 func (a *App) inTx(ctx context.Context, fn func(tx pgx.Tx) error) error {

@@ -121,9 +121,25 @@ func (a *App) devicesRevoke(w http.ResponseWriter, r *http.Request, u User) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+// createDeviceToken legt ein Token an und gibt Klartext + Id zurück (Klartext nur einmal).
+func (a *App) createDeviceToken(ctx context.Context, uid int64, label, kind string) (raw string, id int64, err error) {
+	b := make([]byte, 32)
+	if _, err = rand.Read(b); err != nil {
+		return "", 0, err
+	}
+	raw = deviceTokenPrefix + base64.RawURLEncoding.EncodeToString(b)
+	err = a.DB.QueryRow(ctx, `INSERT INTO device_tokens(user_id,token_hash,label,kind) VALUES($1,$2,$3,$4) RETURNING id`,
+		uid, a.deviceTokenHash(raw), label, kind).Scan(&id)
+	return raw, id, err
+}
+
 // deviceUser: Benutzer aus Geräte-Token (nie Admin-Routen).
+// Header: X-ZP-Device-Token (Mac), X-ZP-Token (Browser-Add-on), oder Authorization: Bearer zpdev_…
 func (a *App) deviceUser(r *http.Request) (User, int64, bool) {
 	raw := r.Header.Get("X-ZP-Device-Token")
+	if raw == "" {
+		raw = r.Header.Get("X-ZP-Token")
+	}
 	if raw == "" {
 		if ah := r.Header.Get("Authorization"); strings.HasPrefix(ah, "Bearer ") {
 			raw = strings.TrimSpace(strings.TrimPrefix(ah, "Bearer "))
@@ -173,6 +189,29 @@ func (a *App) deviceOrSession(h func(http.ResponseWriter, *http.Request, User, i
 		a.auth(func(w http.ResponseWriter, r *http.Request, u User) {
 			h(w, r, u, 0)
 		})(w, r)
+	}
+}
+
+func hasDeviceAuthHeader(r *http.Request) bool {
+	if r.Header.Get("X-ZP-Device-Token") != "" || r.Header.Get("X-ZP-Token") != "" {
+		return true
+	}
+	ah := r.Header.Get("Authorization")
+	return strings.HasPrefix(ah, "Bearer ") && strings.Contains(ah, deviceTokenPrefix)
+}
+
+// authSessionOrDevice: Sitzung oder Geräte-/Add-on-Token. Ungültiges Token → 401 mit pair:true (Add-on entkoppelt).
+func (a *App) authSessionOrDevice(h func(http.ResponseWriter, *http.Request, User)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if hasDeviceAuthHeader(r) {
+			if u, _, ok := a.deviceUser(r); ok {
+				h(w, r, u)
+				return
+			}
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "Add-on nicht (mehr) verbunden", "pair": true})
+			return
+		}
+		a.auth(h)(w, r)
 	}
 }
 

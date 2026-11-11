@@ -104,18 +104,23 @@ func (a *App) Protect(next http.Handler) http.Handler {
 		}
 		switch r.Method {
 		case http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch:
+			o := r.Header.Get("Origin")
+			extOK := isBrowserExtensionOrigin(o) && addonCSRFExempt(r.URL.Path)
 			if r.Header.Get("Sec-Fetch-Site") == "cross-site" { // Browser meldet: Aufruf von fremder Webseite
-				writeJSON(w, http.StatusForbidden, map[string]any{"error": "Aufruf von fremder Adresse abgelehnt"})
-				return
-			}
-			if o := r.Header.Get("Origin"); o != "" {
+				if !extOK {
+					writeJSON(w, http.StatusForbidden, map[string]any{"error": "Aufruf von fremder Adresse abgelehnt"})
+					return
+				}
+			} else if o != "" {
 				if o == "null" {
 					writeJSON(w, http.StatusForbidden, map[string]any{"error": "Aufruf von fremder Adresse abgelehnt"})
 					return
 				}
 				if u, err := url.Parse(o); err != nil || u.Host != r.Host {
-					writeJSON(w, http.StatusForbidden, map[string]any{"error": "Aufruf von fremder Adresse abgelehnt"})
-					return
+					if !extOK {
+						writeJSON(w, http.StatusForbidden, map[string]any{"error": "Aufruf von fremder Adresse abgelehnt"})
+						return
+					}
 				}
 			}
 		}
@@ -185,6 +190,7 @@ func (a *App) Routes(mux *http.ServeMux) {
 	a.routesApproval(mux)
 	a.routesLeave(mux)    // Urlaubsantrag (Genehmigung Teamleitung, Vertretung Personal)
 	a.routesDevices(mux)      // Geräte-Token + Client-Hinweise (Mac/Add-on) – nicht Abrechnung
+	a.routesPairing(mux)      // Browser-Add-on: /api/pair/* + /api/ext/state
 	a.routesIntegrations(mux) // Abrechnungsprogramme: zpint_… + /api/integrations/payroll
 	a.routesNachtrag(mux)     // Nachtragen nach Monatsschluss (Teamleitung/Personal)
 	a.routesProfilePage(mux)
@@ -334,6 +340,12 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
+}
+
+// jsonDecodeSoft: Body optional (z. B. leerer POST) – Fehler werden ignoriert.
+func jsonDecodeSoft(r *http.Request, v any) error {
+	r.Body = http.MaxBytesReader(nil, r.Body, 1<<16)
+	return json.NewDecoder(r.Body).Decode(v)
 }
 
 func (a *App) fail(w http.ResponseWriter, err error) {

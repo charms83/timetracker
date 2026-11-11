@@ -44,14 +44,23 @@ Monatsschluss nach einem Werktag, Nachtragen nur Teamleitung/Personal, Teams aus
 | Personal | `#personal` + Mitarbeiter (+ Freigabe) | fertig verdrahtet; CSV-Auswertung da; Abrechnungs-API da; `exportiert`-Sperre offen |
 | Misch (Lead+HR usw.) | additive Nav | fertig verdrahtet |
 
-**GUI-Kern: gebaut.** Team/Personal: Übersicht-CSV + Buchungs-CSV + Buchungsprotokoll; Selbstfreigabe und Urlaubsablehnung mit Dialog. Assistent-Parität. Mac-Client Team-Session + Mini-Timer über Session. **Abrechnungs-API** (`zpint_…`, Projektstunden + Lohn) gebaut – `exportiert`/Formate offen. Timer ohne Ticket + Tempo-Dauerbuchung; User-Datenprüfung; Todo-Feld-Sync; Browser-Add-on Server-URL/Token; Kalender→Abwesenheits-Hinweise; Vorschläge Termin/SSH; Abwesenheiten-ICS-Abo. Fehlt: Browser-Abnahme und echte Systemtests.
+**GUI-Kern: gebaut.** Team/Personal: Übersicht-CSV + Buchungs-CSV + Buchungsprotokoll; Selbstfreigabe und Urlaubsablehnung mit Dialog. Assistent-Parität. Mac-Client Team-Session + Mini-Timer über Session. **Abrechnungs-API** (`zpint_…`, Projektstunden + Lohn) gebaut – `exportiert`/Formate offen. Timer ohne Ticket + Tempo-Dauerbuchung; User-Datenprüfung; Todo-Feld-Sync; Kalender→Abwesenheits-Hinweise; Vorschläge Termin/SSH; Abwesenheiten-ICS-Abo.
+
+## Client / Installation (Stand)
+
+| Baustein | Stand |
+|---|---|
+| **Mac-App Team** | Session-Cookie am Go-Server; Tray zeigt Server; **Tray › Team-Server-Adresse …** editierbar; Mini/API über Session |
+| **Browser-Add-on** | Server-URL im Popup; Go: `/api/pair/*`, `/api/ext/state`, `X-ZP-Token` → `device_tokens` (kind=addon); CSRF-Ausnahme nur für Add-on-Pfade; UI `#koppeln` + Einstellungen › Erkennung |
+| **Linux-Installer** | `deploy/linux/install.sh` (Erst/Upgrade/Uninstall + Health-Check). Modularer Dialog-Installer: eigener Branch/PR `cursor/modular-installer-c03b` |
+| **OpenShift / Docker** | Manifeste/Compose im Repo; Betrieb noch nicht gegen echte Cluster abgenommen |
 
 ## Offen (Reihenfolge)
-1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, OIDC, SMTP).
-2. Exchange-OAuth/Graph und mehrere Mail-Konten (später).
-3. Exporte (Lohn/Kunden; später entschieden).
-4. Client: Mac-App spricht den Server an (nur lokale Erkennung: SSH, Meetings, Anwesenheit), Härtung, später Tray/Windows.
-5. Jira Cloud / Tempo Cloud / Plane Cloud (nachrangig).
+    1. Abnahme im Browser und gegen echte Systeme (Plane, Jira/Tempo, LDAP, OIDC, SMTP) inkl. Add-on-Kopplung.
+    2. Exchange-OAuth/Graph und mehrere Mail-Konten (später).
+    3. Exporte (Lohn/Kunden; später entschieden).
+    4. Client: Windows-Tray; Mac-Härtung (Zertifikat-Pin schon optional).
+    5. Jira Cloud / Tempo Cloud / Plane Cloud (nachrangig).
 
 ## Entscheidungen (Kurzfassung, Details in der Spezifikation)
 Go + PostgreSQL; Plane per persönlichem Token; Jira Data Center + Cloud, Tempo nur als Brücke, Jira-Instanzen vom Admin; Server zuerst, Client danach; Freigabe ausschließlich Personal; Monatsschluss automatisch nach 1 Werktag, danach nachtragen nur Teamleitung/Personal; Tracken ohne Ticket erlaubt, Ticket-Vorschlag light und abschaltbar; technischer Admin sieht keine Zeiten; kein Import aus dem lokalen Tracker, Historie nur aus Tempo und Plane.

@@ -25,7 +25,7 @@ func (a *App) routesPlaneTickets(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/plane/ticket/{key}/comment", a.auth(a.planeComment))
 	mux.HandleFunc("POST /api/plane/ticket/{key}/state", a.auth(a.planeState))
 	mux.HandleFunc("POST /api/plane/ticket/{key}/task", a.auth(a.planeTicketTask))
-	mux.HandleFunc("GET /api/plane/resolve", a.auth(a.planeResolve))
+	mux.HandleFunc("GET /api/plane/resolve", a.authSessionOrDevice(a.planeResolve)) // Add-on: Ticket auf Seite erkennen
 	mux.HandleFunc("POST /api/integrations/plane/work-items", a.auth(a.planeWorkItemCreate))
 	mux.HandleFunc("GET /api/integrations/plane/local-only", a.auth(a.planeLocalOnly))
 	mux.HandleFunc("POST /api/integrations/plane/local-only/{id}/push", a.auth(a.planeLocalOnlyPush))

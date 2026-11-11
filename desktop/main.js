@@ -374,6 +374,74 @@ function trayIcon() {
   return nativeImage.createEmpty();
 }
 
+/** Tray: Team-Server-URL setzen/ändern (kleines Eingabefenster). */
+let teamUrlWin = null;
+function editTeamServerUrl() {
+  if (teamUrlWin && !teamUrlWin.isDestroyed()) { teamUrlWin.focus(); return; }
+  const cur = String(cfg.serverUrl || "");
+  teamUrlWin = new BrowserWindow({
+    width: 520, height: 250, resizable: false, minimizable: false, maximizable: false,
+    title: "Team-Server-Adresse", show: true,
+    webPreferences: { nodeIntegration: true, contextIsolation: false },
+  });
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Team-Server</title></head>
+<body style="font:13px -apple-system,system-ui,sans-serif;padding:18px;background:#f4f3ef;color:#1a1a1a;margin:0">
+  <div style="font-weight:600;font-size:15px;margin-bottom:6px">Team-Server</div>
+  <div style="color:#555;margin-bottom:12px">Adresse mit https://… – leer oder „Einzelplatz“ für den lokalen Tracker.</div>
+  <input id="u" style="width:100%;padding:9px 10px;box-sizing:border-box;border:1px solid #ccc;border-radius:6px;font:13px ui-monospace,monospace" placeholder="https://zeit.firma.example" />
+  <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+    <button id="ok" style="padding:7px 14px;border-radius:6px;border:0;background:#0F752F;color:#fff;font-weight:600;cursor:pointer">Übernehmen</button>
+    <button id="local" style="padding:7px 14px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Einzelplatz</button>
+    <button id="cancel" style="padding:7px 14px;border-radius:6px;border:1px solid #ccc;background:#fff;cursor:pointer">Abbrechen</button>
+  </div>
+  <script>
+    const { ipcRenderer } = require("electron");
+    const u = document.getElementById("u");
+    u.value = ${JSON.stringify(cur)};
+    u.focus(); u.select();
+    document.getElementById("ok").onclick = () => ipcRenderer.send("team-url-result", { mode: "team", serverUrl: u.value });
+    document.getElementById("local").onclick = () => ipcRenderer.send("team-url-result", { mode: "local", serverUrl: "" });
+    document.getElementById("cancel").onclick = () => ipcRenderer.send("team-url-result", null);
+    u.onkeydown = (e) => { if (e.key === "Enter") document.getElementById("ok").click(); if (e.key === "Escape") document.getElementById("cancel").click(); };
+  </script>
+</body></html>`;
+  teamUrlWin.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
+  const onResult = (_e, data) => {
+    ipcMain.removeListener("team-url-result", onResult);
+    if (teamUrlWin && !teamUrlWin.isDestroyed()) teamUrlWin.close();
+    teamUrlWin = null;
+    if (!data) return;
+    if (data.mode === "local") {
+      cfg.mode = "local";
+      saveCfg();
+      refreshStatus();
+      new Notification({ title: "Zeitprotokoll", body: "Wieder Einzelplatz (lokal)." }).show();
+      return;
+    }
+    const u = String(data.serverUrl || "").trim().replace(/\/+$/, "");
+    if (!u) {
+      new Notification({ title: "Zeitprotokoll", body: "Bitte eine Adresse eingeben oder Einzelplatz wählen." }).show();
+      return;
+    }
+    if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(u)) cfg.allowHttpTeam = true;
+    cfg.mode = "team";
+    if (!teamUrlOk(u)) {
+      cfg.mode = isTeamMode() ? "team" : "local";
+      new Notification({ title: "Zeitprotokoll", body: "Ungültige Adresse (https://… oder http://localhost)." }).show();
+      return;
+    }
+    cfg.serverUrl = u;
+    saveCfg();
+    refreshStatus();
+    new Notification({ title: "Zeitprotokoll", body: "Team-Server: " + u.replace(/^https?:\/\//, "") }).show();
+  };
+  ipcMain.on("team-url-result", onResult);
+  teamUrlWin.on("closed", () => {
+    ipcMain.removeListener("team-url-result", onResult);
+    teamUrlWin = null;
+  });
+}
+
 async function refreshStatus() {
   const [timer, pause] = await Promise.all([api("GET", "/timer/status"), api("GET", "/pause/status")]);
   status = { timer: timer || { active: false }, pause: pause || { active: false }, offline: !timer };
@@ -393,6 +461,7 @@ async function refreshStatus() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label, enabled: false },
     { label: teamLabel, enabled: false },
+    { label: "Team-Server-Adresse …", click: () => editTeamServerUrl() },
     { type: "separator" },
     { label: "Schnellfenster zeigen", accelerator: "CommandOrControl+Alt+Z", click: () => setExpanded(true, pendingReason) },
     { label: cfg.mainInBrowser ? "Zeitprotokoll im Browser öffnen" : "Hauptfenster öffnen", click: () => createMain() },

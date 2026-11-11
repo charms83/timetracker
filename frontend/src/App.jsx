@@ -1710,7 +1710,7 @@ export default function App() {
           {view==="report"&&<ReportViewNeu/>}
           {view==="ssh"&&<SshView/>}
           {view==="planung"&&<TodoView/>}
-          {view==="koppeln"&&(serverMode?<ClientHint title="Kopplung braucht den Mac-Client">Das Browser-Add-on wird mit dem Mac-Client gekoppelt.</ClientHint>:<PairApprove nonce={location.hash.split("/")[1]||""} onDone={()=>{ location.hash="timer"; setView("timer"); }}/>)}
+          {view==="koppeln"&&<PairApprove nonce={location.hash.split("/")[1]||""} onDone={()=>{ location.hash="timer"; setView("timer"); }}/>}
           {view==="abwesenheiten"&&<AbwesenheitenView/>}
           {view==="plane"&&<PlaneArea onOpenSettings={()=>{ location.hash="einstellungen/plane"; setView("einstellungen"); }}/>}
           {(view==="jira"||view==="tempo")&&<JiraArea key={view} initialTab={view==="tempo"?"tempo":"tickets"} onOpenSettings={()=>{ location.hash="einstellungen/jira"; setView("einstellungen"); }}/>}
@@ -2271,7 +2271,7 @@ function EinstellungenView() {
       {tab==="verbindungen" && conn!=="plane" && <JiraTempoSettings initial={conn==="tempo"?"tempo":conn==="tempocsvimport"?"csv":"jira"}/>}
       {tab==="arbeitszeit" && <ArbeitszeitSettings/>}
       {tab==="erkennung" && (sm
-        ? <><DevicesPanel/><PresenceToggle/><BrowserToggle/><MeetingSettingsTab/><div style={{height:12}}/><ClientHint title="Browser-Add-on braucht den Mac-Client">Die Browser-Erweiterung wird lokal gekoppelt. Meetings, Kalender, Anwesenheit und SSH meldet die Mac-App an den Server – Ansicht und Buchung wie im Einzelplatz.</ClientHint></>
+        ? <><DevicesPanel/><AddonSettings/><PresenceToggle/><BrowserToggle/><MeetingSettingsTab/><div style={{height:12}}/><ClientHint title="Mac-App für Erkennung">Meetings, Kalender, Anwesenheit und SSH meldet die Mac-App an den Server – Ansicht und Buchung wie im Einzelplatz. Das Browser-Add-on koppelt direkt am Team-Server (Popup › verbinden).</ClientHint></>
         : <><PresenceToggle/><AddonSettings/><BrowserToggle/><MeetingSettingsTab/></>)}
       {tab==="wartung" && !sm && wt==="audit" && <AuditTab/>}
       {tab==="wartung" && !sm && wt==="server" && <ServerView/>}

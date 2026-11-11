@@ -65,12 +65,29 @@ systemctl daemon-reload
 if grep -q 'CHANGEME' "$ENVF"; then echo "Bitte zuerst $ENVF ausfüllen (CHANGEME), dann: systemctl enable --now zeitprotokoll"; exit 0; fi
 systemctl enable zeitprotokoll >/dev/null 2>&1 || true
 systemctl start zeitprotokoll
-sleep 1
+sleep 2
 RUNVER="$("$BIN" version 2>/dev/null | head -n1 || echo "?")"
+# Kurzer Health-Check (Port aus ZP_ADDR, Standard 8080)
+ZP_PORT="$(grep -E '^ZP_ADDR=' "$ENVF" 2>/dev/null | cut -d= -f2- | tr -d '"' | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p')"
+[ -n "$ZP_PORT" ] || ZP_PORT=8080
+HEALTH_OK=0
+i=0
+while [ "$i" -lt 10 ]; do
+  if curl -fsS "http://127.0.0.1:${ZP_PORT}/healthz" >/dev/null 2>&1 || curl -fsS "http://127.0.0.1:${ZP_PORT}/api/health" >/dev/null 2>&1; then
+    HEALTH_OK=1; break
+  fi
+  i=$((i + 1)); sleep 1
+done
 if [ "$UP" = 1 ]; then
   echo "Upgrade fertig: $RUNVER"
-  echo "Prüfen:  set -a; . $ENVF; set +a; zeitprotokoll-server status"
-  echo "Logs:    journalctl -u zeitprotokoll -n 50 --no-pager"
 else
-  echo "Läuft ($RUNVER). Prüfen: zeitprotokoll-server check   (Umgebung: set -a; . $ENVF; set +a)"
+  echo "Installiert: $RUNVER"
 fi
+if [ "$HEALTH_OK" = 1 ]; then
+  echo "Health-Check OK (127.0.0.1:${ZP_PORT})."
+else
+  echo "Warnung: Health-Check noch nicht OK – Logs prüfen: journalctl -u zeitprotokoll -n 80 --no-pager" >&2
+fi
+echo "Prüfen:  set -a; . $ENVF; set +a; zeitprotokoll-server status"
+echo "Clients: Mac-Tray › Team-Server-Adresse; Browser-Add-on › Server-URL + verbinden (#koppeln)."
+echo "Logs:    journalctl -u zeitprotokoll -n 50 --no-pager"

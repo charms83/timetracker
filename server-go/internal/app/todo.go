@@ -43,7 +43,7 @@ type todoSugCached struct {
 func (a *App) routesTodo(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/todo", a.auth(a.todoBoard))
 	mux.HandleFunc("GET /api/todo/range", a.auth(a.todoRange))
-	mux.HandleFunc("POST /api/todo", a.auth(a.todoCreate))
+	mux.HandleFunc("POST /api/todo", a.authSessionOrDevice(a.todoCreate)) // Add-on: To-do anlegen
 	mux.HandleFunc("PUT /api/todo/{id}", a.auth(a.todoUpdate))
 	mux.HandleFunc("DELETE /api/todo/{id}", a.auth(a.todoDelete))
 	mux.HandleFunc("POST /api/todo/{id}/start", a.auth(a.todoStart))

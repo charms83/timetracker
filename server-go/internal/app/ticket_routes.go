@@ -18,7 +18,7 @@ import (
 
 func (a *App) routesTicket(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/ticket/ensure", a.auth(a.ticketEnsure))
-	mux.HandleFunc("POST /api/ticket/start", a.auth(a.ticketStart))
+	mux.HandleFunc("POST /api/ticket/start", a.authSessionOrDevice(a.ticketStart)) // Add-on: Tracken
 }
 
 type ticketTask struct {
