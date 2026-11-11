@@ -1845,7 +1845,7 @@ function VorschlaegeView({ projects, onChanged }) {
       {chip("termine","Termine & Meetings")}
       {chip("ssh","SSH-Sitzungen")}
     </div>
-    {tab==="nachtragen" && <div className="zp-card" style={{padding:"14px 16px"}}><GapFiller onChanged={onChanged}/></div>}
+    {tab==="nachtragen" && <div className="zp-card" style={{padding:"14px 16px"}}><GapFiller onChanged={onChanged} initialDate={/^\d{4}-\d{2}-\d{2}$/.test(location.hash.split("/")[2] || "") ? location.hash.split("/")[2] : null}/></div>}
     {tab==="termine" && <MeetingSuggestions projects={projects} onChanged={onChanged} days={14} emptyText={sm ? "Keine offenen Termine oder Meetings. Optional: Mac-App mit Kalender-Freigabe – Nachtragen geht trotzdem unter „Nachtragen“." : "Keine offenen Termine oder Meetings der letzten 14 Tage."}/>}
     {tab==="ssh" && <SshView/>}
   </div>);
@@ -3280,38 +3280,58 @@ function AboUrl({ url }) {
   </span>;
 }
 
-/* Abwesenheiten-ICS: lokal ohne Token; Team-Server mit Geräte-Token (Kalender kann kein Cookie) */
+/* Abwesenheiten-ICS: lokal ohne Token; Team-Server mit Geräte-Token (Kalender kann kein Cookie).
+   Bestehendes calendar-Token wiederverwenden – Klartext nur nach Neuausstellung sichtbar. */
 function AbsenceIcsPanel() {
   const sm = isServerMode();
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [calDev, setCalDev] = useState(null); // aktives calendar-Gerät (ohne Klartext)
   useEffect(() => {
-    if (!sm) setUrl(`http://127.0.0.1:${location.port || 3747}/api/calendar/abwesenheiten.ics`);
+    if (!sm) { setUrl(`http://127.0.0.1:${location.port || 3747}/api/calendar/abwesenheiten.ics`); return; }
+    call("GET", "/devices").then(r => {
+      const list = Array.isArray(r) ? r : [];
+      const d = list.find(x => x.kind === "calendar" && x.active !== false && !x.revoked_at) || null;
+      setCalDev(d || null);
+    });
   }, [sm]);
-  const make = async () => {
+  const mint = async (revokeId) => {
     if (busy) return;
     setBusy(true); setMsg(null);
+    if (revokeId) {
+      const del = await call("DELETE", `/devices/${revokeId}`);
+      if (del?.error) { setBusy(false); setMsg({ err: true, text: del.error }); return; }
+    }
     const r = await call("POST", "/devices", { label: "Kalender-Abo", kind: "calendar" });
     setBusy(false);
     if (r?.error) { setMsg({ err: true, text: r.error }); return; }
+    setCalDev({ id: r.id, kind: "calendar", label: r.label || "Kalender-Abo", active: true });
     setUrl(`${location.origin}/api/calendar/abwesenheiten.ics?token=${encodeURIComponent(r.token)}`);
     setMsg({ text: "Adresse erzeugt – jetzt kopieren und im Kalender abonnieren (Token nur einmal sichtbar)." });
+  };
+  const make = () => mint(null);
+  const renew = () => {
+    if (!confirm("Neue Abo-Adresse erzeugen? Die alte funktioniert danach nicht mehr – im Kalender neu abonnieren.")) return;
+    mint(calDev?.id);
   };
   return (
     <div style={{background:"var(--bg2)",border:"1px solid var(--border)",borderRadius:6,padding:"12px 18px",marginBottom:12,display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
       <CalendarDays size={18} style={{color:"var(--accent)"}}/>
       <div style={{flex:"1 1 260px",fontSize:13}}>
-        <b>Im Mac-Kalender anzeigen</b>
+        <b>Im Kalender anzeigen</b>
         <div style={{fontSize:12,color:"var(--text2)"}}>
           Einmal abonnieren – danach erscheinen neue und geänderte Abwesenheiten automatisch (Kalender „Zeitprotokoll Abwesenheiten“, stündlich aktualisiert).
           <br/>So geht’s: Adresse kopieren → im Kalender <b>Ablage › Neues Kalenderabonnement …</b> → einfügen
-          {sm ? " → bei Nachfrage anmelden/Token ist schon in der Adresse." : <> → bei „Ort“ <b>Auf meinem Mac</b> wählen (nicht iCloud – iCloud kommt an deinen Rechner nicht heran).</>}
+          {sm ? " → Token steckt schon in der Adresse." : <> → bei „Ort“ <b>Auf meinem Mac</b> wählen (nicht iCloud).</>}
         </div>
       </div>
-      {sm && !url && <button onClick={make} disabled={busy} style={{padding:"7px 14px",borderRadius:7,fontWeight:600,border:"none",background:"var(--accent-fill, var(--accent))",color:"#fff",cursor:"pointer"}}>{busy ? "…" : "Abo-Adresse erzeugen"}</button>}
+      {sm && calDev && !url && (
+        <div style={{fontSize:12.5,color:"var(--accent)",fontWeight:600}}>Abo aktiv{calDev.last_used ? ` · zuletzt genutzt` : ""} – Adresse liegt im Kalender (Klartext nur bei Neuausstellung).</div>
+      )}
+      {sm && !url && !calDev && <button onClick={make} disabled={busy} style={{padding:"7px 14px",borderRadius:7,fontWeight:600,border:"none",background:"var(--accent-fill, var(--accent))",color:"#fff",cursor:"pointer"}}>{busy ? "…" : "Abo-Adresse erzeugen"}</button>}
       {url && <AboUrl url={url}/>}
-      {sm && url && <button onClick={make} disabled={busy} style={{padding:"6px 10px",borderRadius:7,fontSize:12,border:"1px solid var(--border)",background:"transparent",color:"var(--text2)",cursor:"pointer"}}>Neue Adresse</button>}
+      {sm && (url || calDev) && <button onClick={renew} disabled={busy} style={{padding:"6px 10px",borderRadius:7,fontSize:12,border:"1px solid var(--border)",background:"transparent",color:"var(--text2)",cursor:"pointer"}}>Neue Adresse</button>}
       <a href="/api/calendar/abwesenheiten.ics?download=1" style={{fontSize:12}}>.ics herunterladen</a>
       {msg && <div style={{flex:"1 1 100%",fontSize:12,color:msg.err?"var(--stop)":"var(--accent)"}}>{msg.err?"✗ ":"✓ "}{msg.text}</div>}
     </div>

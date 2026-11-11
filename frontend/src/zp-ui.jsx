@@ -510,7 +510,7 @@ export function MissingBanner() {
           {d.days.slice(0, 3).map(x => `${DOW[x.dow]} ${x.date.slice(8, 10)}.${x.date.slice(5, 7)}.: ${x.empty ? "leer" : "noch " + fmt(x.missing_h) + " h"}`).join(" · ")}{d.days.length > 3 ? ` · +${d.days.length - 3} weitere` : ""}
         </div></>}
       </div>
-      <button style={btn(true)} onClick={() => { location.hash = "assistent/nachtragen/" + first; }} title="Der Assistent zeigt je Tag die Zeit am Mac und schlägt Tickets vor">Mit dem Assistenten nachtragen</button>
+      <button style={btn(true)} onClick={() => { location.hash = "vorschlaege/nachtragen/" + first; }} title="Fehlende Zeiten eintragen">Nachtragen</button>
       <a href={"#woche/" + first} style={{ fontSize: 12, color: "var(--text2)" }}>Wochenraster</a>
       <button style={btn(false)} onClick={() => { store.set("missingHidden", localDate(new Date())); setHidden(true); }}>Heute nicht mehr</button>
     </div>
@@ -598,7 +598,23 @@ export function QuickStart({ projects, onChanged, timer }) {
   }, []);
   useEffect(() => { loadRecent(); }, [loadRecent]);
   const [now, setNow] = useState(null);
-  useEffect(() => { const l = () => api("GET", "/suggest-now").then(r => r && !r.error && setNow(r)); l(); const t = setInterval(l, 5 * 60e3); return () => clearInterval(t); }, []);
+  const [dismissedNow, setDismissedNow] = useState(() => {
+    try { return new Set(JSON.parse(sessionStorage.getItem("zp-suggest-dismiss") || "[]")); } catch (_) { return new Set(); }
+  });
+  useEffect(() => {
+    const l = () => api("GET", "/suggest-now").then(r => {
+      if (!r || r.error) return;
+      if (r.suggest === false) { setNow(null); return; }
+      setNow(r);
+    });
+    l(); const t = setInterval(l, 5 * 60e3); return () => clearInterval(t);
+  }, []);
+  const dismissChip = key => {
+    const next = new Set(dismissedNow); next.add(key);
+    setDismissedNow(next);
+    try { sessionStorage.setItem("zp-suggest-dismiss", JSON.stringify([...next])); } catch (_) {}
+  };
+  const nowItems = (now?.items || []).filter(e => !dismissedNow.has(e.key || ("t" + e.task_id)));
 
   const onTicket = v => {
     setTicket(v); setPicked(null); setHint("");
@@ -675,14 +691,21 @@ export function QuickStart({ projects, onChanged, timer }) {
         <button className="zp-btn-start" disabled={busy} onClick={() => go()}>{btnLabel}</button>
       </div>
       {hint && <div style={{ color: "#8a6400", fontSize: 11, marginTop: 6 }}>{hint}</div>}
-      {!running && now?.items?.length > 0 && !ticket && (
+      {!running && nowItems.length > 0 && !ticket && (
         <div className="zp-chips" style={{ marginBottom: 2 }}>
-          <span style={{ fontSize: 11, color: "var(--text2)", alignSelf: "center" }}>✨ Jetzt vermutlich{now.context ? ` (${now.context})` : ""}:</span>
-          {now.items.map(e => (
-            <button key={"n" + e.project_id + "-" + e.task_id} className="zp-chip" style={{ "--c": projColor(e.project_id), fontWeight: 600 }} title={"Warum: " + e.why.join(" · ")}
-              onClick={() => { api("POST", "/gap-suggest/learn", { key: e.key, task_id: e.task_id, project_id: e.project_id }); start({ project_id: e.project_id, task_id: e.task_id, comment: comment || e.comment || "", ticket: "" }); }}>
-              <i />{e.label}
-            </button>))}
+          <span style={{ fontSize: 11, color: "var(--text2)", alignSelf: "center" }}>Jetzt vermutlich{now.context ? ` (${now.context})` : ""}:</span>
+          {nowItems.map(e => {
+            const k = e.key || ("t" + e.task_id);
+            return (
+            <span key={"n" + e.project_id + "-" + e.task_id} style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+              <button className="zp-chip" style={{ "--c": projColor(e.project_id), fontWeight: 600 }} title={"Warum: " + (e.why || []).join(" · ")}
+                onClick={() => { api("POST", "/gap-suggest/learn", { key: e.key, task_id: e.task_id, project_id: e.project_id }); start({ project_id: e.project_id, task_id: e.task_id, comment: comment || e.comment || "", ticket: "" }); }}>
+                <i />{e.label}
+              </button>
+              <button type="button" title="Vorschlag ausblenden" onClick={() => dismissChip(k)}
+                style={{ border: "none", background: "transparent", color: "var(--text3)", cursor: "pointer", padding: "0 4px", fontSize: 14, lineHeight: 1 }}>×</button>
+            </span>);
+          })}
         </div>)}
       {!running && recent.length > 0 && (
         <div className="zp-chips">

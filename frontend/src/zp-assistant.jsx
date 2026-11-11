@@ -108,6 +108,8 @@ const TASK_UI = {
   overlaps: { body: p => <OverlapCard {...p} days={31} emptyText="Keine Überschneidungen mehr offen." /> },
   tempo_errors: { body: () => <button style={btn(true)} onClick={() => go("uebertragen")}><ExternalLink size={13} /> Zu Übertragen › Nach Tempo</button> },
   tempo_noticket: { body: () => <button style={btn(true)} onClick={() => go("uebertragen")}><ExternalLink size={13} /> Ticket zuordnen (Übertragen › Nach Tempo)</button> },
+  "setup:plane": { body: () => <div><Para>Plane-API-Schlüssel je Workspace (Adresse legt die Administration fest).</Para><PlaneWorkspacesPanel/></div> },
+  "setup:jira": { body: () => <div><Para>Persönlichen Jira-/Tempo-Zugang hinterlegen.</Para><JiraInstancesPanel mode="tokens"/></div> },
   selfcheck: { body: () => isServerMode()
     ? <div style={{ fontSize: 12.5, color: "var(--text2)" }}>Selbstprüfung liegt unter <a href="/admin">Administration</a> (nur technischer Admin).</div>
     : <SelfCheckCard /> },
@@ -149,7 +151,9 @@ export function AssistantView() {
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
         <Compass size={22} style={{ color: "var(--accent)" }} />
         <div style={{ flex: 1 }}><h1 className="zp-display" style={{ margin: 0, fontSize: 22 }}>Nachtragen</h1>
-          <div style={{ color: "var(--text2)", fontSize: 12 }}>Der Assistent zeigt je Tag, was am Mac lief und was noch fehlt – und schlägt passende Tickets vor.</div></div>
+          <div style={{ color: "var(--text2)", fontSize: 12 }}>{isServerMode()
+            ? "Je Tag: was fehlt und welche Tickets passen – im Browser eintragen (Mac-App optional für Termine/SSH)."
+            : "Der Assistent zeigt je Tag, was am Mac lief und was noch fehlt – und schlägt passende Tickets vor."}</div></div>
         <a href="#assistent" style={{ fontSize: 12, color: "var(--accent)", fontWeight: 600 }}>Alle Aufgaben ›</a>
       </div>
       <GapFiller initialDate={/^\d{4}-\d{2}-\d{2}$/.test(sub[2] || "") ? sub[2] : null} />
@@ -476,12 +480,21 @@ function StepTempo({ f, reload }) {
 
 /* ── 7 Kalender & Meetings ── */
 function StepMeetings({ reload }) {
+  const sm = isServerMode();
   const [v, setV] = useState(null); const [st, setSt] = useState(null);
   const load = () => { api("GET", "/meetings/config").then(r => r && !r.error && setV(r)); api("GET", "/meetings/status").then(r => r && !r.error && setSt(r)); };
   useEffect(load, []);
   if (!v) return null;
   const set = async (k, x) => { await call("PUT", "/settings", { [k]: x ? "1" : "0" }); load(); reload(); };
   const age = st?.signal_age_s;
+  if (sm) return (<>
+    <Para>Im Browser trackst du Tickets mit dem <b>Add-on</b>. Meetings, Kalender und Anwesenheit liefert optional die <b>Mac-App</b> – ohne sie funktioniert Buchen und Übertragen vollständig.</Para>
+    <ClientHint title="Mac-App optional">Einstellungen › Erkennung: Add-on koppeln. Meetings/Kalender nur, wenn die Mac-App läuft.</ClientHint>
+    <button style={{ ...btn(true), marginTop: 10 }} onClick={() => go("einstellungen/erkennung")}><ExternalLink size={13} /> Zu Erkennung / Add-on</button>
+    {st && <div style={{ fontSize: 12, color: "var(--text2)", marginTop: 8 }}>
+      Mac-App: {age == null ? "noch nie gemeldet" : age < 180 ? "✓ verbunden" : `zuletzt vor ${Math.round(age / 60)} min`}
+    </div>}
+  </>);
   return (<>
     <Para>Erkennt laufende Meetings am <b>Programmstart</b> (Teams, Zoom, Webex, Slack, Jitsi) und an der Browser-Adresse. Dann fragt es „Timer starten?“. <b>Kein Mikrofon, keine Kamera, kein Bildschirminhalt.</b> Termine aus dem macOS-Kalender werden im Kalender angezeigt und im Tracker vorbelegt.</Para>
     <Toggle on={v.detect} onChange={x => set("meeting_detect", x)} label="Meeting-Programme erkennen" />
@@ -498,7 +511,14 @@ function StepMeetings({ reload }) {
 
 /* ── 8 SSH ── */
 function StepSsh({ f, reload }) {
+  const sm = isServerMode();
   const set = async x => { await call("PUT", "/settings", { ssh_watch_enabled: x ? "1" : "0" }); await call("POST", "/ssh-tracking", { enabled: !!x }); reload(); };
+  if (sm) return (<>
+    <Para>SSH-Sitzungen meldet die Mac-App. Im Browser kannst du Zeiten trotzdem unter Vorschläge › Nachtragen eintragen.</Para>
+    <ClientHint title="Optional">Nur nötig, wenn du Terminal-Sitzungen automatisch als Vorschlag willst.</ClientHint>
+    <Toggle on={f.ssh.enabled} onChange={set} label="SSH-Vorschläge anzeigen (wenn Mac liefert)" />
+    <button style={{ ...btn(false), marginTop: 8 }} onClick={() => go("vorschlaege/nachtragen")}><ExternalLink size={13} /> Nachtragen öffnen</button>
+  </>);
   return (<>
     <Para>Zeichnet SSH-Sitzungen aus dem Terminal auf. Mehrere kurze Sitzungen („nur mal nachgeschaut“) lassen sich unter SSH zu einer Buchung je Tag zusammenführen.</Para>
     <Toggle on={f.ssh.enabled} onChange={set} label="SSH-Sitzungen erfassen" />
